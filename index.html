@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yes4All &middot; Sales Performance Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  /* Yes4All Brand Guidelines */
+  --navy:#002859;        /* Pantone 648C - Prussian Blue */
+  --navy-2:#0B3E7A;
+  --orange:#FF7000;      /* Pantone 1505C - Blaze Orange */
+  --orange-dark:#E06400;
+  --grey:#E4E5E6;        /* Pantone 179-2C - Iron Grey */
+  --white:#FFFFFF;
+  --ink:#1B2733; --muted:#66707C; --line:#E4E5E6;
+  --bg:#F6F7F8; --card:#FFFFFF;
+  /* functional status accents (not brand colors, used only for KPI/gauge signal) */
+  --green:#1E8E5A; --green-bg:#E7F5EE;
+  --red:#D64545; --red-bg:#FBEAEA;
+  --amber:#B8860B; --amber-bg:#FBF3DF;
+  --shadow:0 2px 10px rgba(0,40,89,.07);
+  --shadow-lg:0 10px 30px rgba(0,40,89,.14);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Poppins",Arial,sans-serif;font-size:13px;line-height:1.5}
+header{background:linear-gradient(120deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;padding:18px 26px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:var(--shadow-lg)}
+.brand{display:flex;align-items:center;gap:12px}
+.brand .mark{width:44px;height:44px;border-radius:11px;background:var(--orange);display:grid;place-items:center;font-weight:900;font-size:15px;color:#fff;letter-spacing:.5px;box-shadow:0 4px 12px rgba(255,112,0,.45)}
+.brand h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.2px}
+.brand .sub{font-size:11px;color:#B9C6D6;margin-top:2px}
+.meta{display:flex;gap:16px;align-items:center;font-size:11px;color:#B9C6D6;flex-wrap:wrap}
+.meta b{color:#fff}
+.pill{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:5px 12px;font-weight:700;color:#fff;font-size:11px}
+
+nav.tabs{display:flex;gap:6px;padding:12px 26px 0;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:50}
+nav.tabs button{border:none;background:transparent;padding:11px 18px;font-weight:700;font-size:12.5px;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0;border-bottom:3px solid transparent;transition:.15s;font-family:inherit}
+nav.tabs button:hover{color:var(--orange-dark);background:#FFF3EA}
+nav.tabs button.active{color:var(--orange-dark);border-bottom:3px solid var(--orange)}
+
+main{padding:20px 26px 60px}
+.view{display:none}
+.view.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+.filterbar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px;box-shadow:var(--shadow)}
+.filterbar .fld{display:flex;flex-direction:column;gap:4px}
+.filterbar label{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.filterbar select, .filterbar input[type=text]{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;min-width:150px;background:#fff;color:var(--ink);font-family:inherit}
+.filterbar select:focus, .filterbar input:focus{outline:2px solid var(--orange);outline-offset:1px}
+.btn{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:8px 14px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
+.btn:hover{background:#FFF3EA;border-color:var(--orange)}
+.btn.primary{background:var(--orange);border-color:var(--orange);color:#fff}
+.btn.primary:hover{background:var(--orange-dark)}
+.btn.small{padding:5px 10px;font-size:11px}
+.result-count{margin-left:auto;font-size:11.5px;color:var(--muted);font-weight:700;align-self:center}
+
+.section-title{font-size:12.5px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px}
+.section-title:first-child{margin-top:0}
+
+.moc-strip{display:flex;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:16px;box-shadow:var(--shadow);align-items:center}
+.moc-strip .lbl{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-right:4px}
+.moc-chip{display:flex;align-items:center;gap:7px;border-radius:20px;padding:6px 13px;font-weight:700;font-size:12px}
+.moc-chip .n{font-size:15px;font-weight:900}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--grey)}
+.kpi.target::before{background:var(--navy)}
+.kpi .lbl{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.kpi .val{font-size:21px;font-weight:900;color:var(--navy);margin-top:4px}
+.kpi .sub{font-size:11px;color:var(--muted);margin-top:4px}
+
+.gkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.gkpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px 6px;box-shadow:var(--shadow);text-align:center;position:relative;overflow:hidden}
+.hdr-mustgain{text-align:right}
+.hdr-mustgain .hmg-lbl{display:block;font-size:10px;font-weight:800;letter-spacing:.5px;color:#B9C6D6}
+.hdr-mustgain .hmg-val{display:block;font-size:28px;font-weight:900;color:var(--orange);line-height:1.15}
+.hdr-mustgain .hmg-sub{display:block;font-size:10.5px;font-weight:600;color:#B9C6D6;margin-top:1px}
+.hdr-mustgain .hmg-sub b{color:#fff}
+.gauge-caption{font-size:10px;color:var(--muted);margin-top:2px}
+.gauge-caption .dash{display:inline-block;width:12px;border-top:2px dashed var(--navy);vertical-align:middle;margin-right:3px}
+.gkpi .lbl{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
+.gkpi .gaugewrap{position:relative;height:110px}
+.gkpi .figures{font-size:11px;color:var(--muted);margin-top:-6px}
+.gkpi .figures b{color:var(--navy)}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10.5px;font-weight:800}
+.badge.green{background:var(--green-bg);color:var(--green)}
+.badge.red{background:var(--red-bg);color:var(--red)}
+.badge.amber{background:var(--amber-bg);color:var(--amber)}
+.badge.gray{background:#EEF1F5;color:var(--muted)}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
+.card h3{margin:0 0 3px;font-size:13.5px;color:var(--navy);font-weight:800}
+.card .hint{font-size:11px;color:var(--muted);margin-bottom:10px}
+.chart-wrap{position:relative;height:250px}
+.chart-wrap.tall{height:320px}
+
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{position:sticky;top:0;background:var(--navy);color:#fff;text-align:left;padding:9px 10px;font-weight:700;font-size:10.6px;text-transform:uppercase;letter-spacing:.3px;cursor:pointer;white-space:nowrap}
+thead th:hover{background:var(--navy-2)}
+tbody td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+tbody tr:hover{background:#FFF3EA}
+.tablewrap{max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.progress-cell{display:flex;align-items:center;gap:6px;min-width:90px}
+.progress-track{flex:1;height:6px;background:#EEF1F5;border-radius:4px;overflow:hidden;min-width:50px}
+.progress-fill{height:100%;border-radius:4px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.name-cell{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;background:#EEF1F5;color:var(--muted)}
+
+/* Diary / Projects */
+.diary-layout{display:grid;grid-template-columns:280px 1fr;gap:16px}
+.group-list{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;box-shadow:var(--shadow);max-height:680px;overflow:auto}
+.group-item{padding:10px 12px;border-radius:9px;cursor:pointer;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:12.5px;color:var(--ink)}
+.group-item:hover{background:#FFF3EA}
+.group-item.active{background:var(--orange);color:#fff}
+.group-item .cnt{font-size:10.5px;font-weight:800;background:rgba(0,0,0,.08);padding:1px 7px;border-radius:10px}
+.group-item.active .cnt{background:rgba(255,255,255,.25)}
+
+.entry-form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
+.entry-form .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.entry-form label{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px}
+.entry-form input, .entry-form select, .entry-form textarea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;font-family:inherit;width:100%}
+.entry-form textarea{resize:vertical;min-height:56px}
+.code-legend{font-size:11px;color:var(--muted);margin-bottom:14px;background:var(--grey);border-radius:9px;padding:9px 13px}
+.code-legend b{color:var(--navy)}
+.entry-list{display:flex;flex-direction:column;gap:10px}
+.entry{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--orange);border-radius:10px;padding:11px 14px;box-shadow:var(--shadow)}
+.entry .hd{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;flex-wrap:wrap}
+.entry .txt{font-size:12.8px;color:var(--ink);white-space:pre-wrap;margin-bottom:8px}
+.code-badge{font-size:10px;font-weight:900;padding:2px 8px;border-radius:6px;color:#fff}
+.code-INV{background:var(--navy)} .code-LIS{background:#2563EB} .code-PRC{background:#7C3AED}
+.code-MKT{background:var(--orange)} .code-Others{background:var(--muted)}
+.status-tag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px}
+.status-open{background:#EEF1F5;color:var(--muted)} .status-done{background:var(--green-bg);color:var(--green)}
+.status-issue{background:var(--red-bg);color:var(--red)} .status-cancel{background:var(--amber-bg);color:var(--amber)}
+.followup{font-size:11.5px;color:var(--muted);border-left:2px solid var(--line);padding-left:8px;margin:4px 0}
+.entry-actions{display:flex;gap:8px;align-items:center;border-top:1px dashed var(--line);padding-top:8px;margin-top:4px;flex-wrap:wrap}
+.entry-actions select{border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:11.5px;font-family:inherit}
+.entry-actions input{border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:11.5px;flex:1;min-width:140px;font-family:inherit}
+.empty{color:var(--muted);font-size:12px;padding:22px;text-align:center;background:var(--card);border:1px dashed var(--line);border-radius:10px}
+.notice{background:var(--amber-bg);color:#6B5300;border:1px solid #E9D8A6;border-radius:9px;padding:9px 13px;font-size:11.5px;font-weight:600;margin-bottom:14px;display:flex;gap:8px;align-items:center}
+
+.proj-table td, .proj-table th{white-space:normal;vertical-align:top}
+.proj-table td.cell-log{max-width:360px;font-size:11.5px}
+.proj-table td.cell-log div{margin-bottom:5px;padding-bottom:5px;border-bottom:1px dashed var(--line)}
+.proj-table td.cell-log div:last-child{border-bottom:none}
+.proj-name{font-weight:800;color:var(--navy);width:170px}
+
+@media (max-width:980px){.grid2,.kpis,.gkpis{grid-template-columns:1fr 1fr}.diary-layout{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">Y4A</div>
+    <div>
+      <h1>Sales Performance Dashboard</h1>
+      <div class="sub">Amazon US &middot; SSO &middot; Vendor + Seller Central</div>
+    </div>
+  </div>
+  <div class="meta">
+    <span class="pill" id="hdrAsOf">As of --</span>
+    <div class="hdr-mustgain">
+      <span class="hmg-lbl">Today must gain (GMV)</span>
+      <span class="hmg-val" id="hdrMustGain">$--</span>
+      <span class="hmg-sub" id="hdrMktStatus"></span>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="sales">Sales Performance</button>
+  <button class="tab-btn" data-tab="diary">Product Diary</button>
+  <button class="tab-btn" data-tab="projects">Projects</button>
+</nav>
+
+<main>
+
+<!-- ======================= TAB 1: SALES PERFORMANCE ======================= -->
+<section id="view-sales" class="view active">
+
+  <div class="filterbar">
+    <div class="fld"><label>Month</label><select id="fMonth"></select></div>
+    <div class="fld"><label>PIC</label><select id="fPic"><option value="">All</option></select></div>
+    <div class="fld"><label>Main PL</label><select id="fMainPL"><option value="">All</option></select></div>
+    <div class="fld"><label>Sub PL</label><select id="fSubPL"><option value="">All</option></select></div>
+    <div class="fld"><label>Channel</label><select id="fChannel"><option value="">All</option></select></div>
+    <div class="fld"><label>Portfolio</label><select id="fPortfolio"><option value="">All</option></select></div>
+    <div class="fld"><label>Search SKU / Name</label><input type="text" id="fSearch" placeholder="e.g. DAT7, dumbbell..."></div>
+    <button class="btn" id="btnReset">Reset filters</button>
+    <span class="result-count" id="resultCount"></span>
+  </div>
+
+  <div class="moc-strip" id="mocStrip"></div>
+
+  <div class="section-title">Target &mdash; Aug-26 (full month)</div>
+  <div class="kpis" id="kpiTargetRow"></div>
+
+  <div class="section-title">Actual &mdash; Month-to-date (with run-rate projection)</div>
+  <div class="gkpis" id="kpiActualRow"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>PIC Progress &mdash; GMV</h3>
+      <div class="hint">Target GMV vs Actual GMV (MTD) by PIC</div>
+      <div class="chart-wrap"><canvas id="chartPicGMV"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>PIC Progress &mdash; Marketing Fee</h3>
+      <div class="hint">Target Ads+Promo $ vs Actual $ (MTD) by PIC</div>
+      <div class="chart-wrap"><canvas id="chartPicMKT"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Product Line Progress &mdash; GMV</h3>
+      <div class="hint">Target GMV vs Actual GMV (MTD) by Main PL</div>
+      <div class="chart-wrap tall"><canvas id="chartPLGMV"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Product Line Progress &mdash; Marketing Fee</h3>
+      <div class="hint">Target Ads+Promo $ vs Actual $ (MTD) by Main PL</div>
+      <div class="chart-wrap tall"><canvas id="chartPLMKT"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Daily GMV &amp; Marketing Fee</h3>
+    <div class="hint">Columns = GMV per day &middot; Line = total Marketing fee (Ads + Promo) per day</div>
+    <div class="chart-wrap tall"><canvas id="chartDaily"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <h3 style="margin:0">SKU Breakdown</h3>
+      <button class="btn small" id="btnExportSku" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
+    </div>
+    <div class="hint">Click a column header to sort. Table reflects the filters above. Inv = salable inventory units.</div>
+    <div class="tablewrap">
+      <table id="skuTable">
+        <thead><tr>
+          <th data-k="pic">PIC</th>
+          <th data-k="mainPL">Main PL</th>
+          <th data-k="subPL">Sub PL</th>
+          <th data-k="sku">SKU</th>
+          <th data-k="productName">Product Name</th>
+          <th data-k="channel">Channel</th>
+          <th data-k="portfolio">Portfolio</th>
+          <th data-k="mocBand">MOC Band</th>
+          <th data-k="salableY4A" class="num">Inv Y4A</th>
+          <th data-k="salableAMZ" class="num">Inv AMZ</th>
+          <th data-k="targetGMV" class="num">Target GMV</th>
+          <th data-k="actualGMV" class="num">Actual GMV</th>
+          <th data-k="gmvRunratePct">GMV Run-rate</th>
+          <th data-k="mktTarget" class="num">Target MKT $</th>
+          <th data-k="mktActual" class="num">Actual MKT $</th>
+          <th data-k="mktRunratePct">MKT Run-rate</th>
+          <th data-k="targetUnits" class="num">Target Units</th>
+          <th data-k="actualUnits" class="num">Actual Units</th>
+        </tr></thead>
+        <tbody id="skuTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= TAB 2: PRODUCT DIARY ======================= -->
+<section id="view-diary" class="view">
+  <div class="notice" id="diaryNotice">&#128190; Connected to Supabase &mdash; action plans are saved permanently and shared across sessions/devices.</div>
+  <div class="diary-layout">
+    <div class="group-list" id="diaryGroupList"></div>
+    <div>
+      <div class="entry-form">
+        <div class="row">
+          <div class="fld" style="flex:1"><label>Product group</label><input type="text" id="diaryGroupLabel" disabled></div>
+          <div class="fld" style="width:120px"><label>Code</label>
+            <select id="diaryCode">
+              <option value="INV">INV</option>
+              <option value="LIS">LIS</option>
+              <option value="PRC">PRC</option>
+              <option value="MKT">MKT</option>
+              <option value="Others">Others</option>
+            </select>
+          </div>
+          <div class="fld" style="width:170px"><label>PIC</label><select id="diaryPic"></select></div>
+          <div class="fld" style="width:150px"><label>Date</label><input type="date" id="diaryDate"></div>
+        </div>
+        <div class="row">
+          <div class="fld" style="flex:1"><label>Action plan / Note</label><textarea id="diaryNote" placeholder="e.g. Increase ads budget +15% this week to push MOC >6, review again Friday..."></textarea></div>
+        </div>
+        <button class="btn primary" id="btnAddDiary">+ Add action</button>
+      </div>
+      <div class="code-legend"><b>Code legend:</b> INV = Inventory &middot; LIS = Listing &middot; PRC = Price &middot; MKT = Ads &amp; Promotion &middot; Others = miscellaneous. PIC defaults to the main owner of the selected product group but can be changed.</div>
+      <div class="entry-list" id="diaryEntries"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= TAB 3: PROJECTS ======================= -->
+<section id="view-projects" class="view">
+  <div class="notice" id="projNotice">&#128190; Connected to Supabase &mdash; the full project update history is saved permanently and shared across sessions/devices.</div>
+  <div class="entry-form">
+    <div class="row">
+      <div class="fld" style="flex:1"><label>Project (select existing or type a new name)</label>
+        <input type="text" id="projName" list="projList" placeholder="e.g. Q3 New PO Batch">
+        <datalist id="projList"></datalist>
+      </div>
+      <div class="fld" style="width:150px"><label>Type</label>
+        <select id="projType"><option value="progress">Progress</option><option value="issues">Issues</option></select>
+      </div>
+      <div class="fld" style="width:150px"><label>Date</label><input type="date" id="projDate"></div>
+    </div>
+    <div class="row">
+      <div class="fld" style="flex:1"><label>Note</label><textarea id="projNote" placeholder="e.g. Submitted new PO for Dumbbells group, awaiting Amazon confirmation..."></textarea></div>
+    </div>
+    <button class="btn primary" id="btnAddProj">+ Add update</button>
+  </div>
+  <div class="card">
+    <h3>Project Log</h3>
+    <div class="hint">Each entry is timestamped MM/DD/YYYY, newest on top within each cell.</div>
+    <div class="tablewrap">
+      <table class="proj-table">
+        <thead><tr><th class="proj-name">Project</th><th>Progress</th><th>Issues</th></tr></thead>
+        <tbody id="projTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// =====================================================================
+// SUPABASE CONFIG — fill these in from your project (Settings -> API),
+// then reload this file in the browser. The anon key is meant to be
+// public (protected by Row Level Security) — never put the service_role
+// key here or in GitHub.
+// =====================================================================
+const SUPABASE_URL = 'https://zlksfonvnxqxdumwlysf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpsa3Nmb252bnhxeGR1bXdseXNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODYxOTUsImV4cCI6MjEwMTU2MjE5NX0.3cYQh3YudltZwyeawJPH7Oj8v-Qt48Eqnu2vWARIiio';
+
+function showFatalBanner(msg){
+  document.body.innerHTML = `<div style="max-width:640px;margin:80px auto;padding:28px;font-family:Poppins,Arial,sans-serif;background:#fff;border:1px solid #E4E5E6;border-radius:14px;box-shadow:0 10px 30px rgba(0,40,89,.14)">
+    <h2 style="color:#002859;margin-top:0">Dashboard not connected</h2>
+    <p style="color:#66707C;font-size:13px;line-height:1.7">${msg}</p>
+  </div>`;
+}
+
+if(SUPABASE_URL.startsWith('YOUR_') || SUPABASE_ANON_KEY.startsWith('YOUR_')){
+  showFatalBanner('Open this file in a text editor and set <b>SUPABASE_URL</b> and <b>SUPABASE_ANON_KEY</b> near the top of the &lt;script&gt; section (found in your Supabase project under Settings &rarr; API), then reload this page.');
+  throw new Error('Supabase not configured');
+}
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let DATA = { asOfDate: null, daysElapsed: 0, daysInMonth: 30 };
+let ROWS = [];
+let PICS = [];
+
+function monthLabel(iso){
+  const [y,m] = iso.split('-');
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return names[+m-1] + '-' + y.slice(2);
+}
+function daysInMonthOf(iso){
+  const [y,m] = iso.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+function addMonthsIso(iso, n){
+  const [y,m] = iso.split('-').map(Number);
+  const d = new Date(y, m-1+n, 1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';
+}
+
+async function fetchMonths(){
+  const {data, error} = await sb.from('targets_monthly').select('month').order('month', {ascending:true});
+  if(error) throw error;
+  return [...new Set((data||[]).map(r=>r.month))];
+}
+
+// Loads skus + targets_monthly (for monthIso) + sales_daily (within that
+// calendar month) and builds the same ROWS/DATA shape the rest of the
+// dashboard already expects.
+async function loadMonth(monthIso){
+  const nextMonth = addMonthsIso(monthIso, 1);
+
+  const [{data: skus, error: e1}, {data: targets, error: e2}, {data: sales, error: e3}] = await Promise.all([
+    sb.from('skus').select('*'),
+    sb.from('targets_monthly').select('*').eq('month', monthIso),
+    sb.from('sales_daily').select('*').gte('date', monthIso).lt('date', nextMonth),
+  ]);
+  if(e1) throw e1; if(e2) throw e2; if(e3) throw e3;
+
+  const targetBySku = {}; (targets||[]).forEach(t=>{ targetBySku[t.sku] = t; });
+  const salesBySku = {};
+  (sales||[]).forEach(s=>{
+    const arr = (salesBySku[s.sku] = salesBySku[s.sku] || []);
+    arr.push(s);
+  });
+
+  let maxDate = null;
+  (sales||[]).forEach(s=>{ if(!maxDate || s.date > maxDate) maxDate = s.date; });
+  const asOfDate = maxDate || monthIso;
+  const daysElapsed = +asOfDate.slice(8,10);
+  const daysInMonth = daysInMonthOf(monthIso);
+
+  const rows = (skus||[]).map(sk=>{
+    const t = targetBySku[sk.sku] || {};
+    const dailyRows = (salesBySku[sk.sku] || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
+    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2)}));
+
+    const actualUnits = +daily.reduce((s,d)=>s+d.units,0).toFixed(2);
+    const actualGMV = +daily.reduce((s,d)=>s+d.gmv,0).toFixed(2);
+    const adsActual = +daily.reduce((s,d)=>s+d.ads,0).toFixed(2);
+    const promoActual = +daily.reduce((s,d)=>s+d.promo,0).toFixed(2);
+    const mktActual = +(adsActual+promoActual).toFixed(2);
+
+    const targetUnits = t.target_units || 0;
+    const targetGMV = t.target_gmv || 0;
+    const adsTarget = t.ads_target || 0;
+    const promoTarget = t.promo_target || 0;
+    const mktTarget = +(adsTarget+promoTarget).toFixed(2);
+
+    const gmvRunrateProj = daysElapsed ? actualGMV/daysElapsed*daysInMonth : 0;
+    const gmvRunratePct = targetGMV ? +(gmvRunrateProj/targetGMV*100).toFixed(1) : 0;
+    const mktRunrateProj = daysElapsed ? mktActual/daysElapsed*daysInMonth : 0;
+    const mktRunratePct = mktTarget ? +(mktRunrateProj/mktTarget*100).toFixed(1) : 0;
+
+    return {
+      sku: sk.sku, pic: sk.pic || 'Unassigned', productName: sk.product_name,
+      mainPL: sk.main_pl || 'Unclassified', subPL: sk.sub_pl || 'Unclassified',
+      lifecycle: sk.lifecycle, sellingType: sk.selling_type, asinStatus: sk.asin_status,
+      salableY4A: sk.salable_y4a || 0, salableAMZ: sk.salable_amz || 0,
+      channel: sk.channel || 'N/A', portfolio: sk.portfolio || 'N/A', priority: sk.priority || 'N/A',
+      moc: sk.moc || 0, mocBand: sk.moc_band || 'N/A', rrp: sk.rrp || 0,
+      inTargetFile: !!targetBySku[sk.sku], inSalesData: daily.length > 0,
+      targetUnits, actualUnits, gmvRunrateProj, gmvRunratePct,
+      targetGMV, actualGMV, adsTarget, promoTarget, mktTarget,
+      adsActual, promoActual, mktActual, mktRunrateProj, mktRunratePct,
+      daily,
+    };
+  });
+
+  DATA = { asOfDate, daysElapsed, daysInMonth };
+  ROWS = rows;
+  PICS = [...new Set(ROWS.map(r=>r.pic))].sort();
+}
+
+function renderHeaderAsOf(){
+  document.getElementById('hdrAsOf').textContent = 'As of ' + DATA.asOfDate + ' (day ' + DATA.daysElapsed + '/' + DATA.daysInMonth + ' of month)';
+}
+
+const fmtInt = n => Math.round(n).toLocaleString('en-US');
+const fmtMoney = n => '$' + (n<0?'-':'') + Math.abs(Math.round(n)).toLocaleString('en-US');
+const fmtMoney2 = n => '$' + (n<0?'-':'') + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const COLOR = {orange:'#FF7000', navy:'#002859', grey:'#E4E5E6', green:'#1E8E5A', red:'#D64545', amber:'#B8860B', line:'#E4E5E6'};
+
+// ---------------- center-text plugin for gauges ----------------
+const centerTextPlugin = {
+  id: 'centerText',
+  afterDraw(chart){
+    const opts = chart.config.options.plugins && chart.config.options.plugins.centerText;
+    if(!opts || !opts.text) return;
+    const {ctx, chartArea} = chart;
+    const cx = chartArea.left + chartArea.width/2;
+    const cy = chartArea.top + chartArea.height/2 + (opts.offsetY||14);
+    ctx.save();
+    ctx.font = '800 20px Poppins, sans-serif';
+    ctx.fillStyle = opts.color || COLOR.navy;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(opts.text, cx, cy);
+    if(opts.sub){
+      ctx.font = '700 10px Poppins, sans-serif';
+      ctx.fillStyle = opts.subColor || '#66707C';
+      ctx.fillText(opts.sub, cx, cy + 16);
+    }
+    ctx.restore();
+  }
+};
+Chart.register(centerTextPlugin);
+
+// ---------------- radial run-rate forecast marker for gauges ----------------
+const gaugeMarkerPlugin = {
+  id: 'gaugeMarker',
+  afterDraw(chart){
+    const opts = chart.config.options.plugins && chart.config.options.plugins.gaugeMarker;
+    if(!opts || opts.pct===undefined) return;
+    const meta = chart.getDatasetMeta(0);
+    const arc = meta.data && meta.data[0];
+    if(!arc) return;
+    const clamped = Math.max(0, Math.min(100, opts.pct));
+    const theta = Math.PI + (clamped/100)*Math.PI; // 0%=left(9 o'clock) -> 100%=right(3 o'clock), dome over top
+    const cx = arc.x, cy = arc.y;
+    const rOuter = arc.outerRadius + 3, rInner = arc.innerRadius - 3;
+    const x1 = cx + rInner*Math.cos(theta), y1 = cy + rInner*Math.sin(theta);
+    const x2 = cx + rOuter*Math.cos(theta), y2 = cy + rOuter*Math.sin(theta);
+    const {ctx} = chart;
+    ctx.save();
+    ctx.strokeStyle = opts.color || COLOR.navy;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([3,2]);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+  }
+};
+Chart.register(gaugeMarkerPlugin);
+
+// ---------------- header ----------------
+document.getElementById('hdrAsOf').textContent = 'As of ' + DATA.asOfDate + ' (day ' + DATA.daysElapsed + '/' + DATA.daysInMonth + ' of month)';
+
+// ---------------- tabs ----------------
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.onclick = () => {
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-'+btn.dataset.tab).classList.add('active');
+  };
+});
+
+// ================= SALES PERFORMANCE =================
+function uniq(key){ return [...new Set(ROWS.map(r=>r[key]).filter(Boolean))].sort(); }
+function uniqFrom(rows, key){ return [...new Set(rows.map(r=>r[key]).filter(Boolean))].sort(); }
+function fillSelect(id, values){
+  const sel = document.getElementById(id);
+  values.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+}
+function fillSelectPreserve(id, values, preserveVal){
+  const sel = document.getElementById(id);
+  sel.innerHTML = '<option value="">All</option>';
+  fillSelect(id, values);
+  sel.value = (preserveVal && values.includes(preserveVal)) ? preserveVal : '';
+}
+// PIC narrows which Main PL show up; Main PL (and PIC) narrow which Sub PL show up.
+// Re-run whenever PIC/Main PL changes, or the underlying ROWS change (month switch/reset).
+function updateDependentSelects(){
+  const picVal = document.getElementById('fPic').value;
+  const mplSel = document.getElementById('fMainPL');
+  const splSel = document.getElementById('fSubPL');
+  const prevMpl = mplSel.value, prevSpl = splSel.value;
+
+  const rowsForMpl = picVal ? ROWS.filter(r=>r.pic===picVal) : ROWS;
+  fillSelectPreserve('fMainPL', uniqFrom(rowsForMpl, 'mainPL'), prevMpl);
+
+  const mplVal = mplSel.value;
+  const rowsForSpl = mplVal ? rowsForMpl.filter(r=>r.mainPL===mplVal) : rowsForMpl;
+  fillSelectPreserve('fSubPL', uniqFrom(rowsForSpl, 'subPL'), prevSpl);
+}
+function refreshFilterSelects(){
+  ['fPic','fChannel','fPortfolio'].forEach(id=>{ document.getElementById(id).innerHTML = '<option value="">All</option>'; });
+  fillSelect('fPic', uniq('pic'));
+  fillSelect('fChannel', uniq('channel'));
+  fillSelect('fPortfolio', uniq('portfolio'));
+  updateDependentSelects();
+}
+let sortKey = 'targetGMV', sortDir = -1;
+let charts = {};
+
+function zoneColor(pct, lowerIsBetter){
+  if(lowerIsBetter){
+    if(pct<=100) return COLOR.green;
+    if(pct<=115) return COLOR.amber;
+    return COLOR.red;
+  }
+  if(pct>=95) return COLOR.green;
+  if(pct>=70) return COLOR.amber;
+  return COLOR.red;
+}
+function paceInfo(pct){
+  if(pct>=95) return {label:'Ahead', cls:'green'};
+  if(pct>=70) return {label:'On track', cls:'amber'};
+  return {label:'Behind', cls:'red'};
+}
+
+function getFiltered(){
+  const pic = document.getElementById('fPic').value;
+  const mpl = document.getElementById('fMainPL').value;
+  const spl = document.getElementById('fSubPL').value;
+  const ch = document.getElementById('fChannel').value;
+  const pf = document.getElementById('fPortfolio').value;
+  const q = document.getElementById('fSearch').value.trim().toLowerCase();
+  return ROWS.filter(r =>
+    (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!spl || r.subPL===spl) &&
+    (!ch || r.channel===ch) && (!pf || r.portfolio===pf) &&
+    (!q || r.sku.toLowerCase().includes(q) || (r.productName||'').toLowerCase().includes(q))
+  );
+}
+
+function aggregate(rows, key){
+  const groups = {};
+  rows.forEach(r=>{
+    const k = r[key] || 'Unclassified';
+    if(!groups[k]) groups[k] = {name:k, targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0, skuCount:0};
+    const g = groups[k];
+    g.skuCount++; g.targetGMV+=r.targetGMV; g.actualGMV+=r.actualGMV;
+    g.mktTarget+=r.mktTarget; g.mktActual+=r.mktActual; g.targetUnits+=r.targetUnits; g.actualUnits+=r.actualUnits;
+  });
+  return Object.values(groups).sort((a,b)=>b.targetGMV-a.targetGMV);
+}
+
+function runrateProj(actual){ return DATA.daysElapsed ? actual/DATA.daysElapsed*DATA.daysInMonth : 0; }
+function runratePct(actual, target){ const p = runrateProj(actual); return target ? p/target*100 : 0; }
+
+function renderMocStrip(rows){
+  const order = [
+    {band:'OOS', color:COLOR.red, bg:'#FBEAEA'},
+    {band:'MOC ≤3', color:COLOR.amber, bg:'#FBF3DF'},
+    {band:'MOC 3–6', color:COLOR.navy, bg:'#E9EEF5'},
+    {band:'MOC >6', color:COLOR.green, bg:'#E7F5EE'},
+    {band:'N/A', color:'#66707C', bg:'#EEF1F5'},
+  ];
+  const counts = {};
+  rows.forEach(r=>{ counts[r.mocBand] = (counts[r.mocBand]||0)+1; });
+  document.getElementById('mocStrip').innerHTML = '<span class="lbl">Inventory health (MOC band, SKU count)</span>' +
+    order.map(o=>`<span class="moc-chip" style="background:${o.bg};color:${o.color}"><span class="n">${counts[o.band]||0}</span> ${o.band}</span>`).join('');
+}
+
+function renderKPIs(rows){
+  const t = { targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0 };
+  rows.forEach(r=>{ t.targetGMV+=r.targetGMV; t.actualGMV+=r.actualGMV; t.mktTarget+=r.mktTarget; t.mktActual+=r.mktActual; t.targetUnits+=r.targetUnits; t.actualUnits+=r.actualUnits; });
+  const mktGmvTargetPct = t.targetGMV ? t.mktTarget/t.targetGMV*100 : 0;
+  const mktGmvActualPct = t.actualGMV ? t.mktActual/t.actualGMV*100 : 0;
+  const mktGmvIndex = mktGmvTargetPct ? mktGmvActualPct/mktGmvTargetPct*100 : 0;
+
+  document.getElementById('kpiTargetRow').innerHTML = `
+    <div class="kpi target"><div class="lbl">GMV Target</div><div class="val">${fmtMoney(t.targetGMV)}</div><div class="sub">Full-month Aug-26</div></div>
+    <div class="kpi target"><div class="lbl">Marketing Budget Target</div><div class="val">${fmtMoney(t.mktTarget)}</div><div class="sub">Ads + Promo, full month</div></div>
+    <div class="kpi target"><div class="lbl">% MKT / GMV Target</div><div class="val">${mktGmvTargetPct.toFixed(1)}%</div><div class="sub">Planned marketing efficiency</div></div>
+    <div class="kpi target"><div class="lbl">Target Sales Units</div><div class="val">${fmtInt(t.targetUnits)}</div><div class="sub">Full-month Aug-26</div></div>
+  `;
+
+  const gmvRR = runratePct(t.actualGMV, t.targetGMV);
+  const mktRR = runratePct(t.mktActual, t.mktTarget);
+  const unitsRR = runratePct(t.actualUnits, t.targetUnits);
+  const mktIdxClamped = Math.max(0, Math.min(200, mktGmvIndex));
+
+  const daysInMonth = DATA.daysInMonth;
+  const gmvLiteral = t.targetGMV ? t.actualGMV/t.targetGMV*100 : 0;
+  const mktLiteral = t.mktTarget ? t.mktActual/t.mktTarget*100 : 0;
+  const unitsLiteral = t.targetUnits ? t.actualUnits/t.targetUnits*100 : 0;
+  const gmvMustToday = daysInMonth ? t.targetGMV/daysInMonth : 0;
+
+  const mktProjected = runrateProj(t.mktActual);
+  const mktDiff = t.mktTarget - mktProjected;
+  document.getElementById('hdrMustGain').textContent = fmtMoney(gmvMustToday);
+  const mktStatusEl = document.getElementById('hdrMktStatus');
+  if(t.mktTarget){
+    mktStatusEl.innerHTML = mktDiff >= 0
+      ? `Marketing budget: <b>${fmtMoney(mktDiff)}</b> under (forecast)`
+      : `Marketing budget: <b>${fmtMoney(Math.abs(mktDiff))}</b> over (forecast)`;
+  } else { mktStatusEl.textContent = ''; }
+
+  document.getElementById('kpiActualRow').innerHTML = `
+    <div class="gkpi">
+      <div class="lbl">GMV Actual</div><div class="gaugewrap"><canvas id="gGMV"></canvas></div>
+      <div class="figures">Actual <b>${fmtMoney(t.actualGMV)}</b> / Target ${fmtMoney(t.targetGMV)}</div>
+      <div class="gauge-caption"><span class="dash"></span>forecast run-rate ${gmvRR.toFixed(0)}%</div>
+    </div>
+    <div class="gkpi">
+      <div class="lbl">Marketing $ Actual</div><div class="gaugewrap"><canvas id="gMKT"></canvas></div>
+      <div class="figures">Actual <b>${fmtMoney(t.mktActual)}</b> / Target ${fmtMoney(t.mktTarget)}</div>
+      <div class="gauge-caption"><span class="dash"></span>forecast run-rate ${mktRR.toFixed(0)}%</div>
+    </div>
+    <div class="gkpi">
+      <div class="lbl">% MKT/GMV Actual (Index)</div><div class="gaugewrap"><canvas id="gIDX"></canvas></div>
+      <div class="figures">Actual <b>${mktGmvActualPct.toFixed(1)}%</b> vs Target ${mktGmvTargetPct.toFixed(1)}%</div>
+      <div class="gauge-caption">&lt;100% = more efficient than planned</div>
+    </div>
+    <div class="gkpi">
+      <div class="lbl">Sales Units Actual</div><div class="gaugewrap"><canvas id="gUNIT"></canvas></div>
+      <div class="figures">Actual <b>${fmtInt(t.actualUnits)}</b> / Target ${fmtInt(t.targetUnits)}</div>
+      <div class="gauge-caption"><span class="dash"></span>forecast run-rate ${unitsRR.toFixed(0)}%</div>
+    </div>
+  `;
+
+  if(charts.gGMV) charts.gGMV.destroy();
+  if(charts.gMKT) charts.gMKT.destroy();
+  if(charts.gIDX) charts.gIDX.destroy();
+  if(charts.gUNIT) charts.gUNIT.destroy();
+  charts.gGMV = makeGauge('gGMV', gmvLiteral, gmvRR, false);
+  charts.gMKT = makeGauge('gMKT', mktLiteral, mktRR, false);
+  charts.gIDX = makeGauge('gIDX', mktIdxClamped, null, true, mktGmvIndex, 'index');
+  charts.gUNIT = makeGauge('gUNIT', unitsLiteral, unitsRR, false);
+}
+
+function makeGauge(canvasId, literalPct, markerPct, lowerIsBetter, displayValOverride, subText){
+  const clamped = Math.max(0, Math.min(100, literalPct));
+  const expectedPct = DATA.daysInMonth ? (DATA.daysElapsed/DATA.daysInMonth*100) : 100;
+  const paceRatio = expectedPct ? (literalPct/expectedPct*100) : literalPct;
+  const color = zoneColor(lowerIsBetter ? literalPct : paceRatio, lowerIsBetter);
+  const shown = (displayValOverride!==undefined ? displayValOverride : literalPct);
+  const hasMarker = (markerPct!==null && markerPct!==undefined);
+  return new Chart(document.getElementById(canvasId), {
+    type:'doughnut',
+    data:{ datasets:[{ data:[clamped, 100-clamped], backgroundColor:[color, '#EEF1F5'], borderWidth:0 }] },
+    options:{
+      circumference:180, rotation:270, cutout:'72%', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{enabled:false},
+        centerText:{ text: shown.toFixed(1)+'%', sub: subText || 'of target', color: color },
+        gaugeMarker: hasMarker ? { pct: markerPct, color: COLOR.navy } : undefined }
+    }
+  });
+}
+
+function barChart(ctx, labels, target, actual){
+  return new Chart(ctx, {
+    type:'bar',
+    data:{ labels, datasets:[
+      {label:'Target', data:target, backgroundColor: COLOR.grey, borderRadius:4, barThickness:12},
+      {label:'Actual MTD', data:actual, backgroundColor: COLOR.orange, borderRadius:4, barThickness:12},
+    ]},
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:10, font:{size:10.5, family:'Poppins'}}} },
+      scales:{ x:{ grid:{color:COLOR.line} }, y:{ grid:{display:false} } }
+    }
+  });
+}
+
+function renderCharts(rows){
+  ['pic1','pic2','pl1','pl2','daily'].forEach(k=>{ if(charts[k]) charts[k].destroy(); });
+
+  const byPic = aggregate(rows,'pic');
+  charts.pic1 = barChart(document.getElementById('chartPicGMV'), byPic.map(g=>g.name), byPic.map(g=>+g.targetGMV.toFixed(2)), byPic.map(g=>+g.actualGMV.toFixed(2)));
+  charts.pic2 = barChart(document.getElementById('chartPicMKT'), byPic.map(g=>g.name), byPic.map(g=>+g.mktTarget.toFixed(2)), byPic.map(g=>+g.mktActual.toFixed(2)));
+
+  const byMain = aggregate(rows,'mainPL').slice(0,14);
+  charts.pl1 = barChart(document.getElementById('chartPLGMV'), byMain.map(g=>g.name), byMain.map(g=>+g.targetGMV.toFixed(2)), byMain.map(g=>+g.actualGMV.toFixed(2)));
+  charts.pl2 = barChart(document.getElementById('chartPLMKT'), byMain.map(g=>g.name), byMain.map(g=>+g.mktTarget.toFixed(2)), byMain.map(g=>+g.mktActual.toFixed(2)));
+
+  const dailyMap = {};
+  rows.forEach(r=> (r.daily||[]).forEach(pt=>{
+    if(!dailyMap[pt.date]) dailyMap[pt.date] = {date:pt.date, gmv:0, mkt:0};
+    dailyMap[pt.date].gmv += pt.gmv; dailyMap[pt.date].mkt += pt.mkt;
+  }));
+  const dailyArr = Object.values(dailyMap).sort((a,b)=>a.date.localeCompare(b.date));
+  const dailyPctMktGmv = dailyArr.map(d=> d.gmv ? +(d.mkt/d.gmv*100).toFixed(2) : 0);
+  charts.daily = new Chart(document.getElementById('chartDaily'), {
+    data:{ labels: dailyArr.map(d=>d.date), datasets:[
+      {type:'bar', label:'GMV', data: dailyArr.map(d=>+d.gmv.toFixed(2)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:3},
+      {type:'line', label:'Marketing fee $', data: dailyArr.map(d=>+d.mkt.toFixed(2)), borderColor:COLOR.orange, backgroundColor:COLOR.orange, yAxisID:'y1', tension:.3, pointRadius:4, pointBackgroundColor:COLOR.orange, order:1},
+      {type:'line', label:'% MKT/GMV', data: dailyPctMktGmv, borderColor:COLOR.navy, backgroundColor:COLOR.navy, borderDash:[5,3], yAxisID:'y2', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:0},
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:10,font:{size:10.5,family:'Poppins'}}} },
+      scales:{
+        y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'GMV $',font:{size:10}} },
+        y1:{ position:'right', grid:{display:false}, title:{display:true,text:'Marketing fee $',font:{size:10}} },
+        y2:{ position:'right', grid:{display:false}, title:{display:true,text:'% MKT/GMV',font:{size:10}}, ticks:{callback:v=>v+'%'} },
+      }
+    }
+  });
+}
+
+let lastSortedRows = [];
+function renderTable(rows){
+  const sorted = [...rows].sort((a,b)=>{
+    const va=a[sortKey], vb=b[sortKey];
+    if(typeof va === 'string') return sortDir*va.localeCompare(vb);
+    return sortDir*((va||0)-(vb||0));
+  });
+  lastSortedRows = sorted;
+  document.getElementById('skuTbody').innerHTML = sorted.map(r=>{
+    const gmvPace = paceInfo(r.gmvRunratePct);
+    const mktPace = paceInfo(r.mktRunratePct);
+    const flag = (!r.inTargetFile) ? '<span class="tag" style="background:#FBEAEA;color:#D64545">No target</span>' : (!r.inSalesData ? '<span class="tag" style="background:#FBF3DF;color:#B8860B">No sales data</span>' : '');
+    return `<tr>
+      <td>${r.pic}</td><td>${r.mainPL}</td><td>${r.subPL}</td>
+      <td><b>${r.sku}</b> ${flag}</td>
+      <td class="name-cell" title="${(r.productName||'').replace(/"/g,'&quot;')}">${r.productName||''}</td>
+      <td>${r.channel}</td><td>${r.portfolio}</td><td>${r.mocBand}</td>
+      <td class="num">${fmtInt(r.salableY4A)}</td>
+      <td class="num">${fmtInt(r.salableAMZ)}</td>
+      <td class="num">${fmtMoney(r.targetGMV)}</td>
+      <td class="num">${fmtMoney2(r.actualGMV)}</td>
+      <td><div class="progress-cell"><span class="badge ${gmvPace.cls}">${r.gmvRunratePct.toFixed(0)}%</span></div></td>
+      <td class="num">${fmtMoney(r.mktTarget)}</td>
+      <td class="num">${fmtMoney2(r.mktActual)}</td>
+      <td><div class="progress-cell"><span class="badge ${mktPace.cls}">${r.mktRunratePct.toFixed(0)}%</span></div></td>
+      <td class="num">${fmtInt(r.targetUnits)}</td>
+      <td class="num">${fmtInt(r.actualUnits)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="18" style="text-align:center;padding:24px;color:#66707C">No SKU matches the current filters</td></tr>';
+}
+
+document.querySelectorAll('#skuTable thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const k = th.dataset.k;
+    if(sortKey===k) sortDir *= -1; else { sortKey=k; sortDir=-1; }
+    renderAll();
+  });
+});
+
+function renderAll(){
+  const rows = getFiltered();
+  document.getElementById('resultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
+  renderMocStrip(rows);
+  renderKPIs(rows);
+  renderCharts(rows);
+  renderTable(rows);
+}
+
+// Export exactly what's on screen (current filters + sort) to a .xlsx file
+function exportSkuTable(){
+  if(!lastSortedRows.length){ alert('No rows to export — adjust your filters first.'); return; }
+  const data = lastSortedRows.map(r=>({
+    'PIC': r.pic, 'Main PL': r.mainPL, 'Sub PL': r.subPL, 'SKU': r.sku, 'Product Name': r.productName||'',
+    'Channel': r.channel, 'Portfolio': r.portfolio, 'MOC Band': r.mocBand,
+    'Inv Y4A': r.salableY4A, 'Inv AMZ': r.salableAMZ,
+    'Target GMV': r.targetGMV, 'Actual GMV': r.actualGMV, 'GMV Run-rate %': +r.gmvRunratePct.toFixed(1),
+    'Target MKT $': r.mktTarget, 'Actual MKT $': r.mktActual, 'MKT Run-rate %': +r.mktRunratePct.toFixed(1),
+    'Target Units': r.targetUnits, 'Actual Units': r.actualUnits,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = Object.keys(data[0]).map(k => ({ wch: Math.max(k.length, 12) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'SKU Breakdown');
+  const month = document.getElementById('fMonth').value || '';
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Yes4All_SKU_Breakdown_${month}_${stamp}.xlsx`);
+}
+
+// ================= PRODUCT DIARY (live — Supabase diary_entries/diary_followups) =================
+function todayISO(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+let diaryGroups = [];
+let diaryEntries = {};
+let activeGroup = null;
+
+function defaultPicFor(group){
+  const counts = {};
+  ROWS.filter(r=>r.mainPL===group).forEach(r=>{ counts[r.pic] = (counts[r.pic]||0)+1; });
+  let best=null, bestN=-1;
+  Object.entries(counts).forEach(([p,n])=>{ if(n>bestN){best=p;bestN=n;} });
+  return best || PICS[0];
+}
+
+async function loadDiary(){
+  const [{data: entries, error: e1}, {data: followups, error: e2}] = await Promise.all([
+    sb.from('diary_entries').select('*').order('created_at', {ascending:true}),
+    sb.from('diary_followups').select('*').order('created_at', {ascending:true}),
+  ]);
+  if(e1) throw e1; if(e2) throw e2;
+  const byEntry = {};
+  (followups||[]).forEach(f=>{ (byEntry[f.entry_id] = byEntry[f.entry_id]||[]).push({date:f.followup_date, text:f.text}); });
+  diaryEntries = {};
+  (entries||[]).forEach(e=>{
+    const shaped = {id:e.id, date:e.entry_date, pic:e.pic, code:e.code, note:e.note, status:e.status, followups: byEntry[e.id]||[]};
+    (diaryEntries[e.main_pl] = diaryEntries[e.main_pl]||[]).push(shaped);
+  });
+}
+
+function renderDiaryGroupList(){
+  document.getElementById('diaryGroupList').innerHTML = diaryGroups.map(g=>{
+    const cnt = ROWS.filter(r=>r.mainPL===g).length;
+    return `<div class="group-item ${g===activeGroup?'active':''}" data-g="${g.replace(/"/g,'&quot;')}"><span>${g}</span><span class="cnt">${cnt} SKU</span></div>`;
+  }).join('');
+  document.querySelectorAll('.group-item').forEach(el=>el.addEventListener('click', ()=>{
+    activeGroup = el.dataset.g;
+    document.getElementById('diaryPic').value = defaultPicFor(activeGroup);
+    renderDiaryGroupList(); renderDiaryEntries();
+  }));
+}
+
+function renderDiaryEntries(){
+  document.getElementById('diaryGroupLabel').value = activeGroup;
+  const list = diaryEntries[activeGroup] || [];
+  const box = document.getElementById('diaryEntries');
+  box.innerHTML = list.length ? list.slice().reverse().map(e=>`
+    <div class="entry" data-id="${e.id}">
+      <div class="hd">
+        <span class="code-badge code-${e.code}">${e.code}</span>
+        <span>${e.date} &middot; ${e.pic}</span>
+        <span class="status-tag status-${e.status.toLowerCase()}">${e.status}</span>
+      </div>
+      <div class="txt">${escapeHtml(e.note)}</div>
+      ${e.followups.map(fu=>`<div class="followup">${fu.date}: ${escapeHtml(fu.text)}</div>`).join('')}
+      <div class="entry-actions">
+        <select class="statusSel">
+          <option ${e.status==='Open'?'selected':''}>Open</option>
+          <option ${e.status==='Done'?'selected':''}>Done</option>
+          <option ${e.status==='Issue'?'selected':''}>Issue</option>
+          <option ${e.status==='Cancel'?'selected':''}>Cancel</option>
+        </select>
+        <input type="text" class="noteInput" placeholder="Add a note (optional)">
+        <button class="btn small saveBtn">Save</button>
+      </div>
+    </div>
+  `).join('') : '<div class="empty">No action plan yet for this group. Add the first entry using the form above.</div>';
+
+  box.querySelectorAll('.entry').forEach(el=>{
+    const id = el.dataset.id;
+    el.querySelector('.saveBtn').addEventListener('click', async ()=>{
+      const btn = el.querySelector('.saveBtn');
+      const newStatus = el.querySelector('.statusSel').value;
+      const noteVal = el.querySelector('.noteInput').value.trim();
+      btn.disabled = true; btn.textContent = 'Saving...';
+      try{
+        const {error: eu} = await sb.from('diary_entries').update({status:newStatus}).eq('id', id);
+        if(eu) throw eu;
+        if(noteVal){
+          const {error: ei} = await sb.from('diary_followups').insert({entry_id:id, followup_date: todayISO(), text: noteVal});
+          if(ei) throw ei;
+        }
+        await loadDiary();
+        renderDiaryEntries();
+      }catch(err){
+        alert('Could not save: ' + err.message);
+        btn.disabled = false; btn.textContent = 'Save';
+      }
+    });
+  });
+}
+
+document.getElementById('btnAddDiary').addEventListener('click', async ()=>{
+  const note = document.getElementById('diaryNote').value.trim();
+  if(!note){ alert('Enter an action plan note before saving.'); return; }
+  const date = document.getElementById('diaryDate').value || todayISO();
+  const pic = document.getElementById('diaryPic').value || PICS[0];
+  const code = document.getElementById('diaryCode').value;
+  const btn = document.getElementById('btnAddDiary');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try{
+    const {error} = await sb.from('diary_entries').insert({main_pl: activeGroup, code, pic, note, entry_date: date, status:'Open'});
+    if(error) throw error;
+    document.getElementById('diaryNote').value='';
+    await loadDiary();
+    renderDiaryEntries();
+  }catch(err){
+    alert('Could not save: ' + err.message);
+  }
+  btn.disabled = false; btn.textContent = '+ Add action';
+});
+
+// ================= PROJECTS (live — Supabase projects/project_log) =================
+let projects = []; // {id, name, progress:[{date,text}], issues:[{date,text}]}
+
+function mmddyyyy(dateStr){
+  if(!dateStr) return todayISO();
+  const [y,m,d] = dateStr.split('-');
+  return `${m}/${d}/${y}`;
+}
+
+async function loadProjects(){
+  const [{data: projs, error: e1}, {data: logs, error: e2}] = await Promise.all([
+    sb.from('projects').select('*').order('created_at', {ascending:true}),
+    sb.from('project_log').select('*').order('created_at', {ascending:true}),
+  ]);
+  if(e1) throw e1; if(e2) throw e2;
+  const byProj = {};
+  (logs||[]).forEach(l=>{
+    const arr = (byProj[l.project_id] = byProj[l.project_id] || {progress:[], issues:[]});
+    (l.log_type==='progress'?arr.progress:arr.issues).push({date: mmddyyyy(l.log_date), text:l.text});
+  });
+  projects = (projs||[]).map(p=>({id:p.id, name:p.name, progress:(byProj[p.id]||{}).progress||[], issues:(byProj[p.id]||{}).issues||[]}));
+}
+
+async function findOrCreateProjectId(name){
+  let p = projects.find(x=>x.name.toLowerCase()===name.toLowerCase());
+  if(p) return p.id;
+  const {data, error} = await sb.from('projects').insert({name}).select().single();
+  if(error){
+    await loadProjects();
+    const again = projects.find(x=>x.name.toLowerCase()===name.toLowerCase());
+    if(again) return again.id;
+    throw error;
+  }
+  return data.id;
+}
+
+function renderProjectDatalist(){
+  document.getElementById('projList').innerHTML = projects.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
+}
+function renderProjects(){
+  const tbody = document.getElementById('projTbody');
+  tbody.innerHTML = projects.length ? projects.map(p=>`
+    <tr>
+      <td class="proj-name">${escapeHtml(p.name)}</td>
+      <td class="cell-log">${p.progress.length ? p.progress.slice().reverse().map(e=>`<div>${e.date}: ${escapeHtml(e.text)}</div>`).join('') : '<span style="color:#66707C">&mdash;</span>'}</td>
+      <td class="cell-log">${p.issues.length ? p.issues.slice().reverse().map(e=>`<div>${e.date}: ${escapeHtml(e.text)}</div>`).join('') : '<span style="color:#66707C">&mdash;</span>'}</td>
+    </tr>
+  `).join('') : '<tr><td colspan="3" style="text-align:center;padding:22px;color:#66707C">No projects yet. Add the first update using the form above.</td></tr>';
+}
+document.getElementById('btnAddProj').addEventListener('click', async ()=>{
+  const name = document.getElementById('projName').value.trim();
+  const note = document.getElementById('projNote').value.trim();
+  if(!name){ alert('Enter or select a project name.'); return; }
+  if(!note){ alert('Enter a note before saving.'); return; }
+  const type = document.getElementById('projType').value;
+  const dateIso = document.getElementById('projDate').value || todayISO();
+  const btn = document.getElementById('btnAddProj');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try{
+    const pid = await findOrCreateProjectId(name);
+    const {error} = await sb.from('project_log').insert({project_id: pid, log_type: type, log_date: dateIso, text: note});
+    if(error) throw error;
+    document.getElementById('projNote').value='';
+    await loadProjects();
+    renderProjectDatalist(); renderProjects();
+  }catch(err){
+    alert('Could not save: ' + err.message);
+  }
+  btn.disabled = false; btn.textContent = '+ Add update';
+});
+
+// ================= BOOT =================
+async function boot(){
+  try{
+    const months = await fetchMonths();
+    if(!months.length){
+      showFatalBanner('No target data found yet. From a terminal with SUPABASE_URL / SUPABASE_SERVICE_KEY set, run: <code>python ingest.py target "SSO_US_....html"</code> then reload this page.');
+      return;
+    }
+    const monthSel = document.getElementById('fMonth');
+    monthSel.innerHTML = months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
+    const selected = months[months.length-1];
+    monthSel.value = selected;
+
+    await loadMonth(selected);
+    renderHeaderAsOf();
+
+    refreshFilterSelects();
+
+    monthSel.addEventListener('change', async ()=>{
+      await loadMonth(monthSel.value);
+      renderHeaderAsOf();
+      refreshFilterSelects();
+      renderAll();
+    });
+    document.getElementById('fPic').addEventListener('change', ()=>{ updateDependentSelects(); renderAll(); });
+    document.getElementById('fMainPL').addEventListener('change', ()=>{ updateDependentSelects(); renderAll(); });
+    ['fSubPL','fChannel','fPortfolio'].forEach(id=>document.getElementById(id).addEventListener('change', renderAll));
+    document.getElementById('fSearch').addEventListener('input', renderAll);
+    document.getElementById('btnExportSku').addEventListener('click', exportSkuTable);
+    document.getElementById('btnReset').addEventListener('click', ()=>{
+      ['fPic','fChannel','fPortfolio'].forEach(id=>document.getElementById(id).value='');
+      updateDependentSelects();
+      document.getElementById('fSearch').value='';
+      renderAll();
+    });
+    document.querySelectorAll('#skuTable thead th').forEach(th=>{
+      th.addEventListener('click', ()=>{
+        const k = th.dataset.k;
+        if(sortKey===k) sortDir *= -1; else { sortKey=k; sortDir=-1; }
+        renderAll();
+      });
+    });
+    renderAll();
+
+    diaryGroups = [...new Set(ROWS.map(r=>r.mainPL))].sort();
+    activeGroup = diaryGroups[0];
+    const diaryPicSel = document.getElementById('diaryPic');
+    PICS.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; diaryPicSel.appendChild(o); });
+    diaryPicSel.value = defaultPicFor(activeGroup);
+    document.getElementById('diaryDate').value = todayISO();
+    document.getElementById('projDate').value = todayISO();
+
+    await loadDiary();
+    renderDiaryGroupList(); renderDiaryEntries();
+
+    await loadProjects();
+    renderProjectDatalist(); renderProjects();
+  }catch(err){
+    console.error(err);
+    showFatalBanner('Could not load data from Supabase: ' + err.message + '<br><br>Check that SUPABASE_URL / SUPABASE_ANON_KEY are correct and that the schema (supabase_schema.sql) has been run.');
+  }
+}
+boot();
+</script>
+</body>
+</html>
