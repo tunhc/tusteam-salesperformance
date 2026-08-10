@@ -180,6 +180,7 @@ tbody tr:hover{background:#FFF3EA}
 
 <nav class="tabs">
   <button class="tab-btn active" data-tab="sales">Sales Performance</button>
+  <button class="tab-btn" data-tab="ads">Ads Performance</button>
   <button class="tab-btn" data-tab="diary">Product Diary</button>
   <button class="tab-btn" data-tab="projects">Projects</button>
 </nav>
@@ -197,16 +198,18 @@ tbody tr:hover{background:#FFF3EA}
     <div class="fld"><label>Channel</label><select id="fChannel"><option value="">All</option></select></div>
     <div class="fld"><label>Portfolio</label><select id="fPortfolio"><option value="">All</option></select></div>
     <div class="fld"><label>Search SKU / Name</label><input type="text" id="fSearch" placeholder="e.g. DAT7, dumbbell..."></div>
+    <div class="fld"><label>From date</label><input type="date" id="fDateFrom"></div>
+    <div class="fld"><label>To date</label><input type="date" id="fDateTo"></div>
     <button class="btn" id="btnReset">Reset filters</button>
     <span class="result-count" id="resultCount"></span>
   </div>
 
   <div class="moc-strip" id="mocStrip"></div>
 
-  <div class="section-title">Target &mdash; Aug-26 (full month)</div>
+  <div class="section-title" id="targetSectionTitle">Target &mdash; Aug-26 (full month)</div>
   <div class="kpis" id="kpiTargetRow"></div>
 
-  <div class="section-title">Actual &mdash; Month-to-date (with run-rate projection)</div>
+  <div class="section-title" id="actualSectionTitle">Actual &mdash; Month-to-date (with run-rate projection)</div>
   <div class="gkpis" id="kpiActualRow"></div>
 
   <div class="grid2">
@@ -242,9 +245,17 @@ tbody tr:hover{background:#FFF3EA}
   </div>
 
   <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <h3 style="margin:0">SKU Breakdown</h3>
-      <button class="btn small" id="btnExportSku" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:#66707C;cursor:pointer">
+          <input type="checkbox" id="qfInvPositive"> Inv &gt; 0
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:#66707C;cursor:pointer">
+          <input type="checkbox" id="qfRunratePositive"> GMV Run-rate &ne; 0
+        </label>
+        <button class="btn small" id="btnExportSku" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
+      </div>
     </div>
     <div class="hint">Click a column header to sort. Table reflects the filters above. Inv = salable inventory units.</div>
     <div class="tablewrap">
@@ -270,6 +281,69 @@ tbody tr:hover{background:#FFF3EA}
           <th data-k="actualUnits" class="num">Actual Units</th>
         </tr></thead>
         <tbody id="skuTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= TAB: ADS PERFORMANCE ======================= -->
+<section id="view-ads" class="view">
+
+  <div class="filterbar">
+    <div class="fld"><label>PIC</label><select id="adsFPic"><option value="">All</option></select></div>
+    <div class="fld"><label>Actual from</label><input type="date" id="adsFDateFrom"></div>
+    <div class="fld"><label>Actual to</label><input type="date" id="adsFDateTo"></div>
+    <button class="btn" id="adsBtnReset">Reset filters</button>
+    <span class="result-count" id="adsResultCount"></span>
+  </div>
+
+  <div class="moc-strip" id="adsTimeStrip"></div>
+
+  <div class="section-title">PIC Overview</div>
+  <div class="card">
+    <div class="hint">KPI is always the full-month target. Actual reflects the date range above (defaults to all days loaded this month). Remain Daily = (KPI &minus; Actual) &divide; Day Left.</div>
+    <div class="tablewrap" style="max-height:420px">
+      <table id="adsOverviewTable">
+        <thead>
+          <tr>
+            <th rowspan="2" style="vertical-align:bottom">PIC</th>
+            <th colspan="4" style="text-align:center">KPI</th>
+            <th colspan="7" style="text-align:center">Actual</th>
+            <th colspan="4" style="text-align:center">Remain Daily</th>
+            <th colspan="4" style="text-align:center">% Achievement</th>
+          </tr>
+          <tr>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">Ads GMV</th><th class="num">Ads RS</th><th class="num">ACOS</th><th class="num">TACOS</th>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
+          </tr>
+        </thead>
+        <tbody id="adsOverviewBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section-title">Detail &mdash; Main PL / Sub PL / SKU</div>
+  <div class="card">
+    <div class="hint">Click &#9656; to expand a Main PL into Sub PL, then into SKU.</div>
+    <div class="tablewrap">
+      <table id="adsDetailTable">
+        <thead>
+          <tr>
+            <th rowspan="2" style="vertical-align:bottom">Product Line / SKU</th>
+            <th rowspan="2" style="vertical-align:bottom">PIC</th>
+            <th colspan="4" style="text-align:center">KPI</th>
+            <th colspan="7" style="text-align:center">Actual</th>
+            <th colspan="4" style="text-align:center">% Achievement</th>
+          </tr>
+          <tr>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">ACOS</th><th class="num">TACOS</th><th class="num">%Ads/GMV</th><th class="num">Ads CPU</th>
+            <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
+          </tr>
+        </thead>
+        <tbody id="adsDetailBody"></tbody>
       </table>
     </div>
   </div>
@@ -418,7 +492,7 @@ async function loadMonth(monthIso){
   const rows = (skus||[]).map(sk=>{
     const t = targetBySku[sk.sku] || {};
     const dailyRows = (salesBySku[sk.sku] || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
-    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2)}));
+    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0}));
 
     const actualUnits = +daily.reduce((s,d)=>s+d.units,0).toFixed(2);
     const actualGMV = +daily.reduce((s,d)=>s+d.gmv,0).toFixed(2);
@@ -597,6 +671,109 @@ function getFiltered(){
   );
 }
 
+// ---- Date range: prorates target by days-in-range/days-in-month and sums
+// actuals from only the days inside the range, so "Target" and run-rate
+// stop meaning "full month" and instead mean "this window". ----
+let RANGE_ACTIVE = false, RANGE_LABEL = '';
+let EFFECTIVE_DAYS_ELAPSED = 0, EFFECTIVE_DAYS_TOTAL = 30;
+
+function daysBetweenInclusive(a, b){
+  const da = new Date(a+'T00:00:00'), db = new Date(b+'T00:00:00');
+  return Math.round((db-da)/86400000) + 1;
+}
+
+// Bounds the From/To date pickers to the selected month and clears any
+// range left over from a previous month, so you can't pick dates outside
+// the month currently loaded.
+function setDateRangeBounds(monthIso){
+  const nextMonth = addMonthsIso(monthIso, 1);
+  const lastDay = new Date(new Date(nextMonth+'T00:00:00') - 86400000).toISOString().slice(0,10);
+  ['fDateFrom','fDateTo'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.min = monthIso; el.max = lastDay; el.value = '';
+  });
+}
+
+function setAdsDateBounds(monthIso){
+  const nextMonth = addMonthsIso(monthIso, 1);
+  const lastDay = new Date(new Date(nextMonth+'T00:00:00') - 86400000).toISOString().slice(0,10);
+  ['adsFDateFrom','adsFDateTo'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.min = monthIso; el.max = lastDay; el.value = '';
+  });
+}
+
+function refreshAdsPicSelect(){
+  document.getElementById('adsFPic').innerHTML = '<option value="">All</option>';
+  fillSelect('adsFPic', uniq('pic'));
+}
+
+function applyDateRange(rows){
+  const monthIso = document.getElementById('fMonth').value;
+  const fromVal = document.getElementById('fDateFrom').value;
+  const toVal = document.getElementById('fDateTo').value;
+
+  if(!fromVal && !toVal){
+    RANGE_ACTIVE = false;
+    RANGE_LABEL = 'Full-month ' + monthLabel(monthIso);
+    EFFECTIVE_DAYS_ELAPSED = DATA.daysElapsed;
+    EFFECTIVE_DAYS_TOTAL = DATA.daysInMonth;
+    return rows;
+  }
+
+  const monthEnd = addMonthsIso(monthIso,1); // exclusive
+  const lastDay = new Date(new Date(monthEnd+'T00:00:00') - 86400000).toISOString().slice(0,10);
+  let rangeStart = fromVal || monthIso;
+  let rangeEnd = toVal || lastDay;
+  if(rangeStart > rangeEnd){ const tmp = rangeStart; rangeStart = rangeEnd; rangeEnd = tmp; } // guard: From picked after To
+  const daysInRange = Math.max(1, daysBetweenInclusive(rangeStart, rangeEnd));
+  const factor = DATA.daysInMonth ? daysInRange / DATA.daysInMonth : 0;
+
+  const today = todayISO();
+  const elapsedEnd = rangeEnd < today ? rangeEnd : today;
+  const daysElapsedInRange = elapsedEnd < rangeStart ? 0 : daysBetweenInclusive(rangeStart, elapsedEnd);
+
+  RANGE_ACTIVE = true;
+  RANGE_LABEL = rangeStart + ' → ' + rangeEnd + ' (' + daysInRange + '/' + DATA.daysInMonth + ' days)';
+  EFFECTIVE_DAYS_ELAPSED = daysElapsedInRange;
+  EFFECTIVE_DAYS_TOTAL = daysInRange;
+
+  return rows.map(r=>{
+    const daily = (r.daily||[]).filter(d=> d.date>=rangeStart && d.date<=rangeEnd);
+    const actualUnits = +daily.reduce((s,d)=>s+d.units,0).toFixed(2);
+    const actualGMV = +daily.reduce((s,d)=>s+d.gmv,0).toFixed(2);
+    const adsActual = +daily.reduce((s,d)=>s+d.ads,0).toFixed(2);
+    const promoActual = +daily.reduce((s,d)=>s+d.promo,0).toFixed(2);
+    const mktActual = +(adsActual+promoActual).toFixed(2);
+
+    const targetUnits = +(r.targetUnits*factor).toFixed(2);
+    const targetGMV = +(r.targetGMV*factor).toFixed(2);
+    const adsTarget = +(r.adsTarget*factor).toFixed(2);
+    const promoTarget = +(r.promoTarget*factor).toFixed(2);
+    const mktTarget = +(adsTarget+promoTarget).toFixed(2);
+
+    const gmvRunrateProj = daysElapsedInRange ? actualGMV/daysElapsedInRange*daysInRange : 0;
+    const gmvRunratePct = targetGMV ? +(gmvRunrateProj/targetGMV*100).toFixed(1) : 0;
+    const mktRunrateProj = daysElapsedInRange ? mktActual/daysElapsedInRange*daysInRange : 0;
+    const mktRunratePct = mktTarget ? +(mktRunrateProj/mktTarget*100).toFixed(1) : 0;
+
+    return {...r, daily, actualUnits, actualGMV, adsActual, promoActual, mktActual,
+      targetUnits, targetGMV, adsTarget, promoTarget, mktTarget,
+      gmvRunrateProj, gmvRunratePct, mktRunrateProj, mktRunratePct};
+  });
+}
+
+function applyQuickFilters(rows){
+  const invOnly = document.getElementById('qfInvPositive').checked;
+  const rrOnly = document.getElementById('qfRunratePositive').checked;
+  if(!invOnly && !rrOnly) return rows;
+  return rows.filter(r=>{
+    if(invOnly && (r.salableY4A + r.salableAMZ) <= 0) return false;
+    if(rrOnly && r.gmvRunratePct === 0) return false;
+    return true;
+  });
+}
+
 function aggregate(rows, key){
   const groups = {};
   rows.forEach(r=>{
@@ -609,7 +786,7 @@ function aggregate(rows, key){
   return Object.values(groups).sort((a,b)=>b.targetGMV-a.targetGMV);
 }
 
-function runrateProj(actual){ return DATA.daysElapsed ? actual/DATA.daysElapsed*DATA.daysInMonth : 0; }
+function runrateProj(actual){ return EFFECTIVE_DAYS_ELAPSED ? actual/EFFECTIVE_DAYS_ELAPSED*EFFECTIVE_DAYS_TOTAL : 0; }
 function runratePct(actual, target){ const p = runrateProj(actual); return target ? p/target*100 : 0; }
 
 function renderMocStrip(rows){
@@ -626,18 +803,24 @@ function renderMocStrip(rows){
     order.map(o=>`<span class="moc-chip" style="background:${o.bg};color:${o.color}"><span class="n">${counts[o.band]||0}</span> ${o.band}</span>`).join('');
 }
 
-function renderKPIs(rows){
+function renderKPIs(rows, fullRows){
   const t = { targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0 };
   rows.forEach(r=>{ t.targetGMV+=r.targetGMV; t.actualGMV+=r.actualGMV; t.mktTarget+=r.mktTarget; t.mktActual+=r.mktActual; t.targetUnits+=r.targetUnits; t.actualUnits+=r.actualUnits; });
   const mktGmvTargetPct = t.targetGMV ? t.mktTarget/t.targetGMV*100 : 0;
   const mktGmvActualPct = t.actualGMV ? t.mktActual/t.actualGMV*100 : 0;
   const mktGmvIndex = mktGmvTargetPct ? mktGmvActualPct/mktGmvTargetPct*100 : 0;
 
+  const periodLabel = RANGE_ACTIVE ? RANGE_LABEL : ('Full-month ' + monthLabel(document.getElementById('fMonth').value));
+  document.getElementById('targetSectionTitle').textContent = 'Target — ' + periodLabel;
+  document.getElementById('actualSectionTitle').textContent = RANGE_ACTIVE
+    ? ('Actual — ' + RANGE_LABEL + ' (with run-rate projection)')
+    : 'Actual — Month-to-date (with run-rate projection)';
+
   document.getElementById('kpiTargetRow').innerHTML = `
-    <div class="kpi target"><div class="lbl">GMV Target</div><div class="val">${fmtMoney(t.targetGMV)}</div><div class="sub">Full-month Aug-26</div></div>
-    <div class="kpi target"><div class="lbl">Marketing Budget Target</div><div class="val">${fmtMoney(t.mktTarget)}</div><div class="sub">Ads + Promo, full month</div></div>
+    <div class="kpi target"><div class="lbl">GMV Target</div><div class="val">${fmtMoney(t.targetGMV)}</div><div class="sub">${periodLabel}</div></div>
+    <div class="kpi target"><div class="lbl">Marketing Budget Target</div><div class="val">${fmtMoney(t.mktTarget)}</div><div class="sub">Ads + Promo, ${RANGE_ACTIVE?'this range':'full month'}</div></div>
     <div class="kpi target"><div class="lbl">% MKT / GMV Target</div><div class="val">${mktGmvTargetPct.toFixed(1)}%</div><div class="sub">Planned marketing efficiency</div></div>
-    <div class="kpi target"><div class="lbl">Target Sales Units</div><div class="val">${fmtInt(t.targetUnits)}</div><div class="sub">Full-month Aug-26</div></div>
+    <div class="kpi target"><div class="lbl">Target Sales Units</div><div class="val">${fmtInt(t.targetUnits)}</div><div class="sub">${periodLabel}</div></div>
   `;
 
   const gmvRR = runratePct(t.actualGMV, t.targetGMV);
@@ -645,11 +828,15 @@ function renderKPIs(rows){
   const unitsRR = runratePct(t.actualUnits, t.targetUnits);
   const mktIdxClamped = Math.max(0, Math.min(200, mktGmvIndex));
 
+  // "Today Must Gain" is always a full-month daily pace, regardless of any
+  // date-range filter on the table/charts above — so it's computed from
+  // fullRows (pic/PL-filtered only) rather than the range-scoped `rows`.
+  const fullTargetGMV = (fullRows||rows).reduce((s,r)=>s+r.targetGMV, 0);
   const daysInMonth = DATA.daysInMonth;
   const gmvLiteral = t.targetGMV ? t.actualGMV/t.targetGMV*100 : 0;
   const mktLiteral = t.mktTarget ? t.mktActual/t.mktTarget*100 : 0;
   const unitsLiteral = t.targetUnits ? t.actualUnits/t.targetUnits*100 : 0;
-  const gmvMustToday = daysInMonth ? t.targetGMV/daysInMonth : 0;
+  const gmvMustToday = daysInMonth ? fullTargetGMV/daysInMonth : 0;
 
   const mktProjected = runrateProj(t.mktActual);
   const mktDiff = t.mktTarget - mktProjected;
@@ -696,7 +883,7 @@ function renderKPIs(rows){
 
 function makeGauge(canvasId, literalPct, markerPct, lowerIsBetter, displayValOverride, subText){
   const clamped = Math.max(0, Math.min(100, literalPct));
-  const expectedPct = DATA.daysInMonth ? (DATA.daysElapsed/DATA.daysInMonth*100) : 100;
+  const expectedPct = EFFECTIVE_DAYS_TOTAL ? (EFFECTIVE_DAYS_ELAPSED/EFFECTIVE_DAYS_TOTAL*100) : 100;
   const paceRatio = expectedPct ? (literalPct/expectedPct*100) : literalPct;
   const color = zoneColor(lowerIsBetter ? literalPct : paceRatio, lowerIsBetter);
   const shown = (displayValOverride!==undefined ? displayValOverride : literalPct);
@@ -803,12 +990,13 @@ document.querySelectorAll('#skuTable thead th').forEach(th=>{
 });
 
 function renderAll(){
-  const rows = getFiltered();
-  document.getElementById('resultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
-  renderMocStrip(rows);
-  renderKPIs(rows);
-  renderCharts(rows);
-  renderTable(rows);
+  const filtered = getFiltered();
+  const rangedRows = applyDateRange(filtered);
+  document.getElementById('resultCount').textContent = rangedRows.length + ' / ' + ROWS.length + ' SKU';
+  renderMocStrip(rangedRows);
+  renderKPIs(rangedRows, filtered);
+  renderCharts(rangedRows);
+  renderTable(applyQuickFilters(rangedRows));
 }
 
 // Export exactly what's on screen (current filters + sort) to a .xlsx file
@@ -829,6 +1017,180 @@ function exportSkuTable(){
   const month = document.getElementById('fMonth').value || '';
   const stamp = new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb, `Yes4All_SKU_Breakdown_${month}_${stamp}.xlsx`);
+}
+
+// ================= ADS PERFORMANCE =================
+// KPI = always the full-month target (never prorated). Actual = summed from
+// each SKU's `daily[]` entries, optionally scoped to the Actual-from/to
+// range (defaults to every day loaded this month). Remain Daily and
+// Timegone/Day Left always use the real calendar (DATA.daysElapsed /
+// DATA.daysInMonth), independent of the Actual date-range filter.
+let adsExpanded = new Set();
+
+function adsGroupBy(rows, keyFn){
+  const map = new Map();
+  rows.forEach(r=>{
+    const k = keyFn(r) || 'Unclassified';
+    if(!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  });
+  return map;
+}
+
+function adsActualsFor(rows, fromVal, toVal){
+  let GMV=0, RS=0, AdsSpend=0, AdsGMV=0, AdsRS=0;
+  rows.forEach(r=>{
+    (r.daily||[]).forEach(d=>{
+      if(fromVal && d.date<fromVal) return;
+      if(toVal && d.date>toVal) return;
+      GMV+=d.gmv; RS+=d.units; AdsSpend+=d.ads; AdsGMV+=d.adsGmv; AdsRS+=d.adsUnits;
+    });
+  });
+  return {GMV:+GMV.toFixed(2), RS:+RS.toFixed(2), AdsSpend:+AdsSpend.toFixed(2), AdsGMV:+AdsGMV.toFixed(2), AdsRS:+AdsRS.toFixed(2)};
+}
+
+function adsKPIFor(rows){
+  let GMV=0, RS=0, AdsSpend=0;
+  rows.forEach(r=>{ GMV+=r.targetGMV; RS+=r.targetUnits; AdsSpend+=r.adsTarget; });
+  return {GMV:+GMV.toFixed(2), RS:+RS.toFixed(2), AdsSpend:+AdsSpend.toFixed(2)};
+}
+
+function computeAdsMetrics(rows, fromVal, toVal){
+  const kpi = adsKPIFor(rows);
+  const act = adsActualsFor(rows, fromVal, toVal);
+  const dayLeft = Math.max(0, DATA.daysInMonth - DATA.daysElapsed);
+
+  const kpiTACOS = kpi.GMV ? kpi.AdsSpend/kpi.GMV*100 : 0;
+  const actACOS = act.AdsGMV ? act.AdsSpend/act.AdsGMV*100 : 0;
+  const actTACOS = act.GMV ? act.AdsSpend/act.GMV*100 : 0;
+  const actPctAdsGMV = act.GMV ? act.AdsGMV/act.GMV*100 : 0;
+  const actAdsCPU = act.AdsRS ? act.AdsGMV/act.AdsRS : 0;
+
+  const remGMV = dayLeft ? (kpi.GMV-act.GMV)/dayLeft : 0;
+  const remRS = dayLeft ? (kpi.RS-act.RS)/dayLeft : 0;
+  const remAdsSpend = dayLeft ? (kpi.AdsSpend-act.AdsSpend)/dayLeft : 0;
+  const remTACOS = remGMV ? remAdsSpend/remGMV*100 : 0;
+
+  const achGMV = kpi.GMV ? act.GMV/kpi.GMV*100 : 0;
+  const achRS = kpi.RS ? act.RS/kpi.RS*100 : 0;
+  const achAdsSpend = kpi.AdsSpend ? act.AdsSpend/kpi.AdsSpend*100 : 0;
+  const achTACOS = kpiTACOS ? actTACOS/kpiTACOS*100 : 0;
+
+  return {
+    kpi: {...kpi, TACOS:kpiTACOS},
+    act: {...act, ACOS:actACOS, TACOS:actTACOS, pctAdsGMV:actPctAdsGMV, AdsCPU:actAdsCPU},
+    remain: {GMV:remGMV, RS:remRS, AdsSpend:remAdsSpend, TACOS:remTACOS},
+    achievement: {GMV:achGMV, RS:achRS, AdsSpend:achAdsSpend, TACOS:achTACOS},
+  };
+}
+
+function adsGetFilteredRows(){
+  const pic = document.getElementById('adsFPic').value;
+  return ROWS.filter(r=> !pic || r.pic===pic);
+}
+
+function pct1(v){ return (Number.isFinite(v)?v:0).toFixed(1)+'%'; }
+function pct0(v){ return (Number.isFinite(v)?v:0).toFixed(0)+'%'; }
+
+function renderAdsTimeStrip(){
+  const timegone = DATA.daysElapsed, dayLeft = Math.max(0, DATA.daysInMonth-DATA.daysElapsed);
+  document.getElementById('adsTimeStrip').innerHTML =
+    '<span class="lbl">' + monthLabel(document.getElementById('fMonth').value) + '</span>' +
+    `<span class="moc-chip" style="background:#E9EEF5;color:${COLOR.navy}"><span class="n">${timegone}</span> Timegone</span>` +
+    `<span class="moc-chip" style="background:#FBF3DF;color:#B8860B"><span class="n">${dayLeft}</span> Day Left</span>` +
+    `<span class="moc-chip" style="background:#EEF1F5;color:#66707C"><span class="n">${DATA.daysInMonth}</span> Days in month</span>`;
+}
+
+function renderAdsOverview(rows, fromVal, toVal){
+  const byPic = adsGroupBy(rows, r=>r.pic);
+  const picNames = [...byPic.keys()].sort();
+  const rowsHtml = picNames.map(pic=>{
+    const m = computeAdsMetrics(byPic.get(pic), fromVal, toVal);
+    return `<tr>
+      <td><b>${pic}</b></td>
+      <td class="num">${fmtMoney(m.kpi.GMV)}</td><td class="num">${fmtInt(m.kpi.RS)}</td><td class="num">${fmtMoney(m.kpi.AdsSpend)}</td><td class="num">${pct1(m.kpi.TACOS)}</td>
+      <td class="num">${fmtMoney(m.act.GMV)}</td><td class="num">${fmtInt(m.act.RS)}</td><td class="num">${fmtMoney(m.act.AdsSpend)}</td><td class="num">${fmtMoney(m.act.AdsGMV)}</td><td class="num">${fmtInt(m.act.AdsRS)}</td><td class="num">${pct1(m.act.ACOS)}</td><td class="num">${pct1(m.act.TACOS)}</td>
+      <td class="num">${fmtMoney(m.remain.GMV)}</td><td class="num">${fmtInt(m.remain.RS)}</td><td class="num">${fmtMoney(m.remain.AdsSpend)}</td><td class="num">${pct1(m.remain.TACOS)}</td>
+      <td class="num">${pct0(m.achievement.GMV)}</td><td class="num">${pct0(m.achievement.RS)}</td><td class="num">${pct0(m.achievement.AdsSpend)}</td><td class="num">${pct0(m.achievement.TACOS)}</td>
+    </tr>`;
+  }).join('');
+
+  const total = computeAdsMetrics(rows, fromVal, toVal);
+  const totalHtml = `<tr style="background:#F5F7FA;font-weight:700">
+    <td>TOTAL</td>
+    <td class="num">${fmtMoney(total.kpi.GMV)}</td><td class="num">${fmtInt(total.kpi.RS)}</td><td class="num">${fmtMoney(total.kpi.AdsSpend)}</td><td class="num">${pct1(total.kpi.TACOS)}</td>
+    <td class="num">${fmtMoney(total.act.GMV)}</td><td class="num">${fmtInt(total.act.RS)}</td><td class="num">${fmtMoney(total.act.AdsSpend)}</td><td class="num">${fmtMoney(total.act.AdsGMV)}</td><td class="num">${fmtInt(total.act.AdsRS)}</td><td class="num">${pct1(total.act.ACOS)}</td><td class="num">${pct1(total.act.TACOS)}</td>
+    <td class="num">${fmtMoney(total.remain.GMV)}</td><td class="num">${fmtInt(total.remain.RS)}</td><td class="num">${fmtMoney(total.remain.AdsSpend)}</td><td class="num">${pct1(total.remain.TACOS)}</td>
+    <td class="num">${pct0(total.achievement.GMV)}</td><td class="num">${pct0(total.achievement.RS)}</td><td class="num">${pct0(total.achievement.AdsSpend)}</td><td class="num">${pct0(total.achievement.TACOS)}</td>
+  </tr>`;
+
+  document.getElementById('adsOverviewBody').innerHTML = totalHtml + rowsHtml ||
+    '<tr><td colspan="19" style="text-align:center;padding:20px;color:#66707C">No data</td></tr>';
+}
+
+function adsDetailRowHTML(level, key, label, pic, m, expanded, expandable){
+  const indent = level*18;
+  const arrow = expandable
+    ? `<span class="ads-toggle" data-key="${key.replace(/"/g,'&quot;')}" style="cursor:pointer;display:inline-block;width:14px">${expanded?'▾':'▸'}</span>`
+    : '<span style="display:inline-block;width:14px"></span>';
+  const weight = level===0 ? 'font-weight:700' : (level===1 ? 'font-weight:600' : '');
+  return `<tr style="${weight}">
+    <td style="padding-left:${8+indent}px">${arrow}${label}</td>
+    <td>${pic||''}</td>
+    <td class="num">${fmtMoney(m.kpi.GMV)}</td><td class="num">${fmtInt(m.kpi.RS)}</td><td class="num">${fmtMoney(m.kpi.AdsSpend)}</td><td class="num">${pct1(m.kpi.TACOS)}</td>
+    <td class="num">${fmtMoney(m.act.GMV)}</td><td class="num">${fmtInt(m.act.RS)}</td><td class="num">${fmtMoney(m.act.AdsSpend)}</td><td class="num">${pct1(m.act.ACOS)}</td><td class="num">${pct1(m.act.TACOS)}</td><td class="num">${pct1(m.act.pctAdsGMV)}</td><td class="num">${fmtMoney2(m.act.AdsCPU)}</td>
+    <td class="num">${pct0(m.achievement.GMV)}</td><td class="num">${pct0(m.achievement.RS)}</td><td class="num">${pct0(m.achievement.AdsSpend)}</td><td class="num">${pct0(m.achievement.TACOS)}</td>
+  </tr>`;
+}
+
+function renderAdsDetail(rows, fromVal, toVal){
+  const html = [];
+  const mainGroups = adsGroupBy(rows, r=>r.mainPL);
+  [...mainGroups.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([mainPL, mainRows])=>{
+    const mKey = 'M::'+mainPL;
+    const mExpanded = adsExpanded.has(mKey);
+    const mm = computeAdsMetrics(mainRows, fromVal, toVal);
+    html.push(adsDetailRowHTML(0, mKey, mainPL, '', mm, mExpanded, true));
+
+    if(mExpanded){
+      const subGroups = adsGroupBy(mainRows, r=>r.subPL);
+      [...subGroups.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([subPL, subRows])=>{
+        const sKey = 'S::'+mainPL+'::'+subPL;
+        const sExpanded = adsExpanded.has(sKey);
+        const sm = computeAdsMetrics(subRows, fromVal, toVal);
+        html.push(adsDetailRowHTML(1, sKey, subPL, '', sm, sExpanded, true));
+
+        if(sExpanded){
+          [...subRows].sort((a,b)=>a.sku.localeCompare(b.sku)).forEach(skuRow=>{
+            const km = computeAdsMetrics([skuRow], fromVal, toVal);
+            const label = skuRow.sku + (skuRow.productName ? (' — '+skuRow.productName) : '');
+            html.push(adsDetailRowHTML(2, 'K::'+skuRow.sku, label, skuRow.pic, km, false, false));
+          });
+        }
+      });
+    }
+  });
+
+  const tbody = document.getElementById('adsDetailBody');
+  tbody.innerHTML = html.join('') || '<tr><td colspan="16" style="text-align:center;padding:24px;color:#66707C">No data</td></tr>';
+  tbody.querySelectorAll('.ads-toggle').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const key = el.dataset.key;
+      if(adsExpanded.has(key)) adsExpanded.delete(key); else adsExpanded.add(key);
+      renderAdsTab();
+    });
+  });
+}
+
+function renderAdsTab(){
+  if(!ROWS.length) return;
+  const rows = adsGetFilteredRows();
+  const fromVal = document.getElementById('adsFDateFrom').value;
+  const toVal = document.getElementById('adsFDateTo').value;
+  document.getElementById('adsResultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
+  renderAdsTimeStrip();
+  renderAdsOverview(rows, fromVal, toVal);
+  renderAdsDetail(rows, fromVal, toVal);
 }
 
 // ================= PRODUCT DIARY (live — Supabase diary_entries/diary_followups) =================
@@ -1033,24 +1395,48 @@ async function boot(){
 
     await loadMonth(selected);
     renderHeaderAsOf();
+    setDateRangeBounds(selected);
+    setAdsDateBounds(selected);
 
     refreshFilterSelects();
+    refreshAdsPicSelect();
+    renderAdsTab();
 
     monthSel.addEventListener('change', async ()=>{
       await loadMonth(monthSel.value);
       renderHeaderAsOf();
+      setDateRangeBounds(monthSel.value);
+      setAdsDateBounds(monthSel.value);
       refreshFilterSelects();
+      refreshAdsPicSelect();
+      adsExpanded.clear();
       renderAll();
+      renderAdsTab();
+    });
+    document.getElementById('adsFPic').addEventListener('change', renderAdsTab);
+    ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));
+    document.getElementById('adsBtnReset').addEventListener('click', ()=>{
+      document.getElementById('adsFPic').value = '';
+      document.getElementById('adsFDateFrom').value = '';
+      document.getElementById('adsFDateTo').value = '';
+      adsExpanded.clear();
+      renderAdsTab();
     });
     document.getElementById('fPic').addEventListener('change', ()=>{ updateDependentSelects(); renderAll(); });
     document.getElementById('fMainPL').addEventListener('change', ()=>{ updateDependentSelects(); renderAll(); });
     ['fSubPL','fChannel','fPortfolio'].forEach(id=>document.getElementById(id).addEventListener('change', renderAll));
     document.getElementById('fSearch').addEventListener('input', renderAll);
+    ['fDateFrom','fDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAll));
+    ['qfInvPositive','qfRunratePositive'].forEach(id=>document.getElementById(id).addEventListener('change', renderAll));
     document.getElementById('btnExportSku').addEventListener('click', exportSkuTable);
     document.getElementById('btnReset').addEventListener('click', ()=>{
       ['fPic','fChannel','fPortfolio'].forEach(id=>document.getElementById(id).value='');
       updateDependentSelects();
       document.getElementById('fSearch').value='';
+      document.getElementById('fDateFrom').value='';
+      document.getElementById('fDateTo').value='';
+      document.getElementById('qfInvPositive').checked=false;
+      document.getElementById('qfRunratePositive').checked=false;
       renderAll();
     });
     document.querySelectorAll('#skuTable thead th').forEach(th=>{
