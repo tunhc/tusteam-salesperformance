@@ -209,6 +209,7 @@ tbody tr:hover{background:#FFF3EA}
     <div class="fld"><label>Search SKU / Name</label><input type="text" id="fSearch" placeholder="e.g. DAT7, dumbbell..."></div>
     <div class="fld"><label>From date</label><input type="date" id="fDateFrom"></div>
     <div class="fld"><label>To date</label><input type="date" id="fDateTo"></div>
+    <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="fExcludeSpt"> Exclude SPT channel</label></div>
     <button class="btn" id="btnReset">Reset filters</button>
     <span class="result-count" id="resultCount"></span>
   </div>
@@ -302,6 +303,7 @@ tbody tr:hover{background:#FFF3EA}
     <div class="fld"><label>PIC</label><select id="adsFPic"><option value="">All</option></select></div>
     <div class="fld"><label>Actual from</label><input type="date" id="adsFDateFrom"></div>
     <div class="fld"><label>Actual to</label><input type="date" id="adsFDateTo"></div>
+    <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="adsExcludeSpt"> Exclude SPT channel</label></div>
     <button class="btn" id="adsBtnReset">Reset filters</button>
     <span class="result-count" id="adsResultCount"></span>
   </div>
@@ -673,9 +675,11 @@ function getFiltered(){
   const ch = document.getElementById('fChannel').value;
   const pf = document.getElementById('fPortfolio').value;
   const q = document.getElementById('fSearch').value.trim().toLowerCase();
+  const exSpt = document.getElementById('fExcludeSpt').checked;
   return ROWS.filter(r =>
     (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!spl || r.subPL===spl) &&
     (!ch || r.channel===ch) && (!pf || r.portfolio===pf) &&
+    (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')) &&
     (!q || r.sku.toLowerCase().includes(q) || (r.productName||'').toLowerCase().includes(q))
   );
 }
@@ -1095,7 +1099,8 @@ function computeAdsMetrics(rows, fromVal, toVal){
 
 function adsGetFilteredRows(){
   const pic = document.getElementById('adsFPic').value;
-  return ROWS.filter(r=> !pic || r.pic===pic);
+  const exSpt = document.getElementById('adsExcludeSpt').checked;
+  return ROWS.filter(r=> (!pic || r.pic===pic) && (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')));
 }
 
 function pct1(v){ return (Number.isFinite(v)?v:0).toFixed(1)+'%'; }
@@ -1441,10 +1446,12 @@ async function boot(){
     });
     document.getElementById('adsFPic').addEventListener('change', renderAdsTab);
     ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));
+    document.getElementById('adsExcludeSpt').addEventListener('change', renderAdsTab);
     document.getElementById('adsBtnReset').addEventListener('click', ()=>{
       document.getElementById('adsFPic').value = '';
       document.getElementById('adsFDateFrom').value = '';
       document.getElementById('adsFDateTo').value = '';
+      document.getElementById('adsExcludeSpt').checked = false;
       adsExpanded.clear();
       renderAdsTab();
     });
@@ -1454,6 +1461,7 @@ async function boot(){
     document.getElementById('fSearch').addEventListener('input', renderAll);
     ['fDateFrom','fDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAll));
     ['qfInvPositive','qfRunratePositive'].forEach(id=>document.getElementById(id).addEventListener('change', renderAll));
+    document.getElementById('fExcludeSpt').addEventListener('change', renderAll);
     document.getElementById('btnExportSku').addEventListener('click', exportSkuTable);
     document.getElementById('btnReset').addEventListener('click', ()=>{
       ['fPic','fChannel','fPortfolio'].forEach(id=>document.getElementById(id).value='');
@@ -1463,6 +1471,7 @@ async function boot(){
       document.getElementById('fDateTo').value='';
       document.getElementById('qfInvPositive').checked=false;
       document.getElementById('qfRunratePositive').checked=false;
+      document.getElementById('fExcludeSpt').checked=false;
       renderAll();
     });
     document.querySelectorAll('#skuTable thead th').forEach(th=>{
