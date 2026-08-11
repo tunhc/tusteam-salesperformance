@@ -109,6 +109,15 @@ thead th:hover{background:var(--navy-2)}
 tbody td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 tbody tr:hover{background:#FFF3EA}
 .tablewrap{max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+/* Ads Performance: column-group banding, based on Yes4All brand colors */
+.grp-kpi-hdr{background:#002859 !important}
+.grp-actual-hdr{background:#FF7000 !important}
+.grp-remain-hdr{background:#66707C !important}
+.grp-ach-hdr{background:#B8860B !important}
+.grp-kpi{background:#EDF1F7}
+.grp-actual{background:#FFF3EA}
+.grp-remain{background:#F3F4F6}
+.grp-ach{background:#FBF3DF}
 .progress-cell{display:flex;align-items:center;gap:6px;min-width:90px}
 .progress-track{flex:1;height:6px;background:#EEF1F5;border-radius:4px;overflow:hidden;min-width:50px}
 .progress-fill{height:100%;border-radius:4px}
@@ -307,10 +316,10 @@ tbody tr:hover{background:#FFF3EA}
         <thead>
           <tr>
             <th rowspan="2" style="vertical-align:bottom">PIC</th>
-            <th colspan="4" style="text-align:center">KPI</th>
-            <th colspan="7" style="text-align:center">Actual</th>
-            <th colspan="4" style="text-align:center">Remain Daily</th>
-            <th colspan="4" style="text-align:center">% Achievement</th>
+            <th colspan="4" class="grp-kpi-hdr" style="text-align:center">KPI</th>
+            <th colspan="7" class="grp-actual-hdr" style="text-align:center">Actual</th>
+            <th colspan="4" class="grp-remain-hdr" style="text-align:center">Remain Daily</th>
+            <th colspan="4" class="grp-ach-hdr" style="text-align:center">% Achievement</th>
           </tr>
           <tr>
             <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
@@ -333,9 +342,9 @@ tbody tr:hover{background:#FFF3EA}
           <tr>
             <th rowspan="2" style="vertical-align:bottom">Product Line / SKU</th>
             <th rowspan="2" style="vertical-align:bottom">PIC</th>
-            <th colspan="4" style="text-align:center">KPI</th>
-            <th colspan="7" style="text-align:center">Actual</th>
-            <th colspan="4" style="text-align:center">% Achievement</th>
+            <th colspan="4" class="grp-kpi-hdr" style="text-align:center">KPI</th>
+            <th colspan="7" class="grp-actual-hdr" style="text-align:center">Actual</th>
+            <th colspan="4" class="grp-ach-hdr" style="text-align:center">% Achievement</th>
           </tr>
           <tr>
             <th class="num">GMV</th><th class="num">RS</th><th class="num">Ads Spend</th><th class="num">TACOS</th>
@@ -1101,27 +1110,43 @@ function renderAdsTimeStrip(){
     `<span class="moc-chip" style="background:#EEF1F5;color:#66707C"><span class="n">${DATA.daysInMonth}</span> Days in month</span>`;
 }
 
+// Red/green verdict per metric: GMV/RS/AdsSpend judged pace-adjusted vs
+// full-month target (higher=better); TACOS judged the opposite way (lower
+// actual-vs-target ratio = more efficient = green). Reuses the same
+// zoneColor() thresholds (95/70, or 100/115 for lower-is-better) already
+// used for the Sales Performance gauges, just applied to Ads metrics.
+function adsVerdicts(m){
+  return {
+    GMV: zoneColor(m.achievement.GMV, false),
+    RS: zoneColor(m.achievement.RS, false),
+    AdsSpend: zoneColor(m.achievement.AdsSpend, false),
+    TACOS: zoneColor(m.achievement.TACOS, true),
+  };
+}
+
 function renderAdsOverview(rows, fromVal, toVal){
   const byPic = adsGroupBy(rows, r=>r.pic);
   const picNames = [...byPic.keys()].sort();
   const rowsHtml = picNames.map(pic=>{
     const m = computeAdsMetrics(byPic.get(pic), fromVal, toVal);
+    const v = adsVerdicts(m);
     return `<tr>
       <td><b>${pic}</b></td>
-      <td class="num">${fmtMoney(m.kpi.GMV)}</td><td class="num">${fmtInt(m.kpi.RS)}</td><td class="num">${fmtMoney(m.kpi.AdsSpend)}</td><td class="num">${pct1(m.kpi.TACOS)}</td>
-      <td class="num">${fmtMoney(m.act.GMV)}</td><td class="num">${fmtInt(m.act.RS)}</td><td class="num">${fmtMoney(m.act.AdsSpend)}</td><td class="num">${fmtMoney(m.act.AdsGMV)}</td><td class="num">${fmtInt(m.act.AdsRS)}</td><td class="num">${pct1(m.act.ACOS)}</td><td class="num">${pct1(m.act.TACOS)}</td>
-      <td class="num">${fmtMoney(m.remain.GMV)}</td><td class="num">${fmtInt(m.remain.RS)}</td><td class="num">${fmtMoney(m.remain.AdsSpend)}</td><td class="num">${pct1(m.remain.TACOS)}</td>
-      <td class="num">${pct0(m.achievement.GMV)}</td><td class="num">${pct0(m.achievement.RS)}</td><td class="num">${pct0(m.achievement.AdsSpend)}</td><td class="num">${pct0(m.achievement.TACOS)}</td>
+      <td class="num grp-kpi">${fmtMoney(m.kpi.GMV)}</td><td class="num grp-kpi">${fmtInt(m.kpi.RS)}</td><td class="num grp-kpi">${fmtMoney(m.kpi.AdsSpend)}</td><td class="num grp-kpi">${pct1(m.kpi.TACOS)}</td>
+      <td class="num grp-actual" style="color:${v.GMV}">${fmtMoney(m.act.GMV)}</td><td class="num grp-actual" style="color:${v.RS}">${fmtInt(m.act.RS)}</td><td class="num grp-actual" style="color:${v.AdsSpend}">${fmtMoney(m.act.AdsSpend)}</td><td class="num grp-actual">${fmtMoney(m.act.AdsGMV)}</td><td class="num grp-actual">${fmtInt(m.act.AdsRS)}</td><td class="num grp-actual" style="color:${v.TACOS}">${pct1(m.act.ACOS)}</td><td class="num grp-actual" style="color:${v.TACOS}">${pct1(m.act.TACOS)}</td>
+      <td class="num grp-remain">${fmtMoney(m.remain.GMV)}</td><td class="num grp-remain">${fmtInt(m.remain.RS)}</td><td class="num grp-remain">${fmtMoney(m.remain.AdsSpend)}</td><td class="num grp-remain">${pct1(m.remain.TACOS)}</td>
+      <td class="num grp-ach" style="color:${v.GMV}">${pct0(m.achievement.GMV)}</td><td class="num grp-ach" style="color:${v.RS}">${pct0(m.achievement.RS)}</td><td class="num grp-ach" style="color:${v.AdsSpend}">${pct0(m.achievement.AdsSpend)}</td><td class="num grp-ach" style="color:${v.TACOS}">${pct0(m.achievement.TACOS)}</td>
     </tr>`;
   }).join('');
 
   const total = computeAdsMetrics(rows, fromVal, toVal);
+  const tv = adsVerdicts(total);
   const totalHtml = `<tr style="background:#F5F7FA;font-weight:700">
     <td>TOTAL</td>
-    <td class="num">${fmtMoney(total.kpi.GMV)}</td><td class="num">${fmtInt(total.kpi.RS)}</td><td class="num">${fmtMoney(total.kpi.AdsSpend)}</td><td class="num">${pct1(total.kpi.TACOS)}</td>
-    <td class="num">${fmtMoney(total.act.GMV)}</td><td class="num">${fmtInt(total.act.RS)}</td><td class="num">${fmtMoney(total.act.AdsSpend)}</td><td class="num">${fmtMoney(total.act.AdsGMV)}</td><td class="num">${fmtInt(total.act.AdsRS)}</td><td class="num">${pct1(total.act.ACOS)}</td><td class="num">${pct1(total.act.TACOS)}</td>
-    <td class="num">${fmtMoney(total.remain.GMV)}</td><td class="num">${fmtInt(total.remain.RS)}</td><td class="num">${fmtMoney(total.remain.AdsSpend)}</td><td class="num">${pct1(total.remain.TACOS)}</td>
-    <td class="num">${pct0(total.achievement.GMV)}</td><td class="num">${pct0(total.achievement.RS)}</td><td class="num">${pct0(total.achievement.AdsSpend)}</td><td class="num">${pct0(total.achievement.TACOS)}</td>
+    <td class="num grp-kpi">${fmtMoney(total.kpi.GMV)}</td><td class="num grp-kpi">${fmtInt(total.kpi.RS)}</td><td class="num grp-kpi">${fmtMoney(total.kpi.AdsSpend)}</td><td class="num grp-kpi">${pct1(total.kpi.TACOS)}</td>
+    <td class="num grp-actual" style="color:${tv.GMV}">${fmtMoney(total.act.GMV)}</td><td class="num grp-actual" style="color:${tv.RS}">${fmtInt(total.act.RS)}</td><td class="num grp-actual" style="color:${tv.AdsSpend}">${fmtMoney(total.act.AdsSpend)}</td><td class="num grp-actual">${fmtMoney(total.act.AdsGMV)}</td><td class="num grp-actual">${fmtInt(total.act.AdsRS)}</td><td class="num grp-actual" style="color:${tv.TACOS}">${pct1(total.act.ACOS)}</td><td class="num grp-actual" style="color:${tv.TACOS}">${pct1(total.act.TACOS)}</td>
+    <td class="num grp-remain">${fmtMoney(total.remain.GMV)}</td><td class="num grp-remain">${fmtInt(total.remain.RS)}</td><td class="num grp-remain">${fmtMoney(total.remain.AdsSpend)}</td><td class="num grp-remain">${pct1(total.remain.TACOS)}</td>
+    <td class="num grp-ach" style="color:${tv.GMV}">${pct0(total.achievement.GMV)}</td><td class="num grp-ach" style="color:${tv.RS}">${pct0(total.achievement.RS)}</td><td class="num grp-ach" style="color:${tv.AdsSpend}">${pct0(total.achievement.AdsSpend)}</td><td class="num grp-ach" style="color:${tv.TACOS}">${pct0(total.achievement.TACOS)}</td>
   </tr>`;
 
   document.getElementById('adsOverviewBody').innerHTML = totalHtml + rowsHtml ||
@@ -1134,12 +1159,13 @@ function adsDetailRowHTML(level, key, label, pic, m, expanded, expandable){
     ? `<span class="ads-toggle" data-key="${key.replace(/"/g,'&quot;')}" style="cursor:pointer;display:inline-block;width:14px">${expanded?'▾':'▸'}</span>`
     : '<span style="display:inline-block;width:14px"></span>';
   const weight = level===0 ? 'font-weight:700' : (level===1 ? 'font-weight:600' : '');
+  const v = adsVerdicts(m);
   return `<tr style="${weight}">
     <td style="padding-left:${8+indent}px">${arrow}${label}</td>
     <td>${pic||''}</td>
-    <td class="num">${fmtMoney(m.kpi.GMV)}</td><td class="num">${fmtInt(m.kpi.RS)}</td><td class="num">${fmtMoney(m.kpi.AdsSpend)}</td><td class="num">${pct1(m.kpi.TACOS)}</td>
-    <td class="num">${fmtMoney(m.act.GMV)}</td><td class="num">${fmtInt(m.act.RS)}</td><td class="num">${fmtMoney(m.act.AdsSpend)}</td><td class="num">${pct1(m.act.ACOS)}</td><td class="num">${pct1(m.act.TACOS)}</td><td class="num">${pct1(m.act.pctAdsGMV)}</td><td class="num">${fmtMoney2(m.act.AdsCPU)}</td>
-    <td class="num">${pct0(m.achievement.GMV)}</td><td class="num">${pct0(m.achievement.RS)}</td><td class="num">${pct0(m.achievement.AdsSpend)}</td><td class="num">${pct0(m.achievement.TACOS)}</td>
+    <td class="num grp-kpi">${fmtMoney(m.kpi.GMV)}</td><td class="num grp-kpi">${fmtInt(m.kpi.RS)}</td><td class="num grp-kpi">${fmtMoney(m.kpi.AdsSpend)}</td><td class="num grp-kpi">${pct1(m.kpi.TACOS)}</td>
+    <td class="num grp-actual" style="color:${v.GMV}">${fmtMoney(m.act.GMV)}</td><td class="num grp-actual" style="color:${v.RS}">${fmtInt(m.act.RS)}</td><td class="num grp-actual" style="color:${v.AdsSpend}">${fmtMoney(m.act.AdsSpend)}</td><td class="num grp-actual" style="color:${v.TACOS}">${pct1(m.act.ACOS)}</td><td class="num grp-actual" style="color:${v.TACOS}">${pct1(m.act.TACOS)}</td><td class="num grp-actual">${pct1(m.act.pctAdsGMV)}</td><td class="num grp-actual">${fmtMoney2(m.act.AdsCPU)}</td>
+    <td class="num grp-ach" style="color:${v.GMV}">${pct0(m.achievement.GMV)}</td><td class="num grp-ach" style="color:${v.RS}">${pct0(m.achievement.RS)}</td><td class="num grp-ach" style="color:${v.AdsSpend}">${pct0(m.achievement.AdsSpend)}</td><td class="num grp-ach" style="color:${v.TACOS}">${pct0(m.achievement.TACOS)}</td>
   </tr>`;
 }
 
