@@ -1,0 +1,6 @@
+# Never commit real business data or secrets to this public repo.
+*_upsert.sql
+*.xlsx
+*.xls
+*.csv
+.env

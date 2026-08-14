@@ -468,9 +468,27 @@ function addMonthsIso(iso, n){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';
 }
 
+// Supabase/PostgREST caps every query at 1000 rows by default. sales_daily
+// alone can exceed that within a single month (171 SKUs x 31 days), so any
+// query against skus/targets_monthly/sales_daily must page through with
+// .range() or rows silently go missing (this bit us: Aug data was short by
+// ~150 rows, scattered across several days, until this fix).
+async function fetchAllRows(makeQuery){
+  const pageSize = 1000;
+  let from = 0;
+  let all = [];
+  while(true){
+    const {data, error} = await makeQuery().range(from, from+pageSize-1);
+    if(error) throw error;
+    all = all.concat(data||[]);
+    if(!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 async function fetchMonths(){
-  const {data, error} = await sb.from('targets_monthly').select('month').order('month', {ascending:true});
-  if(error) throw error;
+  const data = await fetchAllRows(()=> sb.from('targets_monthly').select('month').order('month', {ascending:true}));
   return [...new Set((data||[]).map(r=>r.month))];
 }
 
@@ -480,12 +498,11 @@ async function fetchMonths(){
 async function loadMonth(monthIso){
   const nextMonth = addMonthsIso(monthIso, 1);
 
-  const [{data: skus, error: e1}, {data: targets, error: e2}, {data: sales, error: e3}] = await Promise.all([
-    sb.from('skus').select('*'),
-    sb.from('targets_monthly').select('*').eq('month', monthIso),
-    sb.from('sales_daily').select('*').gte('date', monthIso).lt('date', nextMonth),
+  const [skus, targets, sales] = await Promise.all([
+    fetchAllRows(()=> sb.from('skus').select('*')),
+    fetchAllRows(()=> sb.from('targets_monthly').select('*').eq('month', monthIso)),
+    fetchAllRows(()=> sb.from('sales_daily').select('*').gte('date', monthIso).lt('date', nextMonth)),
   ]);
-  if(e1) throw e1; if(e2) throw e2; if(e3) throw e3;
 
   const targetBySku = {}; (targets||[]).forEach(t=>{ targetBySku[t.sku] = t; });
   const salesBySku = {};
