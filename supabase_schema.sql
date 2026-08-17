@@ -13,6 +13,7 @@ create extension if not exists pgcrypto;
 create table if not exists skus (
   sku            text primary key,
   product_name   text,
+  asin           text,  -- for linking SKU -> amazon.com/dp/<asin> in the dashboard
   pic            text,
   main_pl        text,
   sub_pl         text,

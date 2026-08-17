@@ -540,7 +540,7 @@ async function loadMonth(monthIso){
     const mktRunratePct = mktTarget ? +(mktRunrateProj/mktTarget*100).toFixed(1) : 0;
 
     return {
-      sku: sk.sku, pic: sk.pic || 'Unassigned', productName: sk.product_name,
+      sku: sk.sku, asin: sk.asin || '', pic: sk.pic || 'Unassigned', productName: sk.product_name,
       mainPL: sk.main_pl || 'Unclassified', subPL: sk.sub_pl || 'Unclassified',
       lifecycle: sk.lifecycle, sellingType: sk.selling_type, asinStatus: sk.asin_status,
       salableY4A: sk.salable_y4a || 0, salableAMZ: sk.salable_amz || 0,
@@ -992,9 +992,12 @@ function renderTable(rows){
     const gmvPace = paceInfo(r.gmvRunratePct);
     const mktPace = paceInfo(r.mktRunratePct);
     const flag = (!r.inTargetFile) ? '<span class="tag" style="background:#FBEAEA;color:#D64545">No target</span>' : (!r.inSalesData ? '<span class="tag" style="background:#FBF3DF;color:#B8860B">No sales data</span>' : '');
+    const skuCell = r.asin
+      ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(r.asin)}" target="_blank" rel="noopener noreferrer" title="Open ${r.asin} on Amazon" style="color:var(--navy);font-weight:700;text-decoration:none;border-bottom:1px dashed var(--navy)">${r.sku}</a>`
+      : `<b>${r.sku}</b>`;
     return `<tr>
       <td>${r.pic}</td><td>${r.mainPL}</td><td>${r.subPL}</td>
-      <td><b>${r.sku}</b> ${flag}</td>
+      <td>${skuCell} ${flag}</td>
       <td class="name-cell" title="${(r.productName||'').replace(/"/g,'&quot;')}">${r.productName||''}</td>
       <td>${r.channel}</td><td>${r.portfolio}</td><td>${r.mocBand}</td>
       <td class="num">${fmtInt(r.salableY4A)}</td>

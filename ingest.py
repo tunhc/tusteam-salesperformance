@@ -207,9 +207,11 @@ def ingest_followup(path, sheet="Tracking (2)"):
         sku = str(sku).strip()
         if sku in rows:
             continue  # same SKU repeated under multiple ASINs — identity fields are identical
+        asin = ws.cell(row=r, column=3).value
         rows[sku] = {
             "sku": sku,
             "product_name": ws.cell(row=r, column=5).value,
+            "asin": str(asin).strip() if asin else None,
             "pic": ws.cell(row=r, column=1).value or "Unassigned",
             "sub_pl": ws.cell(row=r, column=6).value or "Unclassified",
             "main_pl": ws.cell(row=r, column=7).value or "Unclassified",
