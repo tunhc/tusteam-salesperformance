@@ -395,7 +395,7 @@ tbody tr:hover{background:#FFF3EA}
 
   <div class="card">
     <h3 style="margin:0 0 4px">Top Movers — GMV, trailing 7 days vs prior 7 days</h3>
-    <div class="hint">Ranked by dollar change between the two most recent 7-day windows of loaded data. Needs 14+ days of sales data this month to appear here.</div>
+    <div class="hint">Ranked by dollar change between the two most recent 7-day windows of sales history (reaches back into the prior month if needed, so this works from day 1 of a new month too). Shows N/A only for a SKU with no sales history at all yet.</div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
       <div style="flex:1;min-width:340px">
         <h4 style="margin:0 0 6px;color:var(--red);font-size:13px;font-weight:800">▼ Biggest Decliners</h4>
@@ -582,11 +582,18 @@ async function fetchMonths(){
 // dashboard already expects.
 async function loadMonth(monthIso){
   const nextMonth = addMonthsIso(monthIso, 1);
+  // Extra 13 days *before* the selected month, fetched only so Trend (below)
+  // can compare two full 7-day windows even during the first ~2 weeks of a
+  // new month, instead of going dark every month until day 14. Not merged
+  // into `daily` — charts/DOC/date-range filters stay scoped to the selected
+  // month exactly as before.
+  const trendLookbackStart = addDaysIso(monthIso, -13);
 
-  const [skus, targets, sales] = await Promise.all([
+  const [skus, targets, sales, prevSales] = await Promise.all([
     fetchAllRows(()=> sb.from('skus').select('*')),
     fetchAllRows(()=> sb.from('targets_monthly').select('*').eq('month', monthIso)),
     fetchAllRows(()=> sb.from('sales_daily').select('*').gte('date', monthIso).lt('date', nextMonth)),
+    fetchAllRows(()=> sb.from('sales_daily').select('sku,date,gmv').gte('date', trendLookbackStart).lt('date', monthIso)),
   ]);
 
   const targetBySku = {}; (targets||[]).forEach(t=>{ targetBySku[t.sku] = t; });
@@ -594,6 +601,11 @@ async function loadMonth(monthIso){
   (sales||[]).forEach(s=>{
     const arr = (salesBySku[s.sku] = salesBySku[s.sku] || []);
     arr.push(s);
+  });
+  const prevSalesBySku = {};
+  (prevSales||[]).forEach(s=>{
+    const arr = (prevSalesBySku[s.sku] = prevSalesBySku[s.sku] || []);
+    arr.push({date:s.date, gmv:s.gmv||0});
   });
 
   let maxDate = null;
@@ -653,16 +665,20 @@ async function loadMonth(monthIso){
     const stockoutDate = Number.isFinite(docDays) && docDays > 0 ? addDaysIso(asOfDate, Math.round(docDays)) : null;
 
     // Trend (Product Performance tab): trailing-7-day GMV vs the preceding
-    // 7-day window, both within this month's loaded data. Needs 14+ elapsed
-    // days this month for a full "prior" window to exist — before that,
-    // trend stays N/A rather than comparing partial/empty windows.
+    // 7-day window. Uses this month's daily data PLUS the trailing-13-days
+    // lookback fetched above, so the two 7-day windows are real calendar
+    // windows ending at asOfDate — available from day 1 of a new month
+    // (reaching back into the prior month) instead of going N/A until day 14
+    // every single month. Only stays N/A if there's no data at all yet
+    // covering either window (e.g. a brand-new SKU with zero sales history).
     let trailing7Gmv = null, prior7Gmv = null, trendPct = null, trendLabel = 'N/A';
-    if(daysElapsed >= 14 && daily.length){
+    const trendSource = (prevSalesBySku[sk.sku] || []).concat(daily.map(d=>({date:d.date, gmv:d.gmv})));
+    if(asOfDate && trendSource.length){
       const w1Start = addDaysIso(asOfDate, -6);
       const w2End = addDaysIso(asOfDate, -7);
       const w2Start = addDaysIso(asOfDate, -13);
-      trailing7Gmv = +daily.filter(d=> d.date>=w1Start && d.date<=asOfDate).reduce((s,d)=>s+d.gmv,0).toFixed(2);
-      prior7Gmv = +daily.filter(d=> d.date>=w2Start && d.date<=w2End).reduce((s,d)=>s+d.gmv,0).toFixed(2);
+      trailing7Gmv = +trendSource.filter(d=> d.date>=w1Start && d.date<=asOfDate).reduce((s,d)=>s+d.gmv,0).toFixed(2);
+      prior7Gmv = +trendSource.filter(d=> d.date>=w2Start && d.date<=w2End).reduce((s,d)=>s+d.gmv,0).toFixed(2);
       if(prior7Gmv > 0){
         trendPct = +((trailing7Gmv - prior7Gmv) / prior7Gmv * 100).toFixed(1);
         trendLabel = trendPct >= 15 ? 'Growing' : trendPct <= -15 ? 'Declining' : 'Stable';
