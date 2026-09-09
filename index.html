@@ -67,6 +67,11 @@ main{padding:20px 26px 60px}
 .moc-strip .lbl{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-right:4px}
 .moc-chip{display:flex;align-items:center;gap:7px;border-radius:20px;padding:6px 13px;font-weight:700;font-size:12px}
 .moc-chip .n{font-size:15px;font-weight:900}
+.moc-chip.clickable{cursor:pointer;transition:transform .1s,box-shadow .1s;user-select:none}
+.moc-chip.clickable:hover{transform:translateY(-1px)}
+.moc-chip.active{box-shadow:0 0 0 2px currentColor inset}
+.moc-chip.clear-chip{cursor:pointer;font-weight:700}
+.moc-chip.clear-chip:hover{transform:translateY(-1px)}
 
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
@@ -190,6 +195,7 @@ tbody tr:hover{background:#FFF3EA}
 <nav class="tabs">
   <button class="tab-btn active" data-tab="sales">Sales Performance</button>
   <button class="tab-btn" data-tab="ads">Ads Performance</button>
+  <button class="tab-btn" data-tab="perf">Product Performance</button>
   <button class="tab-btn" data-tab="diary">Product Diary</button>
   <button class="tab-btn" data-tab="projects">Projects</button>
 </nav>
@@ -255,6 +261,12 @@ tbody tr:hover{background:#FFF3EA}
   </div>
 
   <div class="card">
+    <h3 style="margin:0 0 4px">Action Code Summary</h3>
+    <div class="hint">Rule-based diagnostics across the filtered SKUs (same trend/DOC/ads data as the Product Performance tab). Click a code to filter the table below to those SKUs; open Product Performance for the full detail + suggested action per SKU.</div>
+    <div class="moc-strip" id="actionCodeStrip" style="margin-bottom:0"></div>
+  </div>
+
+  <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <h3 style="margin:0">SKU Breakdown</h3>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
@@ -267,7 +279,7 @@ tbody tr:hover{background:#FFF3EA}
         <button class="btn small" id="btnExportSku" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
       </div>
     </div>
-    <div class="hint">Click a column header to sort. Table reflects the filters above. Inv = salable inventory units.</div>
+    <div class="hint">Click a column header to sort. Table reflects the filters above, plus the Inventory Health bucket and/or Action Code selected up top (if any). Inv = salable inventory units. DOC (Days of Cover) = (Inv Y4A + Inv AMZ) ÷ trailing 7-day avg units/day — hover a DOC badge for velocity + projected stockout date.</div>
     <div class="tablewrap">
       <table id="skuTable">
         <thead><tr>
@@ -278,7 +290,7 @@ tbody tr:hover{background:#FFF3EA}
           <th data-k="productName">Product Name</th>
           <th data-k="channel">Channel</th>
           <th data-k="portfolio">Portfolio</th>
-          <th data-k="mocBand">MOC Band</th>
+          <th data-k="docDays">DOC (days)</th>
           <th data-k="salableY4A" class="num">Inv Y4A</th>
           <th data-k="salableAMZ" class="num">Inv AMZ</th>
           <th data-k="targetGMV" class="num">Target GMV</th>
@@ -355,6 +367,74 @@ tbody tr:hover{background:#FFF3EA}
           </tr>
         </thead>
         <tbody id="adsDetailBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= TAB: PRODUCT PERFORMANCE ======================= -->
+<section id="view-perf" class="view">
+
+  <div class="filterbar">
+    <div class="fld"><label>PIC</label><select id="perfFPic"><option value="">All</option></select></div>
+    <div class="fld"><label>Main PL</label><select id="perfFMainPL"><option value="">All</option></select></div>
+    <div class="fld"><label>Trend</label>
+      <select id="perfFTrend">
+        <option value="">All</option>
+        <option value="Declining">Declining</option>
+        <option value="Stable">Stable</option>
+        <option value="Growing">Growing</option>
+        <option value="N/A">Not enough data yet</option>
+      </select>
+    </div>
+    <button class="btn" id="perfBtnReset">Reset filters</button>
+    <span class="result-count" id="perfResultCount"></span>
+  </div>
+
+  <div class="moc-strip" id="perfKpiStrip"></div>
+
+  <div class="card">
+    <h3 style="margin:0 0 4px">Top Movers — GMV, trailing 7 days vs prior 7 days</h3>
+    <div class="hint">Ranked by dollar change between the two most recent 7-day windows of loaded data. Needs 14+ days of sales data this month to appear here.</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+      <div style="flex:1;min-width:340px">
+        <h4 style="margin:0 0 6px;color:var(--red);font-size:13px;font-weight:800">▼ Biggest Decliners</h4>
+        <div class="tablewrap"><table>
+          <thead><tr><th>SKU</th><th>PIC</th><th class="num">Prior 7d</th><th class="num">Last 7d</th><th class="num">Δ $</th><th class="num">Δ %</th></tr></thead>
+          <tbody id="perfDeclinersBody"></tbody>
+        </table></div>
+      </div>
+      <div style="flex:1;min-width:340px">
+        <h4 style="margin:0 0 6px;color:var(--green);font-size:13px;font-weight:800">▲ Biggest Growers</h4>
+        <div class="tablewrap"><table>
+          <thead><tr><th>SKU</th><th>PIC</th><th class="num">Prior 7d</th><th class="num">Last 7d</th><th class="num">Δ $</th><th class="num">Δ %</th></tr></thead>
+          <tbody id="perfGrowersBody"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <h3 style="margin:0">Product Performance Detail</h3>
+      <button class="btn small" id="btnExportPerf" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
+    </div>
+    <div class="hint">Click a column header to sort. Trend = trailing 7-day vs prior 7-day GMV. Suggested Action is a rule-based flag (stock risk first, then trend, then ads efficiency) — a starting point, not a final call.</div>
+    <div class="tablewrap">
+      <table id="perfTable">
+        <thead><tr>
+          <th data-k="pic">PIC</th>
+          <th data-k="mainPL">Main PL</th>
+          <th data-k="sku">SKU</th>
+          <th data-k="productName">Product Name</th>
+          <th data-k="trendPct">Trend (7d vs prior)</th>
+          <th data-k="docDays">DOC</th>
+          <th data-k="tacos" class="num">TACOS</th>
+          <th data-k="adsActual" class="num">Ads Spend (MTD)</th>
+          <th data-k="actualGMV" class="num">GMV (MTD)</th>
+          <th>Suggested Action</th>
+        </tr></thead>
+        <tbody id="perfTbody"></tbody>
       </table>
     </div>
   </div>
@@ -467,6 +547,11 @@ function addMonthsIso(iso, n){
   const d = new Date(y, m-1+n, 1);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';
 }
+function addDaysIso(iso, n){
+  const d = new Date(iso+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
 
 // Supabase/PostgREST caps every query at 1000 rows by default. sales_daily
 // alone can exceed that within a single month (171 SKUs x 31 days), so any
@@ -539,6 +624,55 @@ async function loadMonth(monthIso){
     const mktRunrateProj = daysElapsed ? mktActual/daysElapsed*daysInMonth : 0;
     const mktRunratePct = mktTarget ? +(mktRunrateProj/mktTarget*100).toFixed(1) : 0;
 
+    // DOC (Days of Cover) — replaces the old static MOC Band. Velocity is the
+    // trailing-7-calendar-day average units/day ending at DATA.asOfDate (the
+    // freshest date actually loaded for this month; if fewer than 7 days of
+    // this month's data exist yet, e.g. the first few days of a new month,
+    // the window shrinks to whatever days are available rather than reaching
+    // into the prior month). DOC = total salable inventory / that velocity.
+    const totalInv = (sk.salable_y4a || 0) + (sk.salable_amz || 0);
+    const docWindowDays = Math.min(7, daysElapsed || 0);
+    let docVelocity = 0;
+    if(docWindowDays > 0){
+      const winStart = addDaysIso(asOfDate, -(docWindowDays - 1));
+      const winUnits = daily.filter(d=> d.date >= winStart && d.date <= asOfDate).reduce((s,d)=>s+d.units, 0);
+      docVelocity = winUnits / docWindowDays;
+    }
+    let docDays = null;       // null = N/A, Infinity = no recent sales but has stock, else a number
+    let docBand = 'N/A';
+    if(daily.length === 0){
+      docDays = null; docBand = 'N/A';
+    } else if(totalInv <= 0){
+      docDays = 0; docBand = 'OOS';
+    } else if(docVelocity <= 0){
+      docDays = Infinity; docBand = 'DOC >90d';
+    } else {
+      docDays = totalInv / docVelocity;
+      docBand = docDays < 14 ? 'DOC <14d' : docDays < 30 ? 'DOC 14–30d' : docDays < 90 ? 'DOC 30–90d' : 'DOC >90d';
+    }
+    const stockoutDate = Number.isFinite(docDays) && docDays > 0 ? addDaysIso(asOfDate, Math.round(docDays)) : null;
+
+    // Trend (Product Performance tab): trailing-7-day GMV vs the preceding
+    // 7-day window, both within this month's loaded data. Needs 14+ elapsed
+    // days this month for a full "prior" window to exist — before that,
+    // trend stays N/A rather than comparing partial/empty windows.
+    let trailing7Gmv = null, prior7Gmv = null, trendPct = null, trendLabel = 'N/A';
+    if(daysElapsed >= 14 && daily.length){
+      const w1Start = addDaysIso(asOfDate, -6);
+      const w2End = addDaysIso(asOfDate, -7);
+      const w2Start = addDaysIso(asOfDate, -13);
+      trailing7Gmv = +daily.filter(d=> d.date>=w1Start && d.date<=asOfDate).reduce((s,d)=>s+d.gmv,0).toFixed(2);
+      prior7Gmv = +daily.filter(d=> d.date>=w2Start && d.date<=w2End).reduce((s,d)=>s+d.gmv,0).toFixed(2);
+      if(prior7Gmv > 0){
+        trendPct = +((trailing7Gmv - prior7Gmv) / prior7Gmv * 100).toFixed(1);
+        trendLabel = trendPct >= 15 ? 'Growing' : trendPct <= -15 ? 'Declining' : 'Stable';
+      } else if(trailing7Gmv > 0){
+        trendPct = Infinity; trendLabel = 'Growing';
+      } else {
+        trendPct = 0; trendLabel = 'Stable';
+      }
+    }
+
     return {
       sku: sk.sku, asin: sk.asin || '', pic: sk.pic || 'Unassigned', productName: sk.product_name,
       mainPL: sk.main_pl || 'Unclassified', subPL: sk.sub_pl || 'Unclassified',
@@ -546,6 +680,8 @@ async function loadMonth(monthIso){
       salableY4A: sk.salable_y4a || 0, salableAMZ: sk.salable_amz || 0,
       channel: sk.channel || 'N/A', portfolio: sk.portfolio || 'N/A', priority: sk.priority || 'N/A',
       moc: sk.moc || 0, mocBand: sk.moc_band || 'N/A', rrp: sk.rrp || 0,
+      docVelocity, docDays, docBand, stockoutDate,
+      trailing7Gmv, prior7Gmv, trendPct, trendLabel,
       inTargetFile: !!targetBySku[sk.sku], inSalesData: daily.length > 0,
       targetUnits, actualUnits, gmvRunrateProj, gmvRunratePct,
       targetGMV, actualGMV, adsTarget, promoTarget, mktTarget,
@@ -819,19 +955,80 @@ function aggregate(rows, key){
 function runrateProj(actual){ return EFFECTIVE_DAYS_ELAPSED ? actual/EFFECTIVE_DAYS_ELAPSED*EFFECTIVE_DAYS_TOTAL : 0; }
 function runratePct(actual, target){ const p = runrateProj(actual); return target ? p/target*100 : 0; }
 
+let mocBandFilter = null;
+
 function renderMocStrip(rows){
   const order = [
     {band:'OOS', color:COLOR.red, bg:'#FBEAEA'},
-    {band:'MOC ≤3', color:COLOR.amber, bg:'#FBF3DF'},
-    {band:'MOC 3–6', color:COLOR.navy, bg:'#E9EEF5'},
-    {band:'MOC >6', color:COLOR.green, bg:'#E7F5EE'},
+    {band:'DOC <14d', color:COLOR.red, bg:'#FBEAEA'},
+    {band:'DOC 14–30d', color:COLOR.amber, bg:'#FBF3DF'},
+    {band:'DOC 30–90d', color:COLOR.green, bg:'#E7F5EE'},
+    {band:'DOC >90d', color:COLOR.navy, bg:'#E9EEF5'},
     {band:'N/A', color:'#66707C', bg:'#EEF1F5'},
   ];
   const counts = {};
-  rows.forEach(r=>{ counts[r.mocBand] = (counts[r.mocBand]||0)+1; });
-  document.getElementById('mocStrip').innerHTML = '<span class="lbl">Inventory health (MOC band, SKU count)</span>' +
-    order.map(o=>`<span class="moc-chip" style="background:${o.bg};color:${o.color}"><span class="n">${counts[o.band]||0}</span> ${o.band}</span>`).join('');
+  rows.forEach(r=>{ counts[r.docBand] = (counts[r.docBand]||0)+1; });
+  document.getElementById('mocStrip').innerHTML = '<span class="lbl">Inventory health (Days of Cover, trailing 7-day velocity, SKU count) — click a bucket to filter the table below</span>' +
+    order.map(o=>{
+      const active = mocBandFilter === o.band;
+      return `<span class="moc-chip clickable${active?' active':''}" data-band="${o.band}" style="background:${o.bg};color:${o.color}"><span class="n">${counts[o.band]||0}</span> ${o.band}</span>`;
+    }).join('') +
+    (mocBandFilter ? `<span class="moc-chip clear-chip" data-clear="1" style="background:#fff;color:#66707C;border:1px dashed #C7CFDA">&times; Clear</span>` : '');
 }
+
+document.getElementById('mocStrip').addEventListener('click', (e)=>{
+  const chip = e.target.closest('.moc-chip');
+  if(!chip) return;
+  if(chip.dataset.clear){ mocBandFilter = null; renderAll(); return; }
+  const band = chip.dataset.band;
+  if(!band) return;
+  mocBandFilter = (mocBandFilter === band) ? null : band;
+  renderAll();
+});
+
+// ---- Action Code Summary (Sales Performance tab) ----------------------
+// Independent rule-based flags over the same trend/DOC/ads fields already
+// computed per-row in loadMonth(). Unlike suggestAction() (one verdict per
+// SKU, used in the Product Performance detail table), these can overlap —
+// a SKU can be both "low cover" and "ads still running" at once, which is
+// exactly the kind of cross-cutting question Rachel asked for.
+let actionCodeFilter = null;
+
+const ACTION_FLAGS = [
+  {key:'oos', label:'OOS — restock now', color:COLOR.red, bg:'#FBEAEA',
+    test:r=>r.docBand==='OOS'},
+  {key:'lowcover_ads', label:'Low cover (<14d) + ads still running', color:COLOR.red, bg:'#FBEAEA',
+    test:r=>(r.docBand==='OOS'||r.docBand==='DOC <14d') && r.adsActual>0},
+  {key:'overstock_noads', label:'Overstock (>90d) + no ads/promo pushed', color:COLOR.navy, bg:'#E9EEF5',
+    test:r=>r.docBand==='DOC >90d' && !(r.adsActual>0) && !(r.promoActual>0)},
+  {key:'declining_hightacos', label:'Declining + high TACOS (>15%)', color:COLOR.amber, bg:'#FBF3DF',
+    test:r=>r.trendLabel==='Declining' && r.actualGMV>0 && (r.adsActual/r.actualGMV*100)>15},
+  {key:'declining_noads', label:'Declining + no ads running', color:COLOR.amber, bg:'#FBF3DF',
+    test:r=>r.trendLabel==='Declining' && !(r.adsActual>0)},
+  {key:'growing', label:'Growing — scale candidate', color:COLOR.green, bg:'#E7F5EE',
+    test:r=>r.trendLabel==='Growing'},
+];
+
+function renderActionCodeStrip(rows){
+  const counts = {};
+  ACTION_FLAGS.forEach(f=>{ counts[f.key] = rows.filter(f.test).length; });
+  document.getElementById('actionCodeStrip').innerHTML =
+    ACTION_FLAGS.map(f=>{
+      const active = actionCodeFilter === f.key;
+      return `<span class="moc-chip clickable${active?' active':''}" data-code="${f.key}" style="background:${f.bg};color:${f.color}"><span class="n">${counts[f.key]}</span> ${f.label}</span>`;
+    }).join('') +
+    (actionCodeFilter ? `<span class="moc-chip clear-chip" data-clear="1" style="background:#fff;color:#66707C;border:1px dashed #C7CFDA">&times; Clear</span>` : '');
+}
+
+document.getElementById('actionCodeStrip').addEventListener('click', (e)=>{
+  const chip = e.target.closest('.moc-chip');
+  if(!chip) return;
+  if(chip.dataset.clear){ actionCodeFilter = null; renderAll(); return; }
+  const code = chip.dataset.code;
+  if(!code) return;
+  actionCodeFilter = (actionCodeFilter === code) ? null : code;
+  renderAll();
+});
 
 function renderKPIs(rows, fullRows){
   const t = { targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0 };
@@ -995,11 +1192,18 @@ function renderTable(rows){
     const skuCell = r.asin
       ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(r.asin)}" target="_blank" rel="noopener noreferrer" title="Open ${r.asin} on Amazon" style="color:var(--navy);font-weight:700;text-decoration:none;border-bottom:1px dashed var(--navy)">${r.sku}</a>`
       : `<b>${r.sku}</b>`;
+    const docCls = r.docBand==='OOS' || r.docBand==='DOC <14d' ? 'red' : r.docBand==='DOC 14–30d' ? 'amber' : r.docBand==='DOC 30–90d' ? 'green' : 'gray';
+    const docLabel = r.docDays===null ? 'N/A' : r.docDays===0 ? 'OOS' : !Number.isFinite(r.docDays) ? '∞' : Math.round(r.docDays)+'d';
+    const docTitle = r.docDays===null ? 'No sales data this month to compute velocity'
+      : r.docDays===0 ? 'Out of stock (0 units salable)'
+      : !Number.isFinite(r.docDays) ? 'No sales in the last 7 days — has stock, will not run out at current pace'
+      : `Trailing 7-day velocity: ${r.docVelocity.toFixed(2)} units/day. Projected stockout: ${r.stockoutDate}`;
+    const docCell = `<span class="badge ${docCls}" title="${docTitle}">${docLabel}</span>`;
     return `<tr>
       <td>${r.pic}</td><td>${r.mainPL}</td><td>${r.subPL}</td>
       <td>${skuCell} ${flag}</td>
       <td class="name-cell" title="${(r.productName||'').replace(/"/g,'&quot;')}">${r.productName||''}</td>
-      <td>${r.channel}</td><td>${r.portfolio}</td><td>${r.mocBand}</td>
+      <td>${r.channel}</td><td>${r.portfolio}</td><td>${docCell}</td>
       <td class="num">${fmtInt(r.salableY4A)}</td>
       <td class="num">${fmtInt(r.salableAMZ)}</td>
       <td class="num">${fmtMoney(r.targetGMV)}</td>
@@ -1027,9 +1231,16 @@ function renderAll(){
   const rangedRows = applyDateRange(filtered);
   document.getElementById('resultCount').textContent = rangedRows.length + ' / ' + ROWS.length + ' SKU';
   renderMocStrip(rangedRows);
+  renderActionCodeStrip(rangedRows);
   renderKPIs(rangedRows, filtered);
   renderCharts(rangedRows);
-  renderTable(applyQuickFilters(rangedRows));
+  let tableRows = applyQuickFilters(rangedRows);
+  if(mocBandFilter) tableRows = tableRows.filter(r=>r.docBand===mocBandFilter);
+  if(actionCodeFilter){
+    const flag = ACTION_FLAGS.find(f=>f.key===actionCodeFilter);
+    if(flag) tableRows = tableRows.filter(flag.test);
+  }
+  renderTable(tableRows);
 }
 
 // Export exactly what's on screen (current filters + sort) to a .xlsx file
@@ -1037,7 +1248,9 @@ function exportSkuTable(){
   if(!lastSortedRows.length){ alert('No rows to export — adjust your filters first.'); return; }
   const data = lastSortedRows.map(r=>({
     'PIC': r.pic, 'Main PL': r.mainPL, 'Sub PL': r.subPL, 'SKU': r.sku, 'Product Name': r.productName||'',
-    'Channel': r.channel, 'Portfolio': r.portfolio, 'MOC Band': r.mocBand,
+    'Channel': r.channel, 'Portfolio': r.portfolio,
+    'DOC (days)': r.docDays===null ? 'N/A' : r.docDays===0 ? 'OOS' : !Number.isFinite(r.docDays) ? '999+' : Math.round(r.docDays),
+    'DOC Band': r.docBand, 'Stockout Date': r.stockoutDate || '',
     'Inv Y4A': r.salableY4A, 'Inv AMZ': r.salableAMZ,
     'Target GMV': r.targetGMV, 'Actual GMV': r.actualGMV, 'GMV Run-rate %': +r.gmvRunratePct.toFixed(1),
     'Target MKT $': r.mktTarget, 'Actual MKT $': r.mktActual, 'MKT Run-rate %': +r.mktRunratePct.toFixed(1),
@@ -1243,6 +1456,152 @@ function renderAdsTab(){
   renderAdsOverview(rows, fromVal, toVal);
   renderAdsDetail(rows, fromVal, toVal);
 }
+
+// ================= PRODUCT PERFORMANCE =================
+let perfSortKey = 'trendPct', perfSortDir = 1; // ascending by default: worst decliners float to the top
+
+function perfGetFilteredRows(){
+  const pic = document.getElementById('perfFPic').value;
+  const mpl = document.getElementById('perfFMainPL').value;
+  const trend = document.getElementById('perfFTrend').value;
+  return ROWS.filter(r=>
+    (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!trend || r.trendLabel===trend)
+  );
+}
+
+function refreshPerfSelects(){
+  document.getElementById('perfFPic').innerHTML = '<option value="">All</option>';
+  fillSelect('perfFPic', uniq('pic'));
+  document.getElementById('perfFMainPL').innerHTML = '<option value="">All</option>';
+  fillSelect('perfFMainPL', uniq('mainPL'));
+}
+
+// Rule-based flag: stock risk first (can't sell what you don't have / dead
+// capital sitting in overstock), then trend, then whether ads spend lines up
+// with the trend. Meant as a starting point for the team to triage, not a
+// final verdict — always sanity-check against listing/competition context.
+function suggestAction(r){
+  if(r.docBand==='OOS') return {label:'Restock now — OOS', cls:'red'};
+  if(r.docBand==='DOC <14d') return {label:'Reorder soon (<14d cover)', cls:'red'};
+  if(r.trendLabel==='Declining' && r.docBand==='DOC >90d') return {label:'Overstock — push promo / clear', cls:'gray'};
+  const tacos = r.actualGMV ? (r.adsActual/r.actualGMV*100) : null;
+  if(r.trendLabel==='Declining' && r.adsActual>0 && tacos!==null && tacos>15) return {label:'Declining + high TACOS — review ads/price', cls:'amber'};
+  if(r.trendLabel==='Declining' && !(r.adsActual>0)) return {label:'Declining, no ads running — consider launching', cls:'amber'};
+  if(r.trendLabel==='Declining') return {label:'Declining — check listing/competition/price', cls:'amber'};
+  if(r.trendLabel==='Growing') return {label:'Growing — maintain / scale', cls:'green'};
+  if(r.trendLabel==='Stable') return {label:'Stable — monitor', cls:'gray'};
+  return {label:'Not enough data yet', cls:'gray'};
+}
+
+function renderPerfKpiStrip(rows){
+  const c = {Declining:0, Stable:0, Growing:0, atRisk:0, overstock:0};
+  rows.forEach(r=>{
+    if(r.trendLabel==='Declining') c.Declining++;
+    else if(r.trendLabel==='Stable') c.Stable++;
+    else if(r.trendLabel==='Growing') c.Growing++;
+    if(r.docBand==='OOS' || r.docBand==='DOC <14d') c.atRisk++;
+    if(r.docBand==='DOC >90d') c.overstock++;
+  });
+  const chips = [
+    {n:c.Declining, label:'Declining', color:COLOR.red, bg:'#FBEAEA'},
+    {n:c.Stable, label:'Stable', color:'#66707C', bg:'#EEF1F5'},
+    {n:c.Growing, label:'Growing', color:COLOR.green, bg:'#E7F5EE'},
+    {n:c.atRisk, label:'Stock risk (OOS/<14d)', color:COLOR.red, bg:'#FBEAEA'},
+    {n:c.overstock, label:'Overstock (>90d)', color:COLOR.navy, bg:'#E9EEF5'},
+  ];
+  document.getElementById('perfKpiStrip').innerHTML = '<span class="lbl">Product health (this view, SKU count)</span>' +
+    chips.map(o=>`<span class="moc-chip" style="background:${o.bg};color:${o.color}"><span class="n">${o.n}</span> ${o.label}</span>`).join('');
+}
+
+function perfMoverRowHTML(r, delta){
+  return `<tr><td><b>${r.sku}</b></td><td>${r.pic}</td>
+    <td class="num">${fmtMoney(r.prior7Gmv)}</td><td class="num">${fmtMoney(r.trailing7Gmv)}</td>
+    <td class="num" style="color:${delta<0?COLOR.red:COLOR.green};font-weight:700">${delta<0?'-':'+'}${fmtMoney(Math.abs(delta))}</td>
+    <td class="num" style="color:${delta<0?COLOR.red:COLOR.green};font-weight:700">${Number.isFinite(r.trendPct)?(r.trendPct>0?'+':'')+r.trendPct.toFixed(1)+'%':'new'}</td>
+  </tr>`;
+}
+
+function renderPerfMovers(rows){
+  const withTrend = rows.filter(r=>r.trendLabel!=='N/A');
+  const byDelta = withTrend.map(r=>({r, delta:+(r.trailing7Gmv - r.prior7Gmv).toFixed(2)}));
+  const decliners = byDelta.filter(x=>x.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,10);
+  const growers = byDelta.filter(x=>x.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,10);
+  document.getElementById('perfDeclinersBody').innerHTML = decliners.map(x=>perfMoverRowHTML(x.r, x.delta)).join('')
+    || '<tr><td colspan="6" style="text-align:center;padding:16px;color:#66707C">No decliners in this view</td></tr>';
+  document.getElementById('perfGrowersBody').innerHTML = growers.map(x=>perfMoverRowHTML(x.r, x.delta)).join('')
+    || '<tr><td colspan="6" style="text-align:center;padding:16px;color:#66707C">No growers in this view</td></tr>';
+}
+
+let lastSortedPerfRows = [];
+function renderPerfTable(rows){
+  const sorted = [...rows].sort((a,b)=>{
+    let va = a[perfSortKey], vb = b[perfSortKey];
+    if(perfSortKey==='tacos'){ va = a.actualGMV? a.adsActual/a.actualGMV*100 : -1; vb = b.actualGMV? b.adsActual/b.actualGMV*100 : -1; }
+    if(typeof va === 'string') return perfSortDir*va.localeCompare(vb);
+    va = Number.isFinite(va) ? va : (va===Infinity?1e15:-1e15);
+    vb = Number.isFinite(vb) ? vb : (vb===Infinity?1e15:-1e15);
+    return perfSortDir*((va||0)-(vb||0));
+  });
+  lastSortedPerfRows = sorted;
+  document.getElementById('perfTbody').innerHTML = sorted.map(r=>{
+    const skuCell = r.asin
+      ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(r.asin)}" target="_blank" rel="noopener noreferrer" title="Open ${r.asin} on Amazon" style="color:var(--navy);font-weight:700;text-decoration:none;border-bottom:1px dashed var(--navy)">${r.sku}</a>`
+      : `<b>${r.sku}</b>`;
+    const trendCls = r.trendLabel==='Declining' ? 'red' : r.trendLabel==='Growing' ? 'green' : r.trendLabel==='Stable' ? 'gray' : 'gray';
+    const trendLbl = r.trendLabel==='N/A' ? 'N/A' : (Number.isFinite(r.trendPct) ? (r.trendPct>0?'+':'')+r.trendPct.toFixed(1)+'%' : 'new') + ' ' + r.trendLabel;
+    const docCls = r.docBand==='OOS' || r.docBand==='DOC <14d' ? 'red' : r.docBand==='DOC 14–30d' ? 'amber' : r.docBand==='DOC 30–90d' ? 'green' : 'gray';
+    const docLabel = r.docDays===null ? 'N/A' : r.docDays===0 ? 'OOS' : !Number.isFinite(r.docDays) ? '∞' : Math.round(r.docDays)+'d';
+    const tacos = r.actualGMV ? (r.adsActual/r.actualGMV*100) : null;
+    const action = suggestAction(r);
+    return `<tr>
+      <td>${r.pic}</td><td>${r.mainPL}</td>
+      <td>${skuCell}</td>
+      <td class="name-cell" title="${(r.productName||'').replace(/"/g,'&quot;')}">${r.productName||''}</td>
+      <td><span class="badge ${trendCls}">${trendLbl}</span></td>
+      <td><span class="badge ${docCls}">${docLabel}</span></td>
+      <td class="num">${tacos===null?'—':tacos.toFixed(1)+'%'}</td>
+      <td class="num">${fmtMoney2(r.adsActual)}</td>
+      <td class="num">${fmtMoney2(r.actualGMV)}</td>
+      <td><span class="badge ${action.cls}">${action.label}</span></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10" style="text-align:center;padding:24px;color:#66707C">No SKU matches the current filters</td></tr>';
+}
+
+function renderPerfTab(){
+  if(!ROWS.length) return;
+  const rows = perfGetFilteredRows();
+  document.getElementById('perfResultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
+  renderPerfKpiStrip(rows);
+  renderPerfMovers(rows);
+  renderPerfTable(rows);
+}
+
+function exportPerfTable(){
+  if(!lastSortedPerfRows.length){ alert('No rows to export — adjust your filters first.'); return; }
+  const data = lastSortedPerfRows.map(r=>{
+    const tacos = r.actualGMV ? (r.adsActual/r.actualGMV*100) : null;
+    return {
+      'PIC': r.pic, 'Main PL': r.mainPL, 'SKU': r.sku, 'Product Name': r.productName||'',
+      'Trend %': Number.isFinite(r.trendPct)?r.trendPct:'', 'Trend': r.trendLabel,
+      'DOC (days)': r.docDays===null?'N/A':r.docDays===0?'OOS':!Number.isFinite(r.docDays)?'999+':Math.round(r.docDays),
+      'TACOS %': tacos===null?'':+tacos.toFixed(1),
+      'Ads Spend (MTD)': r.adsActual, 'GMV (MTD)': r.actualGMV,
+      'Suggested Action': suggestAction(r).label,
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Product Performance');
+  XLSX.writeFile(wb, `Yes4All_Product_Performance_${document.getElementById('fMonth').value}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+document.querySelectorAll('#perfTable thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const k = th.dataset.k;
+    if(perfSortKey===k) perfSortDir *= -1; else { perfSortKey=k; perfSortDir=1; }
+    renderPerfTab();
+  });
+});
 
 // ================= PRODUCT DIARY (live — Supabase diary_entries/diary_followups) =================
 function todayISO(){
@@ -1452,6 +1811,8 @@ async function boot(){
     refreshFilterSelects();
     refreshAdsPicSelect();
     renderAdsTab();
+    refreshPerfSelects();
+    renderPerfTab();
 
     monthSel.addEventListener('change', async ()=>{
       await loadMonth(monthSel.value);
@@ -1460,10 +1821,22 @@ async function boot(){
       setAdsDateBounds(monthSel.value);
       refreshFilterSelects();
       refreshAdsPicSelect();
+      refreshPerfSelects();
       adsExpanded.clear();
       renderAll();
       renderAdsTab();
+      renderPerfTab();
     });
+    document.getElementById('perfFPic').addEventListener('change', renderPerfTab);
+    document.getElementById('perfFMainPL').addEventListener('change', renderPerfTab);
+    document.getElementById('perfFTrend').addEventListener('change', renderPerfTab);
+    document.getElementById('perfBtnReset').addEventListener('click', ()=>{
+      document.getElementById('perfFPic').value = '';
+      document.getElementById('perfFMainPL').value = '';
+      document.getElementById('perfFTrend').value = '';
+      renderPerfTab();
+    });
+    document.getElementById('btnExportPerf').addEventListener('click', exportPerfTable);
     document.getElementById('adsFPic').addEventListener('change', renderAdsTab);
     ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));
     document.getElementById('adsExcludeSpt').addEventListener('change', renderAdsTab);
@@ -1492,6 +1865,8 @@ async function boot(){
       document.getElementById('qfInvPositive').checked=false;
       document.getElementById('qfRunratePositive').checked=false;
       document.getElementById('fExcludeSpt').checked=false;
+      mocBandFilter = null;
+      actionCodeFilter = null;
       renderAll();
     });
     document.querySelectorAll('#skuTable thead th').forEach(th=>{
