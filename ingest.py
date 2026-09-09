@@ -315,18 +315,32 @@ def ingest_target(path, month_label=None, month_index=0, sku_filter=None):
 
 def ingest_target_csv(path, month_label=None, sku_filter=None):
     """Ingest target/budget data from a flat CSV export (e.g.
-    'SSO_US_TOTAL_Target_BudgetV2...csv') — the same underlying planning data
-    as the SSO HTML dashboard, but exported as plain columns instead of a
-    compact embedded-JSON payload, so it's more robust to parse and doesn't
-    break if the dashboard's internal schema changes.
-    Expected columns (case-sensitive, as exported): SKU, Product Name,
-    Product Line, Portfolio, MOC, MOC Band, Month, Final Units, Current RRP,
-    Final GMV, Total Ads Budget, Promotion Budget, Channel."""
+    'SSO_US_TOTAL_Target_BudgetV2...csv' or 'SSO_US_SKU_Target_Selected_Months...csv')
+    — the same underlying planning data as the SSO HTML dashboard, but
+    exported as plain columns instead of a compact embedded-JSON payload, so
+    it's more robust to parse and doesn't break if the dashboard's internal
+    schema changes.
+    Column names have varied across exports, so each field is looked up via
+    a list of accepted aliases (first match wins):
+      SKU, Month, Channel, Portfolio  (stable across exports)
+      MOC          <- "MOC" | "MOC Number"
+      MOC Band     <- "MOC Band" | "MOC Label"
+      Current RRP  <- "Current RRP" | "Normal RRP"
+      Final Units, Final GMV  (stable across exports)
+      Total Ads Budget    <- "Total Ads Budget" | "Ads"
+      Promotion Budget    <- "Promotion Budget" | "Promotion"."""
     with open(path, encoding="utf-8-sig", newline="") as f:
         all_rows = list(csv.DictReader(f))
     if not all_rows:
         print("[target-csv] file is empty")
         return
+
+    def pick(row, *keys):
+        for k in keys:
+            v = row.get(k)
+            if v not in (None, ""):
+                return v
+        return None
 
     months_present = sorted(set(r.get("Month", "") for r in all_rows if r.get("Month")))
     target_month_label = month_label or (months_present[0] if len(months_present) == 1 else None)
@@ -353,14 +367,14 @@ def ingest_target_csv(path, month_label=None, sku_filter=None):
         if sku_filter is not None and sku not in sku_filter:
             skipped += 1
             continue
-        rrp = num(row.get("Current RRP"))
+        rrp = num(pick(row, "Current RRP", "Normal RRP"))
         sku_updates.append({
             "sku": sku,
             "channel": row.get("Channel") or "N/A",
             "portfolio": row.get("Portfolio") or "N/A",
             "priority": "N/A",  # not present in this CSV export
-            "moc": num(row.get("MOC")),
-            "moc_band": row.get("MOC Band") or "N/A",
+            "moc": num(pick(row, "MOC", "MOC Number")),
+            "moc_band": pick(row, "MOC Band", "MOC Label") or "N/A",
             "rrp": round(rrp, 2),
             "updated_at": datetime.utcnow().isoformat(),
         })
@@ -369,8 +383,8 @@ def ingest_target_csv(path, month_label=None, sku_filter=None):
             "month": month_date,
             "target_units": num(row.get("Final Units")),
             "target_gmv": round(num(row.get("Final GMV")), 2),
-            "ads_target": round(num(row.get("Total Ads Budget")), 2),
-            "promo_target": round(num(row.get("Promotion Budget")), 2),
+            "ads_target": round(num(pick(row, "Total Ads Budget", "Ads")), 2),
+            "promo_target": round(num(pick(row, "Promotion Budget", "Promotion")), 2),
             "updated_at": datetime.utcnow().isoformat(),
         })
 
@@ -452,6 +466,77 @@ def ingest_sales_excel(path, sheet=None, source_label=None, sku_filter=None):
 
 
 # ---------------------------------------------------------------------------
+# 3b) "RAW DATA TABLE" full-month sales export -> sales_daily
+#     A different export format from the same SSO system (sheet "Export"),
+#     used for bulk/full-month backfills instead of the incremental hourly
+#     extract. Column names and capitalization differ from ingest_sales_excel
+#     (e.g. "Ordered_units" / "Ordered GMV" / "Total ADS" instead of
+#     "ordered_units" / "ordered_gmv" / "total_ads"), and it includes a
+#     trailing per-SKU "Total" row (Day == "Total") that must be skipped —
+#     everything else about the upsert semantics (safe to re-run, overwrites
+#     matching sku+date rows) is identical to ingest_sales_excel.
+# ---------------------------------------------------------------------------
+def ingest_sales_raw_table(path, sheet="Export", source_label=None, sku_filter=None):
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    ws = wb[sheet] if sheet else wb[wb.sheetnames[0]]
+    it = ws.iter_rows(min_row=1, values_only=True)
+    headers = next(it)
+    hidx = {h: i for i, h in enumerate(headers)}
+
+    def f(row, key, default=0.0):
+        if key not in hidx or hidx[key] >= len(row):
+            return default
+        return safe_num(row[hidx[key]], default)
+
+    rows = {}
+    skipped = 0
+    bad_rows = 0
+    for row in it:
+        if len(row) <= hidx["SKU"]:
+            bad_rows += 1
+            continue
+        sku = row[hidx["SKU"]]
+        day = row[hidx["Day"]]
+        if not sku or day is None or str(day).strip().lower() == "total":
+            continue
+        sku = str(sku).strip()
+        if sku_filter is not None and sku not in sku_filter:
+            skipped += 1
+            continue
+        date_str = day.strftime("%Y-%m-%d") if isinstance(day, datetime) else str(day)[:10]
+        key = (sku, date_str)
+        agg = rows.setdefault(key, {
+            "sku": sku, "date": date_str, "units": 0.0, "gmv": 0.0, "ads": 0.0, "promo": 0.0,
+            "ads_gmv": 0.0, "ads_units": 0.0,
+            "category": row[hidx["product_line"]] if "product_line" in hidx and hidx["product_line"] < len(row) else None,
+            "source_file": source_label or os.path.basename(path),
+        })
+        agg["units"] += f(row, "Ordered_units")
+        agg["gmv"] += f(row, "Ordered GMV")
+        agg["ads"] += f(row, "Total ADS")
+        agg["promo"] += f(row, "Total Promo")
+        agg["ads_gmv"] += f(row, "Sb_ordered_nmv") + f(row, "Sd_ordered_nmv") + f(row, "Sp_ordered_nmv")
+        agg["ads_units"] += f(row, "Sb_ordered_units") + f(row, "Sd_ordered_units") + f(row, "Sp_ordered_units")
+    wb.close()
+
+    out = []
+    skus_seen = set()
+    for r in rows.values():
+        for k in ("units", "gmv", "ads", "promo", "ads_gmv", "ads_units"):
+            r[k] = round(r[k], 2)
+        out.append(r)
+        skus_seen.add(r["sku"])
+
+    if sku_filter is not None:
+        print(f"[sales-raw] scoped to {len(skus_seen)} managed SKU(s) / {len(out)} day-rows, skipped {skipped} row(s) outside the filter"
+              + (f", {bad_rows} malformed row(s) ignored" if bad_rows else ""))
+
+    placeholders = [{"sku": s, "updated_at": datetime.utcnow().isoformat()} for s in skus_seen]
+    upsert_rows("skus", placeholders, on_conflict="sku")
+    upsert_rows("sales_daily", out, on_conflict="sku,date")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main():
@@ -478,6 +563,11 @@ def main():
     p_sa.add_argument("--sheet", default=None)
     p_sa.add_argument("--skus-from", default=None, help="path to the follow-up/tracking Excel file — if given, only SKUs found there are ingested")
 
+    p_sr = sub.add_parser("sales-raw", help="'RAW DATA TABLE' full-month sales export (sheet 'Export') -> sales_daily")
+    p_sr.add_argument("path")
+    p_sr.add_argument("--sheet", default="Export")
+    p_sr.add_argument("--skus-from", default=None, help="path to the follow-up/tracking Excel file — if given, only SKUs found there are ingested")
+
     p_cl = sub.add_parser("cleanup", help="One-time: DELETE any skus row (and cascaded targets/sales) NOT in the follow-up file's managed SKU list")
     p_cl.add_argument("path", help="path to the follow-up/tracking Excel file (the managed SKU list)")
 
@@ -495,6 +585,9 @@ def main():
     elif args.cmd == "sales":
         sku_filter = load_managed_skus(args.skus_from) if args.skus_from else None
         ingest_sales_excel(args.path, sheet=args.sheet, sku_filter=sku_filter)
+    elif args.cmd == "sales-raw":
+        sku_filter = load_managed_skus(args.skus_from) if args.skus_from else None
+        ingest_sales_raw_table(args.path, sheet=args.sheet, sku_filter=sku_filter)
     elif args.cmd == "cleanup":
         cleanup_unmanaged_skus(args.path)
 
