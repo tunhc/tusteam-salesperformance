@@ -63,6 +63,8 @@ create table if not exists sales_daily (
   promo          numeric default 0,
   ads_gmv        numeric default 0,  -- sb_ordered_nmv + sd_ordered_nmv + sp_ordered_nmv (Ads Performance tab)
   ads_units      numeric default 0,  -- sb_ordered_units + sd_ordered_units + sp_ordered_units (Ads Performance tab)
+  total_clicks       numeric default 0,  -- sb_clicks + sd_clicks + sp_clicks (Ads Performance daily breakdown table)
+  total_impressions  numeric default 0,  -- sb_impressions + sd_impressions + sp_impressions (Ads Performance daily breakdown table)
   category       text,
   source_file    text,
   ingested_at    timestamptz not null default now(),

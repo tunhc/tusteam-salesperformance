@@ -228,16 +228,30 @@ tbody tr:hover{background:#FFF3EA}
   <div class="section-title" id="actualSectionTitle">Actual &mdash; Month-to-date (with run-rate projection)</div>
   <div class="gkpis" id="kpiActualRow"></div>
 
-  <div class="grid2">
-    <div class="card">
-      <h3>PIC Progress &mdash; GMV</h3>
-      <div class="hint">Target GMV vs Actual GMV (MTD) by PIC</div>
-      <div class="chart-wrap"><canvas id="chartPicGMV"></canvas></div>
-    </div>
-    <div class="card">
-      <h3>PIC Progress &mdash; Marketing Fee</h3>
-      <div class="hint">Target Ads+Promo $ vs Actual $ (MTD) by PIC</div>
-      <div class="chart-wrap"><canvas id="chartPicMKT"></canvas></div>
+  <div class="card">
+    <h3 style="margin:0 0 4px">PIC Progress</h3>
+    <div class="hint">Click a column header to sort (default: highest GMV target first). Green/amber/red on Actual-side metrics follow the same ahead/on-track/behind pace bands used in the gauges above; MKT/GMV% coloring is lower-is-better (more efficient than planned).</div>
+    <div class="tablewrap">
+      <table id="picProgressTable">
+        <thead><tr>
+          <th data-k="name">PIC</th>
+          <th data-k="targetGMV" class="num">GMV Target</th>
+          <th data-k="actualGMV" class="num">GMV Actual</th>
+          <th data-k="gmvProgressPct" class="num">% Progress</th>
+          <th data-k="gmvRunratePct" class="num">Run-rate %</th>
+          <th data-k="gmvRemaining" class="num">Remaining $</th>
+          <th data-k="mktTarget" class="num">MKT Target</th>
+          <th data-k="mktActual" class="num">MKT Actual</th>
+          <th data-k="mktSpentPct" class="num">% Spent</th>
+          <th data-k="targetMktGmvPct" class="num">Target MKT/GMV%</th>
+          <th data-k="currentMktGmvPct" class="num">Current MKT/GMV%</th>
+          <th data-k="adsTarget" class="num">Ads Budget</th>
+          <th data-k="adsActual" class="num">Ads Spent $</th>
+          <th data-k="promoTarget" class="num">Promo Budget</th>
+          <th data-k="promoSpentPct" class="num">% Spent Promo</th>
+        </tr></thead>
+        <tbody id="picProgressTbody"></tbody>
+      </table>
     </div>
   </div>
 
@@ -370,6 +384,25 @@ tbody tr:hover{background:#FFF3EA}
       </table>
     </div>
   </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 4px">Daily Breakdown</h3>
+    <div class="hint">One row per day in the filtered range above (PIC / Exclude SPT / Actual date range). Total Ordered Units = store-wide units that day (not just ads-attributed). ACOS = Ads Spend ÷ Ads-attributed GMV. TACOS = Ads Spend ÷ Total GMV.</div>
+    <div class="tablewrap">
+      <table id="adsDailyTable">
+        <thead><tr>
+          <th>Date</th>
+          <th class="num">Total Spend</th>
+          <th class="num">Total Clicks</th>
+          <th class="num">Total Impressions</th>
+          <th class="num">Total Ordered Units</th>
+          <th class="num">ACOS</th>
+          <th class="num">TACOS</th>
+        </tr></thead>
+        <tbody id="adsDailyBody"></tbody>
+      </table>
+    </div>
+  </div>
 </section>
 
 <!-- ======================= TAB: PRODUCT PERFORMANCE ======================= -->
@@ -378,6 +411,7 @@ tbody tr:hover{background:#FFF3EA}
   <div class="filterbar">
     <div class="fld"><label>PIC</label><select id="perfFPic"><option value="">All</option></select></div>
     <div class="fld"><label>Main PL</label><select id="perfFMainPL"><option value="">All</option></select></div>
+    <div class="fld"><label>Lifecycle</label><select id="perfFLifecycle"><option value="">All</option></select></div>
     <div class="fld"><label>Trend</label>
       <select id="perfFTrend">
         <option value="">All</option>
@@ -400,14 +434,14 @@ tbody tr:hover{background:#FFF3EA}
       <div style="flex:1;min-width:340px">
         <h4 style="margin:0 0 6px;color:var(--red);font-size:13px;font-weight:800">▼ Biggest Decliners</h4>
         <div class="tablewrap"><table>
-          <thead><tr><th>SKU</th><th>PIC</th><th class="num">Prior 7d</th><th class="num">Last 7d</th><th class="num">Δ $</th><th class="num">Δ %</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Product Name</th><th>PIC</th><th class="num">Prior 7d</th><th class="num">Last 7d</th><th class="num">Δ $</th><th class="num">Δ %</th></tr></thead>
           <tbody id="perfDeclinersBody"></tbody>
         </table></div>
       </div>
       <div style="flex:1;min-width:340px">
         <h4 style="margin:0 0 6px;color:var(--green);font-size:13px;font-weight:800">▲ Biggest Growers</h4>
         <div class="tablewrap"><table>
-          <thead><tr><th>SKU</th><th>PIC</th><th class="num">Prior 7d</th><th class="num">Last 7d</th><th class="num">Δ $</th><th class="num">Δ %</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Product Name</th><th>PIC</th><th class="num">Prior 7d</th><th class="num">Last 7d</th><th class="num">Δ $</th><th class="num">Δ %</th></tr></thead>
           <tbody id="perfGrowersBody"></tbody>
         </table></div>
       </div>
@@ -419,7 +453,7 @@ tbody tr:hover{background:#FFF3EA}
       <h3 style="margin:0">Product Performance Detail</h3>
       <button class="btn small" id="btnExportPerf" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
     </div>
-    <div class="hint">Click a column header to sort. Trend = trailing 7-day vs prior 7-day GMV. Suggested Action is a rule-based flag (stock risk first, then trend, then ads efficiency) — a starting point, not a final call.</div>
+    <div class="hint">Click a column header to sort. Reflects the filters above, plus the Product Health bucket selected up top (if any). Trend = trailing 7-day vs prior 7-day GMV. Suggested Action is a rule-based flag (stock risk first, then trend, then ads efficiency) — a starting point, not a final call.</div>
     <div class="tablewrap">
       <table id="perfTable">
         <thead><tr>
@@ -617,7 +651,7 @@ async function loadMonth(monthIso){
   const rows = (skus||[]).map(sk=>{
     const t = targetBySku[sk.sku] || {};
     const dailyRows = (salesBySku[sk.sku] || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
-    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0}));
+    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0, clicks:d.total_clicks||0, impressions:d.total_impressions||0}));
 
     const actualUnits = +daily.reduce((s,d)=>s+d.units,0).toFixed(2);
     const actualGMV = +daily.reduce((s,d)=>s+d.gmv,0).toFixed(2);
@@ -960,10 +994,13 @@ function aggregate(rows, key){
   const groups = {};
   rows.forEach(r=>{
     const k = r[key] || 'Unclassified';
-    if(!groups[k]) groups[k] = {name:k, targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0, skuCount:0};
+    if(!groups[k]) groups[k] = {name:k, targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0, skuCount:0,
+      adsTarget:0, adsActual:0, promoTarget:0, promoActual:0, gmvRunrateProj:0, mktRunrateProj:0};
     const g = groups[k];
     g.skuCount++; g.targetGMV+=r.targetGMV; g.actualGMV+=r.actualGMV;
     g.mktTarget+=r.mktTarget; g.mktActual+=r.mktActual; g.targetUnits+=r.targetUnits; g.actualUnits+=r.actualUnits;
+    g.adsTarget+=r.adsTarget; g.adsActual+=r.adsActual; g.promoTarget+=r.promoTarget; g.promoActual+=r.promoActual;
+    g.gmvRunrateProj+=r.gmvRunrateProj; g.mktRunrateProj+=r.mktRunrateProj;
   });
   return Object.values(groups).sort((a,b)=>b.targetGMV-a.targetGMV);
 }
@@ -1158,12 +1195,72 @@ function barChart(ctx, labels, target, actual){
   });
 }
 
+// PIC Progress summary table (replaces the old GMV/MKT bar-chart pair).
+// Colors on Actual-side metrics reuse zoneColor() — the same ahead/on-track/
+// behind (green>=95/amber>=70/red<70) and lower-is-better (MKT/GMV index)
+// bands already used for the gauges above and the Ads Performance tab.
+let picSortKey = 'targetGMV', picSortDir = -1; // default: highest GMV target first
+
+function renderPicProgressTable(byPic){
+  const derived = byPic.map(g=>{
+    const gmvProgressPct = g.targetGMV ? g.actualGMV/g.targetGMV*100 : 0;
+    const gmvRunratePct = g.targetGMV ? g.gmvRunrateProj/g.targetGMV*100 : 0;
+    const gmvRemaining = g.targetGMV - g.actualGMV;
+    const mktSpentPct = g.mktTarget ? g.mktActual/g.mktTarget*100 : 0;
+    const targetMktGmvPct = g.targetGMV ? g.mktTarget/g.targetGMV*100 : 0;
+    const currentMktGmvPct = g.actualGMV ? g.mktActual/g.actualGMV*100 : 0;
+    const mktGmvIndex = targetMktGmvPct ? currentMktGmvPct/targetMktGmvPct*100 : 0;
+    const adsSpentPct = g.adsTarget ? g.adsActual/g.adsTarget*100 : 0;
+    const promoSpentPct = g.promoTarget ? g.promoActual/g.promoTarget*100 : 0;
+    return {...g, gmvProgressPct, gmvRunratePct, gmvRemaining, mktSpentPct, targetMktGmvPct, currentMktGmvPct, mktGmvIndex, adsSpentPct, promoSpentPct};
+  });
+
+  const sorted = [...derived].sort((a,b)=>{
+    let va = a[picSortKey], vb = b[picSortKey];
+    if(typeof va === 'string') return picSortDir*va.localeCompare(vb);
+    return picSortDir*((va||0)-(vb||0));
+  });
+
+  document.getElementById('picProgressTbody').innerHTML = sorted.map(g=>{
+    const progColor = zoneColor(g.gmvProgressPct, false);
+    const rrColor = zoneColor(g.gmvRunratePct, false);
+    const spentColor = zoneColor(g.mktSpentPct, false);
+    const idxColor = zoneColor(g.mktGmvIndex, true);
+    const adsColor = zoneColor(g.adsSpentPct, false);
+    const promoColor = zoneColor(g.promoSpentPct, false);
+    return `<tr>
+      <td><b>${g.name}</b></td>
+      <td class="num">${fmtMoney(g.targetGMV)}</td>
+      <td class="num" style="color:${progColor};font-weight:700">${fmtMoney2(g.actualGMV)}</td>
+      <td class="num" style="color:${progColor};font-weight:700">${g.gmvProgressPct.toFixed(0)}%</td>
+      <td class="num" style="color:${rrColor};font-weight:700">${g.gmvRunratePct.toFixed(0)}%</td>
+      <td class="num">${fmtMoney(g.gmvRemaining)}</td>
+      <td class="num">${fmtMoney(g.mktTarget)}</td>
+      <td class="num" style="color:${spentColor};font-weight:700">${fmtMoney2(g.mktActual)}</td>
+      <td class="num" style="color:${spentColor};font-weight:700">${g.mktSpentPct.toFixed(0)}%</td>
+      <td class="num">${g.targetMktGmvPct.toFixed(1)}%</td>
+      <td class="num" style="color:${idxColor};font-weight:700">${g.currentMktGmvPct.toFixed(1)}%</td>
+      <td class="num">${fmtMoney(g.adsTarget)}</td>
+      <td class="num" style="color:${adsColor};font-weight:700">${fmtMoney2(g.adsActual)}</td>
+      <td class="num">${fmtMoney(g.promoTarget)}</td>
+      <td class="num" style="color:${promoColor};font-weight:700">${g.promoSpentPct.toFixed(0)}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="15" style="text-align:center;padding:20px;color:#66707C">No data</td></tr>';
+}
+
+document.querySelectorAll('#picProgressTable thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const k = th.dataset.k;
+    if(picSortKey===k) picSortDir *= -1; else { picSortKey=k; picSortDir=-1; }
+    renderAll();
+  });
+});
+
 function renderCharts(rows){
-  ['pic1','pic2','pl1','pl2','daily'].forEach(k=>{ if(charts[k]) charts[k].destroy(); });
+  ['pl1','pl2','daily'].forEach(k=>{ if(charts[k]) charts[k].destroy(); });
 
   const byPic = aggregate(rows,'pic');
-  charts.pic1 = barChart(document.getElementById('chartPicGMV'), byPic.map(g=>g.name), byPic.map(g=>+g.targetGMV.toFixed(2)), byPic.map(g=>+g.actualGMV.toFixed(2)));
-  charts.pic2 = barChart(document.getElementById('chartPicMKT'), byPic.map(g=>g.name), byPic.map(g=>+g.mktTarget.toFixed(2)), byPic.map(g=>+g.mktActual.toFixed(2)));
+  renderPicProgressTable(byPic);
 
   const byMain = aggregate(rows,'mainPL').slice(0,14);
   charts.pl1 = barChart(document.getElementById('chartPLGMV'), byMain.map(g=>g.name), byMain.map(g=>+g.targetGMV.toFixed(2)), byMain.map(g=>+g.actualGMV.toFixed(2)));
@@ -1300,15 +1397,55 @@ function adsGroupBy(rows, keyFn){
 }
 
 function adsActualsFor(rows, fromVal, toVal){
-  let GMV=0, RS=0, AdsSpend=0, AdsGMV=0, AdsRS=0;
+  let GMV=0, RS=0, AdsSpend=0, AdsGMV=0, AdsRS=0, Clicks=0, Impressions=0;
   rows.forEach(r=>{
     (r.daily||[]).forEach(d=>{
       if(fromVal && d.date<fromVal) return;
       if(toVal && d.date>toVal) return;
       GMV+=d.gmv; RS+=d.units; AdsSpend+=d.ads; AdsGMV+=d.adsGmv; AdsRS+=d.adsUnits;
+      Clicks+=d.clicks||0; Impressions+=d.impressions||0;
     });
   });
-  return {GMV:+GMV.toFixed(2), RS:+RS.toFixed(2), AdsSpend:+AdsSpend.toFixed(2), AdsGMV:+AdsGMV.toFixed(2), AdsRS:+AdsRS.toFixed(2)};
+  return {GMV:+GMV.toFixed(2), RS:+RS.toFixed(2), AdsSpend:+AdsSpend.toFixed(2), AdsGMV:+AdsGMV.toFixed(2), AdsRS:+AdsRS.toFixed(2), Clicks:+Clicks.toFixed(0), Impressions:+Impressions.toFixed(0)};
+}
+
+// Daily breakdown table (bottom of Ads Performance tab): one row per date in
+// the filtered range, columns = Total Spend, Total Clicks, Total
+// Impressions, Total Ordered Units (store-wide, not just ads-attributed),
+// ACOS (ads spend / ads-attributed GMV) and TACOS (ads spend / total GMV).
+function adsDailyBreakdown(rows, fromVal, toVal){
+  const byDate = {};
+  rows.forEach(r=>{
+    (r.daily||[]).forEach(d=>{
+      if(fromVal && d.date<fromVal) return;
+      if(toVal && d.date>toVal) return;
+      const g = byDate[d.date] = byDate[d.date] || {date:d.date, spend:0, clicks:0, impressions:0, units:0, adsGmv:0, gmv:0};
+      g.spend += d.ads; g.clicks += d.clicks||0; g.impressions += d.impressions||0;
+      g.units += d.units; g.adsGmv += d.adsGmv; g.gmv += d.gmv;
+    });
+  });
+  return Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date)).map(g=>({
+    date: g.date,
+    spend: +g.spend.toFixed(2),
+    clicks: +g.clicks.toFixed(0),
+    impressions: +g.impressions.toFixed(0),
+    units: +g.units.toFixed(0),
+    acos: g.adsGmv ? +(g.spend/g.adsGmv*100).toFixed(1) : null,
+    tacos: g.gmv ? +(g.spend/g.gmv*100).toFixed(1) : null,
+  }));
+}
+
+function renderAdsDailyTable(rows, fromVal, toVal){
+  const daily = adsDailyBreakdown(rows, fromVal, toVal);
+  document.getElementById('adsDailyBody').innerHTML = daily.map(d=>`<tr>
+    <td>${d.date}</td>
+    <td class="num">${fmtMoney2(d.spend)}</td>
+    <td class="num">${fmtInt(d.clicks)}</td>
+    <td class="num">${fmtInt(d.impressions)}</td>
+    <td class="num">${fmtInt(d.units)}</td>
+    <td class="num">${d.acos===null?'—':d.acos.toFixed(1)+'%'}</td>
+    <td class="num">${d.tacos===null?'—':d.tacos.toFixed(1)+'%'}</td>
+  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#66707C">No data in this range</td></tr>';
 }
 
 function adsKPIFor(rows){
@@ -1471,6 +1608,7 @@ function renderAdsTab(){
   renderAdsTimeStrip();
   renderAdsOverview(rows, fromVal, toVal);
   renderAdsDetail(rows, fromVal, toVal);
+  renderAdsDailyTable(rows, fromVal, toVal);
 }
 
 // ================= PRODUCT PERFORMANCE =================
@@ -1479,9 +1617,10 @@ let perfSortKey = 'trendPct', perfSortDir = 1; // ascending by default: worst de
 function perfGetFilteredRows(){
   const pic = document.getElementById('perfFPic').value;
   const mpl = document.getElementById('perfFMainPL').value;
+  const lifecycle = document.getElementById('perfFLifecycle').value;
   const trend = document.getElementById('perfFTrend').value;
   return ROWS.filter(r=>
-    (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!trend || r.trendLabel===trend)
+    (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!lifecycle || r.lifecycle===lifecycle) && (!trend || r.trendLabel===trend)
   );
 }
 
@@ -1490,7 +1629,19 @@ function refreshPerfSelects(){
   fillSelect('perfFPic', uniq('pic'));
   document.getElementById('perfFMainPL').innerHTML = '<option value="">All</option>';
   fillSelect('perfFMainPL', uniq('mainPL'));
+  document.getElementById('perfFLifecycle').innerHTML = '<option value="">All</option>';
+  fillSelect('perfFLifecycle', uniq('lifecycle'));
 }
+
+// ---- Product Health chip drill-down (Product Performance tab) ----------
+let perfHealthFilter = null;
+const PERF_HEALTH_TESTS = {
+  Declining: r=>r.trendLabel==='Declining',
+  Stable: r=>r.trendLabel==='Stable',
+  Growing: r=>r.trendLabel==='Growing',
+  atRisk: r=>r.docBand==='OOS' || r.docBand==='DOC <14d',
+  overstock: r=>r.docBand==='DOC >90d',
+};
 
 // Rule-based flag: stock risk first (can't sell what you don't have / dead
 // capital sitting in overstock), then trend, then whether ads spend lines up
@@ -1519,18 +1670,34 @@ function renderPerfKpiStrip(rows){
     if(r.docBand==='DOC >90d') c.overstock++;
   });
   const chips = [
-    {n:c.Declining, label:'Declining', color:COLOR.red, bg:'#FBEAEA'},
-    {n:c.Stable, label:'Stable', color:'#66707C', bg:'#EEF1F5'},
-    {n:c.Growing, label:'Growing', color:COLOR.green, bg:'#E7F5EE'},
-    {n:c.atRisk, label:'Stock risk (OOS/<14d)', color:COLOR.red, bg:'#FBEAEA'},
-    {n:c.overstock, label:'Overstock (>90d)', color:COLOR.navy, bg:'#E9EEF5'},
+    {key:'Declining', n:c.Declining, label:'Declining', color:COLOR.red, bg:'#FBEAEA'},
+    {key:'Stable', n:c.Stable, label:'Stable', color:'#66707C', bg:'#EEF1F5'},
+    {key:'Growing', n:c.Growing, label:'Growing', color:COLOR.green, bg:'#E7F5EE'},
+    {key:'atRisk', n:c.atRisk, label:'Stock risk (OOS/<14d)', color:COLOR.red, bg:'#FBEAEA'},
+    {key:'overstock', n:c.overstock, label:'Overstock (>90d)', color:COLOR.navy, bg:'#E9EEF5'},
   ];
-  document.getElementById('perfKpiStrip').innerHTML = '<span class="lbl">Product health (this view, SKU count)</span>' +
-    chips.map(o=>`<span class="moc-chip" style="background:${o.bg};color:${o.color}"><span class="n">${o.n}</span> ${o.label}</span>`).join('');
+  document.getElementById('perfKpiStrip').innerHTML = '<span class="lbl">Product health (this view, SKU count) — click a bucket to filter the detail table below</span>' +
+    chips.map(o=>{
+      const active = perfHealthFilter === o.key;
+      return `<span class="moc-chip clickable${active?' active':''}" data-health="${o.key}" style="background:${o.bg};color:${o.color}"><span class="n">${o.n}</span> ${o.label}</span>`;
+    }).join('') +
+    (perfHealthFilter ? `<span class="moc-chip clear-chip" data-clear="1" style="background:#fff;color:#66707C;border:1px dashed #C7CFDA">&times; Clear</span>` : '');
 }
 
+document.getElementById('perfKpiStrip').addEventListener('click', (e)=>{
+  const chip = e.target.closest('.moc-chip');
+  if(!chip) return;
+  if(chip.dataset.clear){ perfHealthFilter = null; renderPerfTab(); return; }
+  const key = chip.dataset.health;
+  if(!key) return;
+  perfHealthFilter = (perfHealthFilter === key) ? null : key;
+  renderPerfTab();
+});
+
 function perfMoverRowHTML(r, delta){
-  return `<tr><td><b>${r.sku}</b></td><td>${r.pic}</td>
+  return `<tr><td><b>${r.sku}</b></td>
+    <td class="name-cell" title="${(r.productName||'').replace(/"/g,'&quot;')}">${r.productName||''}</td>
+    <td>${r.pic}</td>
     <td class="num">${fmtMoney(r.prior7Gmv)}</td><td class="num">${fmtMoney(r.trailing7Gmv)}</td>
     <td class="num" style="color:${delta<0?COLOR.red:COLOR.green};font-weight:700">${delta<0?'-':'+'}${fmtMoney(Math.abs(delta))}</td>
     <td class="num" style="color:${delta<0?COLOR.red:COLOR.green};font-weight:700">${Number.isFinite(r.trendPct)?(r.trendPct>0?'+':'')+r.trendPct.toFixed(1)+'%':'new'}</td>
@@ -1543,9 +1710,9 @@ function renderPerfMovers(rows){
   const decliners = byDelta.filter(x=>x.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,10);
   const growers = byDelta.filter(x=>x.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,10);
   document.getElementById('perfDeclinersBody').innerHTML = decliners.map(x=>perfMoverRowHTML(x.r, x.delta)).join('')
-    || '<tr><td colspan="6" style="text-align:center;padding:16px;color:#66707C">No decliners in this view</td></tr>';
+    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#66707C">No decliners in this view</td></tr>';
   document.getElementById('perfGrowersBody').innerHTML = growers.map(x=>perfMoverRowHTML(x.r, x.delta)).join('')
-    || '<tr><td colspan="6" style="text-align:center;padding:16px;color:#66707C">No growers in this view</td></tr>';
+    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#66707C">No growers in this view</td></tr>';
 }
 
 let lastSortedPerfRows = [];
@@ -1589,7 +1756,8 @@ function renderPerfTab(){
   document.getElementById('perfResultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
   renderPerfKpiStrip(rows);
   renderPerfMovers(rows);
-  renderPerfTable(rows);
+  const tableRows = perfHealthFilter ? rows.filter(PERF_HEALTH_TESTS[perfHealthFilter]) : rows;
+  renderPerfTable(tableRows);
 }
 
 function exportPerfTable(){
@@ -1845,11 +2013,14 @@ async function boot(){
     });
     document.getElementById('perfFPic').addEventListener('change', renderPerfTab);
     document.getElementById('perfFMainPL').addEventListener('change', renderPerfTab);
+    document.getElementById('perfFLifecycle').addEventListener('change', renderPerfTab);
     document.getElementById('perfFTrend').addEventListener('change', renderPerfTab);
     document.getElementById('perfBtnReset').addEventListener('click', ()=>{
       document.getElementById('perfFPic').value = '';
       document.getElementById('perfFMainPL').value = '';
+      document.getElementById('perfFLifecycle').value = '';
       document.getElementById('perfFTrend').value = '';
+      perfHealthFilter = null;
       renderPerfTab();
     });
     document.getElementById('btnExportPerf').addEventListener('click', exportPerfTable);

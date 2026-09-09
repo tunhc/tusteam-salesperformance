@@ -429,7 +429,7 @@ def ingest_sales_excel(path, sheet=None, source_label=None, sku_filter=None):
         key = (sku, date_str)
         agg = rows.setdefault(key, {
             "sku": sku, "date": date_str, "units": 0.0, "gmv": 0.0, "ads": 0.0, "promo": 0.0,
-            "ads_gmv": 0.0, "ads_units": 0.0,
+            "ads_gmv": 0.0, "ads_units": 0.0, "total_clicks": 0.0, "total_impressions": 0.0,
             "category": row[hidx["main_category"]] if "main_category" in hidx else None,
             "source_file": source_label or os.path.basename(path),
         })
@@ -440,17 +440,15 @@ def ingest_sales_excel(path, sheet=None, source_label=None, sku_filter=None):
         # Ads Performance tab: ad-attributed GMV/units across the 3 ad types
         agg["ads_gmv"] += f(row, "sb_ordered_nmv") + f(row, "sd_ordered_nmv") + f(row, "sp_ordered_nmv")
         agg["ads_units"] += f(row, "sb_ordered_units") + f(row, "sd_ordered_units") + f(row, "sp_ordered_units")
+        agg["total_clicks"] += f(row, "sb_clicks") + f(row, "sd_clicks") + f(row, "sp_clicks")
+        agg["total_impressions"] += f(row, "sb_impressions") + f(row, "sd_impressions") + f(row, "sp_impressions")
     wb.close()
 
     out = []
     skus_seen = set()
     for r in rows.values():
-        r["units"] = round(r["units"], 2)
-        r["gmv"] = round(r["gmv"], 2)
-        r["ads"] = round(r["ads"], 2)
-        r["promo"] = round(r["promo"], 2)
-        r["ads_gmv"] = round(r["ads_gmv"], 2)
-        r["ads_units"] = round(r["ads_units"], 2)
+        for k in ("units", "gmv", "ads", "promo", "ads_gmv", "ads_units", "total_clicks", "total_impressions"):
+            r[k] = round(r[k], 2)
         out.append(r)
         skus_seen.add(r["sku"])
 
@@ -507,7 +505,7 @@ def ingest_sales_raw_table(path, sheet="Export", source_label=None, sku_filter=N
         key = (sku, date_str)
         agg = rows.setdefault(key, {
             "sku": sku, "date": date_str, "units": 0.0, "gmv": 0.0, "ads": 0.0, "promo": 0.0,
-            "ads_gmv": 0.0, "ads_units": 0.0,
+            "ads_gmv": 0.0, "ads_units": 0.0, "total_clicks": 0.0, "total_impressions": 0.0,
             "category": row[hidx["product_line"]] if "product_line" in hidx and hidx["product_line"] < len(row) else None,
             "source_file": source_label or os.path.basename(path),
         })
@@ -517,12 +515,14 @@ def ingest_sales_raw_table(path, sheet="Export", source_label=None, sku_filter=N
         agg["promo"] += f(row, "Total Promo")
         agg["ads_gmv"] += f(row, "Sb_ordered_nmv") + f(row, "Sd_ordered_nmv") + f(row, "Sp_ordered_nmv")
         agg["ads_units"] += f(row, "Sb_ordered_units") + f(row, "Sd_ordered_units") + f(row, "Sp_ordered_units")
+        agg["total_clicks"] += f(row, "Sb_clicks") + f(row, "Sd_clicks") + f(row, "Sp_clicks")
+        agg["total_impressions"] += f(row, "Sb_impressions") + f(row, "Sd_impressions") + f(row, "Sp_impressions")
     wb.close()
 
     out = []
     skus_seen = set()
     for r in rows.values():
-        for k in ("units", "gmv", "ads", "promo", "ads_gmv", "ads_units"):
+        for k in ("units", "gmv", "ads", "promo", "ads_gmv", "ads_units", "total_clicks", "total_impressions"):
             r[k] = round(r[k], 2)
         out.append(r)
         skus_seen.add(r["sku"])
