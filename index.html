@@ -327,6 +327,7 @@ tbody tr:hover{background:#FFF3EA}
 
   <div class="filterbar">
     <div class="fld"><label>PIC</label><select id="adsFPic"><option value="">All</option></select></div>
+    <div class="fld"><label>Product Line</label><select id="adsFMainPL"><option value="">All</option></select></div>
     <div class="fld"><label>Actual from</label><input type="date" id="adsFDateFrom"></div>
     <div class="fld"><label>Actual to</label><input type="date" id="adsFDateTo"></div>
     <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="adsExcludeSpt"> Exclude SPT channel</label></div>
@@ -387,11 +388,12 @@ tbody tr:hover{background:#FFF3EA}
 
   <div class="card">
     <h3 style="margin:0 0 4px">Daily Breakdown</h3>
-    <div class="hint">One row per day in the filtered range above (PIC / Exclude SPT / Actual date range). Total Ordered Units = store-wide units that day (not just ads-attributed). ACOS = Ads Spend ÷ Ads-attributed GMV. TACOS = Ads Spend ÷ Total GMV.</div>
+    <div class="hint">One row per day in the filtered range above (PIC / Product Line / Exclude SPT / Actual date range). Total Ordered Units = store-wide units that day (not just ads-attributed). ACOS = Ads Spend ÷ Ads-attributed GMV. TACOS = Ads Spend ÷ Total GMV.</div>
     <div class="tablewrap">
       <table id="adsDailyTable">
         <thead><tr>
           <th>Date</th>
+          <th class="num">Total GMV</th>
           <th class="num">Total Spend</th>
           <th class="num">Total Clicks</th>
           <th class="num">Total Impressions</th>
@@ -922,6 +924,8 @@ function setAdsDateBounds(monthIso){
 function refreshAdsPicSelect(){
   document.getElementById('adsFPic').innerHTML = '<option value="">All</option>';
   fillSelect('adsFPic', uniq('pic'));
+  document.getElementById('adsFMainPL').innerHTML = '<option value="">All</option>';
+  fillSelect('adsFMainPL', uniq('mainPL'));
 }
 
 function applyDateRange(rows){
@@ -1410,7 +1414,7 @@ function adsActualsFor(rows, fromVal, toVal){
 }
 
 // Daily breakdown table (bottom of Ads Performance tab): one row per date in
-// the filtered range, columns = Total Spend, Total Clicks, Total
+// the filtered range, columns = Total GMV, Total Spend, Total Clicks, Total
 // Impressions, Total Ordered Units (store-wide, not just ads-attributed),
 // ACOS (ads spend / ads-attributed GMV) and TACOS (ads spend / total GMV).
 function adsDailyBreakdown(rows, fromVal, toVal){
@@ -1426,6 +1430,7 @@ function adsDailyBreakdown(rows, fromVal, toVal){
   });
   return Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date)).map(g=>({
     date: g.date,
+    gmv: +g.gmv.toFixed(2),
     spend: +g.spend.toFixed(2),
     clicks: +g.clicks.toFixed(0),
     impressions: +g.impressions.toFixed(0),
@@ -1439,13 +1444,14 @@ function renderAdsDailyTable(rows, fromVal, toVal){
   const daily = adsDailyBreakdown(rows, fromVal, toVal);
   document.getElementById('adsDailyBody').innerHTML = daily.map(d=>`<tr>
     <td>${d.date}</td>
+    <td class="num">${fmtMoney2(d.gmv)}</td>
     <td class="num">${fmtMoney2(d.spend)}</td>
     <td class="num">${fmtInt(d.clicks)}</td>
     <td class="num">${fmtInt(d.impressions)}</td>
     <td class="num">${fmtInt(d.units)}</td>
     <td class="num">${d.acos===null?'—':d.acos.toFixed(1)+'%'}</td>
     <td class="num">${d.tacos===null?'—':d.tacos.toFixed(1)+'%'}</td>
-  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#66707C">No data in this range</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:#66707C">No data in this range</td></tr>';
 }
 
 function adsKPIFor(rows){
@@ -1485,8 +1491,9 @@ function computeAdsMetrics(rows, fromVal, toVal){
 
 function adsGetFilteredRows(){
   const pic = document.getElementById('adsFPic').value;
+  const mpl = document.getElementById('adsFMainPL').value;
   const exSpt = document.getElementById('adsExcludeSpt').checked;
-  return ROWS.filter(r=> (!pic || r.pic===pic) && (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')));
+  return ROWS.filter(r=> (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')));
 }
 
 function pct1(v){ return (Number.isFinite(v)?v:0).toFixed(1)+'%'; }
@@ -2025,10 +2032,12 @@ async function boot(){
     });
     document.getElementById('btnExportPerf').addEventListener('click', exportPerfTable);
     document.getElementById('adsFPic').addEventListener('change', renderAdsTab);
+    document.getElementById('adsFMainPL').addEventListener('change', renderAdsTab);
     ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));
     document.getElementById('adsExcludeSpt').addEventListener('change', renderAdsTab);
     document.getElementById('adsBtnReset').addEventListener('click', ()=>{
       document.getElementById('adsFPic').value = '';
+      document.getElementById('adsFMainPL').value = '';
       document.getElementById('adsFDateFrom').value = '';
       document.getElementById('adsFDateTo').value = '';
       document.getElementById('adsExcludeSpt').checked = false;
