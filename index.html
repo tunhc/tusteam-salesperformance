@@ -107,6 +107,12 @@ main{padding:20px 26px 60px}
 .card .hint{font-size:11px;color:var(--muted);margin-bottom:10px}
 .chart-wrap{position:relative;height:250px}
 .chart-wrap.tall{height:320px}
+.chart-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
+.chart-scroll-inner{position:relative;height:320px}
+.cv-toggle{display:flex;gap:6px;flex-wrap:wrap}
+.cv-btn{border:1px solid var(--line);background:#fff;color:var(--navy);font-size:11px;font-weight:700;padding:5px 10px;border-radius:20px;cursor:pointer;white-space:nowrap;transition:background .1s,color .1s}
+.cv-btn:hover{background:#EEF1F5}
+.cv-btn.active{background:var(--navy);color:#fff;border-color:var(--navy)}
 
 table{width:100%;border-collapse:collapse;font-size:12px}
 thead th{position:sticky;top:0;background:var(--navy);color:#fff;text-align:left;padding:9px 10px;font-weight:700;font-size:10.6px;text-transform:uppercase;letter-spacing:.3px;cursor:pointer;white-space:nowrap}
@@ -255,23 +261,40 @@ tbody tr:hover{background:#FFF3EA}
     </div>
   </div>
 
-  <div class="grid2">
-    <div class="card">
-      <h3>Product Line Progress &mdash; GMV</h3>
-      <div class="hint">Target GMV vs Actual GMV (MTD) by Main PL</div>
-      <div class="chart-wrap tall"><canvas id="chartPLGMV"></canvas></div>
-    </div>
-    <div class="card">
-      <h3>Product Line Progress &mdash; Marketing Fee</h3>
-      <div class="hint">Target Ads+Promo $ vs Actual $ (MTD) by Main PL</div>
-      <div class="chart-wrap tall"><canvas id="chartPLMKT"></canvas></div>
+  <div class="card">
+    <h3 style="margin:0 0 4px">Product Line Progress</h3>
+    <div class="hint">Click a column header to sort (default: highest GMV target first) &middot; Click a row to filter the SKU Breakdown table below to that Product Line. % STR (Sell-Through Rate) = Actual Units Sold ÷ (Actual Units Sold + current on-hand inventory) — a proxy since we don't keep a beginning-of-month inventory snapshot. MKT/GMV = Marketing fee (Ads + Promo) as a % of GMV; lower vs target is better.</div>
+    <div class="tablewrap">
+      <table id="plProgressTable">
+        <thead><tr>
+          <th data-k="name">Product Line</th>
+          <th data-k="targetGMV" class="num">Target GMV</th>
+          <th data-k="actualGMV" class="num">Actual GMV</th>
+          <th data-k="gmvProgressPct" class="num">% Progress GMV</th>
+          <th data-k="gmvRunratePct" class="num">% Run-rate GMV</th>
+          <th data-k="targetMktGmvPct" class="num">Target MKT/GMV</th>
+          <th data-k="actualMktGmvPct" class="num">Actual MKT/GMV</th>
+          <th data-k="mktGmvProgressPct" class="num">% Progress MKT/GMV</th>
+          <th data-k="strPct" class="num">% STR</th>
+        </tr></thead>
+        <tbody id="plProgressTbody"></tbody>
+      </table>
     </div>
   </div>
 
   <div class="card">
-    <h3>Daily GMV &amp; Marketing Fee</h3>
-    <div class="hint">Columns = GMV per day &middot; Line = total Marketing fee (Ads + Promo) per day</div>
-    <div class="chart-wrap tall"><canvas id="chartDaily"></canvas></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+      <h3 style="margin:0">Daily Trends</h3>
+      <div class="cv-toggle" id="dailyChartToggle">
+        <button class="cv-btn active" data-view="gmvMkt">GMV &amp; MKT Fee</button>
+        <button class="cv-btn" data-view="gmvBreakdown">Organic vs Ads GMV</button>
+        <button class="cv-btn" data-view="spend">Ads vs Promo Spend</button>
+        <button class="cv-btn" data-view="units">Units Sold</button>
+        <button class="cv-btn" data-view="glance">Glance View &amp; Conversion Rate</button>
+      </div>
+    </div>
+    <div class="hint" id="dailyChartHint">Columns = GMV per day &middot; Line = total Marketing fee (Ads + Promo) per day &middot; Scroll horizontally on long months</div>
+    <div class="chart-scroll"><div class="chart-scroll-inner" id="chartDailyInner"><canvas id="chartDaily"></canvas></div></div>
   </div>
 
   <div class="card">
@@ -999,12 +1022,13 @@ function aggregate(rows, key){
   rows.forEach(r=>{
     const k = r[key] || 'Unclassified';
     if(!groups[k]) groups[k] = {name:k, targetGMV:0, actualGMV:0, mktTarget:0, mktActual:0, targetUnits:0, actualUnits:0, skuCount:0,
-      adsTarget:0, adsActual:0, promoTarget:0, promoActual:0, gmvRunrateProj:0, mktRunrateProj:0};
+      adsTarget:0, adsActual:0, promoTarget:0, promoActual:0, gmvRunrateProj:0, mktRunrateProj:0, inv:0};
     const g = groups[k];
     g.skuCount++; g.targetGMV+=r.targetGMV; g.actualGMV+=r.actualGMV;
     g.mktTarget+=r.mktTarget; g.mktActual+=r.mktActual; g.targetUnits+=r.targetUnits; g.actualUnits+=r.actualUnits;
     g.adsTarget+=r.adsTarget; g.adsActual+=r.adsActual; g.promoTarget+=r.promoTarget; g.promoActual+=r.promoActual;
     g.gmvRunrateProj+=r.gmvRunrateProj; g.mktRunrateProj+=r.mktRunrateProj;
+    g.inv += (r.salableY4A||0) + (r.salableAMZ||0);
   });
   return Object.values(groups).sort((a,b)=>b.targetGMV-a.targetGMV);
 }
@@ -1260,39 +1284,182 @@ document.querySelectorAll('#picProgressTable thead th').forEach(th=>{
   });
 });
 
-function renderCharts(rows){
-  ['pl1','pl2','daily'].forEach(k=>{ if(charts[k]) charts[k].destroy(); });
+// Product Line Progress summary table (replaces the old GMV/MKT bar-chart
+// pair). % STR (Sell-Through Rate) is a proxy = actual units sold / (actual
+// units sold + current on-hand inventory), since we don't keep a
+// beginning-of-month inventory snapshot to compute a "true" sell-through.
+let plSortKey = 'targetGMV', plSortDir = -1; // default: highest GMV target first
 
+function renderPlProgressTable(byMain){
+  const derived = byMain.map(g=>{
+    const gmvProgressPct = g.targetGMV ? g.actualGMV/g.targetGMV*100 : 0;
+    const gmvRunratePct = g.targetGMV ? g.gmvRunrateProj/g.targetGMV*100 : 0;
+    const targetMktGmvPct = g.targetGMV ? g.mktTarget/g.targetGMV*100 : 0;
+    const actualMktGmvPct = g.actualGMV ? g.mktActual/g.actualGMV*100 : 0;
+    const mktGmvProgressPct = targetMktGmvPct ? actualMktGmvPct/targetMktGmvPct*100 : 0;
+    const strDenom = (g.actualUnits||0) + (g.inv||0);
+    const strPct = strDenom ? (g.actualUnits||0)/strDenom*100 : 0;
+    return {...g, gmvProgressPct, gmvRunratePct, targetMktGmvPct, actualMktGmvPct, mktGmvProgressPct, strPct};
+  });
+
+  const sorted = [...derived].sort((a,b)=>{
+    let va = a[plSortKey], vb = b[plSortKey];
+    if(typeof va === 'string') return plSortDir*va.localeCompare(vb);
+    return plSortDir*((va||0)-(vb||0));
+  });
+
+  document.getElementById('plProgressTbody').innerHTML = sorted.map(g=>{
+    const progColor = zoneColor(g.gmvProgressPct, false);
+    const rrColor = zoneColor(g.gmvRunratePct, false);
+    const mktProgColor = zoneColor(g.mktGmvProgressPct, true);
+    const strColor = zoneColor(g.strPct, false);
+    return `<tr class="pl-row" data-name="${g.name.replace(/"/g,'&quot;')}" style="cursor:pointer" title="Click to filter SKU Breakdown to ${g.name}">
+      <td><b>${g.name}</b></td>
+      <td class="num">${fmtMoney(g.targetGMV)}</td>
+      <td class="num" style="color:${progColor};font-weight:700">${fmtMoney2(g.actualGMV)}</td>
+      <td class="num" style="color:${progColor};font-weight:700">${g.gmvProgressPct.toFixed(0)}%</td>
+      <td class="num" style="color:${rrColor};font-weight:700">${g.gmvRunratePct.toFixed(0)}%</td>
+      <td class="num">${g.targetMktGmvPct.toFixed(1)}%</td>
+      <td class="num">${g.actualMktGmvPct.toFixed(1)}%</td>
+      <td class="num" style="color:${mktProgColor};font-weight:700">${g.mktGmvProgressPct.toFixed(0)}%</td>
+      <td class="num" style="color:${strColor};font-weight:700">${g.strPct.toFixed(0)}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#66707C">No data</td></tr>';
+}
+
+document.querySelectorAll('#plProgressTable thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const k = th.dataset.k;
+    if(plSortKey===k) plSortDir *= -1; else { plSortKey=k; plSortDir=-1; }
+    renderAll();
+  });
+});
+
+// Clicking a Product Line row jumps the Main PL filter to that line and
+// scrolls down to the (now-filtered) SKU Breakdown table.
+document.getElementById('plProgressTbody').addEventListener('click', (e)=>{
+  const tr = e.target.closest('.pl-row');
+  if(!tr) return;
+  // Clear PIC first so the Main PL option list isn't pre-narrowed and the
+  // clicked line is guaranteed to exist as an option, then select it.
+  document.getElementById('fPic').value = '';
+  updateDependentSelects();
+  const mplSel = document.getElementById('fMainPL');
+  mplSel.value = tr.dataset.name;
+  updateDependentSelects();
+  renderAll();
+  document.getElementById('skuTable').scrollIntoView({behavior:'smooth', block:'start'});
+});
+
+function renderCharts(rows){
   const byPic = aggregate(rows,'pic');
   renderPicProgressTable(byPic);
 
-  const byMain = aggregate(rows,'mainPL').slice(0,14);
-  charts.pl1 = barChart(document.getElementById('chartPLGMV'), byMain.map(g=>g.name), byMain.map(g=>+g.targetGMV.toFixed(2)), byMain.map(g=>+g.actualGMV.toFixed(2)));
-  charts.pl2 = barChart(document.getElementById('chartPLMKT'), byMain.map(g=>g.name), byMain.map(g=>+g.mktTarget.toFixed(2)), byMain.map(g=>+g.mktActual.toFixed(2)));
+  const byMain = aggregate(rows,'mainPL');
+  renderPlProgressTable(byMain);
 
   const dailyMap = {};
   rows.forEach(r=> (r.daily||[]).forEach(pt=>{
-    if(!dailyMap[pt.date]) dailyMap[pt.date] = {date:pt.date, gmv:0, mkt:0};
-    dailyMap[pt.date].gmv += pt.gmv; dailyMap[pt.date].mkt += pt.mkt;
+    if(!dailyMap[pt.date]) dailyMap[pt.date] = {date:pt.date, gmv:0, mkt:0, ads:0, promo:0, units:0, adsGmv:0, adsUnits:0, impressions:0, clicks:0};
+    const d = dailyMap[pt.date];
+    d.gmv += pt.gmv; d.mkt += pt.mkt; d.ads += pt.ads||0; d.promo += pt.promo||0;
+    d.units += pt.units||0; d.adsGmv += pt.adsGmv||0; d.adsUnits += pt.adsUnits||0;
+    d.impressions += pt.impressions||0; d.clicks += pt.clicks||0;
   }));
-  const dailyArr = Object.values(dailyMap).sort((a,b)=>a.date.localeCompare(b.date));
-  const dailyPctMktGmv = dailyArr.map(d=> d.gmv ? +(d.mkt/d.gmv*100).toFixed(2) : 0);
+  lastDailyArr = Object.values(dailyMap).sort((a,b)=>a.date.localeCompare(b.date));
+  renderDailyChart();
+}
+
+// Daily Trends chart — one horizontally-scrollable Chart.js instance reused
+// across 5 toggle-able "views" so a single chart can surface GMV, units,
+// MKT fee, ads $, promo $, organic vs ads GMV, and (where the data exists)
+// Glance Views / Conversion Rate, without cramming a long month.
+let lastDailyArr = [];
+let dailyChartView = 'gmvMkt';
+const DAILY_CHART_HINTS = {
+  gmvMkt: 'Columns = GMV per day &middot; Line = total Marketing fee (Ads + Promo) per day &middot; Scroll horizontally on long months',
+  gmvBreakdown: 'Stacked columns = Organic GMV vs Ads-attributed GMV per day &middot; Line = Total GMV',
+  spend: 'Columns = Ads $ vs Promo $ per day &middot; Line = combined Marketing fee (Ads + Promo)',
+  units: 'Columns = Total units sold per day &middot; Line = units driven by ads',
+  glance: 'Columns = Glance Views per day (Sponsored Brands + Sponsored Display + Sponsored Products impressions) &middot; Line = Conversion Rate (Units &divide; Ad clicks)',
+};
+
+function renderDailyChart(){
+  if(charts.daily) charts.daily.destroy();
+  const dailyArr = lastDailyArr;
+  const labels = dailyArr.map(d=>d.date);
+
+  document.getElementById('dailyChartHint').innerHTML = DAILY_CHART_HINTS[dailyChartView];
+
+  // Widen the scroll container on long months (~34px/day) so bars never get
+  // crammed; short months just fill the card at 100% width.
+  const inner = document.getElementById('chartDailyInner');
+  inner.style.width = Math.max(100, dailyArr.length*3.4) + '%';
+
+  let datasets, scales;
+  if(dailyChartView === 'gmvBreakdown'){
+    const organic = dailyArr.map(d=>+(d.gmv-d.adsGmv).toFixed(2));
+    const adsGmv = dailyArr.map(d=>+d.adsGmv.toFixed(2));
+    datasets = [
+      {type:'bar', label:'Organic GMV', data:organic, backgroundColor:COLOR.grey, yAxisID:'y', stack:'gmv', borderRadius:4, order:2},
+      {type:'bar', label:'Ads GMV', data:adsGmv, backgroundColor:COLOR.orange, yAxisID:'y', stack:'gmv', borderRadius:4, order:2},
+      {type:'line', label:'Total GMV', data:dailyArr.map(d=>+d.gmv.toFixed(2)), borderColor:COLOR.navy, backgroundColor:COLOR.navy, yAxisID:'y', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:1},
+    ];
+    scales = { y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'GMV $',font:{size:10}}, stacked:true } };
+  } else if(dailyChartView === 'spend'){
+    datasets = [
+      {type:'bar', label:'Ads $', data:dailyArr.map(d=>+d.ads.toFixed(2)), backgroundColor:COLOR.orange, yAxisID:'y', borderRadius:4, order:3},
+      {type:'bar', label:'Promo $', data:dailyArr.map(d=>+d.promo.toFixed(2)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:3},
+      {type:'line', label:'Marketing fee $ (Ads + Promo)', data:dailyArr.map(d=>+d.mkt.toFixed(2)), borderColor:COLOR.navy, backgroundColor:COLOR.navy, yAxisID:'y', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:1},
+    ];
+    scales = { y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'$',font:{size:10}} } };
+  } else if(dailyChartView === 'units'){
+    datasets = [
+      {type:'bar', label:'Units sold', data:dailyArr.map(d=>+d.units.toFixed(0)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:2},
+      {type:'line', label:'Ads-driven units', data:dailyArr.map(d=>+d.adsUnits.toFixed(0)), borderColor:COLOR.orange, backgroundColor:COLOR.orange, yAxisID:'y', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.orange, order:1},
+    ];
+    scales = { y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'Units',font:{size:10}} } };
+  } else if(dailyChartView === 'glance'){
+    const cvr = dailyArr.map(d=> d.clicks ? +(d.units/d.clicks*100).toFixed(2) : 0);
+    datasets = [
+      {type:'bar', label:'Glance Views', data:dailyArr.map(d=>+d.impressions.toFixed(0)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:2},
+      {type:'line', label:'Conversion Rate %', data:cvr, borderColor:COLOR.navy, backgroundColor:COLOR.navy, yAxisID:'y1', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:1},
+    ];
+    scales = {
+      y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'Glance Views',font:{size:10}} },
+      y1:{ position:'right', grid:{display:false}, title:{display:true,text:'Conversion Rate %',font:{size:10}}, ticks:{callback:v=>v+'%'} },
+    };
+  } else { // gmvMkt (default)
+    const dailyPctMktGmv = dailyArr.map(d=> d.gmv ? +(d.mkt/d.gmv*100).toFixed(2) : 0);
+    datasets = [
+      {type:'bar', label:'GMV', data:dailyArr.map(d=>+d.gmv.toFixed(2)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:3},
+      {type:'line', label:'Marketing fee $', data:dailyArr.map(d=>+d.mkt.toFixed(2)), borderColor:COLOR.orange, backgroundColor:COLOR.orange, yAxisID:'y1', tension:.3, pointRadius:4, pointBackgroundColor:COLOR.orange, order:1},
+      {type:'line', label:'% MKT/GMV', data:dailyPctMktGmv, borderColor:COLOR.navy, backgroundColor:COLOR.navy, borderDash:[5,3], yAxisID:'y2', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:0},
+    ];
+    scales = {
+      y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'GMV $',font:{size:10}} },
+      y1:{ position:'right', grid:{display:false}, title:{display:true,text:'Marketing fee $',font:{size:10}} },
+      y2:{ position:'right', grid:{display:false}, title:{display:true,text:'% MKT/GMV',font:{size:10}}, ticks:{callback:v=>v+'%'} },
+    };
+  }
+
   charts.daily = new Chart(document.getElementById('chartDaily'), {
-    data:{ labels: dailyArr.map(d=>d.date), datasets:[
-      {type:'bar', label:'GMV', data: dailyArr.map(d=>+d.gmv.toFixed(2)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:3},
-      {type:'line', label:'Marketing fee $', data: dailyArr.map(d=>+d.mkt.toFixed(2)), borderColor:COLOR.orange, backgroundColor:COLOR.orange, yAxisID:'y1', tension:.3, pointRadius:4, pointBackgroundColor:COLOR.orange, order:1},
-      {type:'line', label:'% MKT/GMV', data: dailyPctMktGmv, borderColor:COLOR.navy, backgroundColor:COLOR.navy, borderDash:[5,3], yAxisID:'y2', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:0},
-    ]},
+    data:{ labels, datasets },
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom', labels:{boxWidth:10,font:{size:10.5,family:'Poppins'}}} },
-      scales:{
-        y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'GMV $',font:{size:10}} },
-        y1:{ position:'right', grid:{display:false}, title:{display:true,text:'Marketing fee $',font:{size:10}} },
-        y2:{ position:'right', grid:{display:false}, title:{display:true,text:'% MKT/GMV',font:{size:10}}, ticks:{callback:v=>v+'%'} },
-      }
+      scales
     }
   });
 }
+
+document.getElementById('dailyChartToggle').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.cv-btn');
+  if(!btn) return;
+  document.querySelectorAll('#dailyChartToggle .cv-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  dailyChartView = btn.dataset.view;
+  renderDailyChart();
+});
 
 let lastSortedRows = [];
 function renderTable(rows){
