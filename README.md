@@ -12,6 +12,8 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `supabase_schema.sql` | Table definitions + Row Level Security policies. Run once per Supabase project. |
 | `ingest.py` | Loads new source files (follow-up Excel, target HTML, sales Excel) into Supabase. |
 | `SETUP_DATABASE.md` | Full setup walkthrough — Supabase project, keys, first data load. |
+| `prototype/redesign.html` | Clickable layout proposal for the redesign (Tracking Target, Sales Performance, Weekly Review, Market, Blueprint). Uses generated sample data only. |
+| `supabase_schema_v2_draft.sql` | Draft tables for the redesign (sales history, inventory/forecast, weekly review, market). Not applied yet; needs Supabase Auth first. |
 
 ## Security — read before touching this repo
 

@@ -1,0 +1,1181 @@
+<title>Y4A Sales Hub Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<style>
+/* Layout: sticky brand bar + tab rail, one global filter row, then each tab reads summary tiles → explorer chart → detail. */
+:root{
+  --bg:#F3F5F8; --surface:#FFFFFF; --surface-2:#F7F8FA; --ink:#16223A; --muted:#5E6B7D; --line:#E1E5EB;
+  --brand:#002859; --brand-ink:#FFFFFF; --brand-sub:#B9C6D6;
+  --accent:#E86A10; --accent-soft:#FDEFE4;
+  --s1:#E86A10; --s2:#2a78d6; --s3:#1baf7a; --other:#A3ACB8;
+  --good:#1E8E5A; --good-bg:#E5F4EC; --warn:#A86A00; --warn-bg:#FBF1DC; --crit:#C93A3A; --crit-bg:#FBE9E9;
+  --div-neg:#D64545; --div-mid:#E9EBEE; --div-pos:#2a78d6;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4;
+  --f-display:"Poppins", "Segoe UI", Arial, sans-serif;
+  --f-body:"Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
+  --r:12px; --shadow:0 1px 2px rgba(0,40,89,.06), 0 4px 14px rgba(0,40,89,.05);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0D1520; --surface:#142033; --surface-2:#18263B; --ink:#E6ECF4; --muted:#9AA8BA; --line:#26354B;
+  --brand:#08203F; --brand-ink:#FFFFFF; --brand-sub:#9FB2C9;
+  --accent:#F07A22; --accent-soft:#3A2515;
+  --s1:#E0661A; --s2:#3987e5; --s3:#199e70; --other:#5E6B7D;
+  --good:#3DB27A; --good-bg:#15301F; --warn:#E0A63A; --warn-bg:#35290F; --crit:#E66767; --crit-bg:#3A1C1C;
+  --div-neg:#E66767; --div-mid:#2B3547; --div-pos:#3987e5;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181;
+  --shadow:none; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0D1520; --surface:#142033; --surface-2:#18263B; --ink:#E6ECF4; --muted:#9AA8BA; --line:#26354B;
+  --brand:#08203F; --brand-ink:#FFFFFF; --brand-sub:#9FB2C9;
+  --accent:#F07A22; --accent-soft:#3A2515;
+  --s1:#E0661A; --s2:#3987e5; --s3:#199e70; --other:#5E6B7D;
+  --good:#3DB27A; --good-bg:#15301F; --warn:#E0A63A; --warn-bg:#35290F; --crit:#E66767; --crit-bg:#3A1C1C;
+  --div-neg:#E66767; --div-mid:#2B3547; --div-pos:#3987e5;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181;
+  --shadow:none; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:13.5px;line-height:1.5}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;margin:0}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num,td.n{font-variant-numeric:tabular-nums}
+
+/* brand bar */
+.top{background:var(--brand);color:var(--brand-ink);padding:14px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.top .mark{width:40px;height:40px;border-radius:10px;background:var(--accent);display:grid;place-items:center;font:800 13px var(--f-display);color:#fff;flex:none}
+.top h1{font-size:16px;font-weight:700;letter-spacing:.2px}
+.top .sub{font-size:11.5px;color:var(--brand-sub)}
+.top .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pill{border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.pill.sample{background:rgba(232,106,16,.18);border-color:rgba(232,106,16,.6)}
+.wrap{max-width:1480px;margin:0 auto;padding-inline:16px}
+
+nav.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface);border-bottom:1px solid var(--line)}
+nav.tabs .wrap{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+nav.tabs button{border:0;background:none;padding:12px 14px 10px;font:600 13px var(--f-display);color:var(--muted);border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
+nav.tabs button:hover{color:var(--ink)}
+nav.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+nav.tabs button .new{font:700 9.5px var(--f-body);background:var(--accent-soft);color:var(--accent);padding:1px 6px;border-radius:999px;margin-left:5px;vertical-align:2px}
+
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end;padding-block:12px}
+.fld{display:flex;flex-direction:column;gap:3px;min-width:0}
+.fld label,.lbl{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+select,input[type=text],input[type=date],input[type=time],textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px;max-width:100%}
+.chipbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.chip .sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:0}
+.active-filter{display:inline-flex;gap:6px;align-items:center;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:5px 6px 5px 11px;font-size:12px;font-weight:700}
+.active-filter button{border:0;background:var(--accent);color:#fff;border-radius:999px;width:20px;height:20px;cursor:pointer;line-height:1}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 13px;font-weight:600;font-size:12.5px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.sm{padding:4px 9px;font-size:11.5px}
+
+.view{display:none;padding-bottom:48px}
+.view.on{display:block}
+.section{display:flex;flex-direction:column;gap:12px;margin-top:22px}
+.shead{display:flex;gap:12px;align-items:end;justify-content:space-between;flex-wrap:wrap}
+.shead h2{font-size:17px;font-weight:700}
+.shead p{margin:2px 0 0;color:var(--muted);font-size:12.5px;max-width:78ch}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;min-width:0}
+.card h3{font-size:14px;font-weight:700}
+.card .hint{color:var(--muted);font-size:12px;margin-top:2px}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g-7-5{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.g-8-4{grid-template-columns:minmax(0,8fr) minmax(0,4fr)}
+@media (max-width:1000px){.g2,.g3,.g-7-5,.g-8-4{grid-template-columns:minmax(0,1fr)}}
+
+/* KPI tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px 8px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:2px;min-width:0}
+.tile .k{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.tile .v{font:700 20px var(--f-display);font-variant-numeric:tabular-nums}
+.tile .d{font-size:11.5px;font-weight:600;display:flex;gap:6px;align-items:center;color:var(--muted)}
+.delta{font-weight:700;border-radius:6px;padding:0 5px}
+.delta.up{color:var(--good);background:var(--good-bg)}
+.delta.down{color:var(--crit);background:var(--crit-bg)}
+.delta.flat{color:var(--muted);background:var(--surface-2)}
+.tile svg{width:100%;height:28px;display:block;margin-top:2px}
+
+.plot{width:100%;min-height:300px}
+.plot.tall{min-height:430px}
+.plot.xl{min-height:520px}
+.stat-row{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);align-items:center}
+.stat-row b{color:var(--ink);font-variant-numeric:tabular-nums}
+.corr{display:flex;gap:10px;flex-wrap:wrap}
+.corr .box{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--surface-2);min-width:120px}
+.corr .box .v{font:700 18px var(--f-display);font-variant-numeric:tabular-nums}
+.corr .box .t{font-size:11px;color:var(--muted)}
+.read{background:var(--surface-2);border-left:3px solid var(--accent);border-radius:8px;padding:9px 12px;font-size:12.5px}
+
+.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:460px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface-2);color:var(--muted);text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
+td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.n,th.n{text-align:right}
+tbody tr:hover{background:var(--surface-2)}
+tbody tr.clickable{cursor:pointer}
+tbody tr.sel{background:var(--accent-soft)}
+.bar-cell{display:flex;align-items:center;gap:8px;min-width:130px}
+.bar-track{flex:1;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
+.bar-fill{height:100%;border-radius:3px}
+
+.status{display:inline-flex;gap:5px;align-items:center;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.status.good{color:var(--good);background:var(--good-bg)}
+.status.warn{color:var(--warn);background:var(--warn-bg)}
+.status.crit{color:var(--crit);background:var(--crit-bg)}
+.status.neutral{color:var(--muted);background:var(--surface-2)}
+.code{font-size:10px;font-weight:800;border-radius:5px;padding:1px 6px;color:#fff;white-space:nowrap}
+.code.INV{background:var(--c1)} .code.LIS{background:var(--c2)} .code.PRC{background:var(--c3)} .code.MKT{background:var(--c4)} .code.Others{background:var(--c5)}
+
+/* Weekly review */
+.lockbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.lockbar .step{padding:10px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.lockbar .step:last-child{border-right:0}
+.lockbar .step .when{font:700 13px var(--f-display)}
+.lockbar .step.done{background:var(--surface-2)}
+.lockbar .step.now{box-shadow:inset 0 -3px 0 var(--accent)}
+@media (max-width:760px){.lockbar{grid-template-columns:1fr 1fr}.lockbar .step{border-bottom:1px solid var(--line)}}
+.review-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:12px}
+@media (max-width:1000px){.review-layout{grid-template-columns:minmax(0,1fr)}}
+.editor{display:flex;flex-direction:column;gap:10px}
+.editor textarea{width:100%;min-height:96px;resize:vertical;line-height:1.45}
+.editor .row{display:flex;gap:10px;flex-wrap:wrap}
+.editor .row>.fld{flex:1;min-width:140px}
+.parsed{display:flex;flex-direction:column;gap:6px}
+.parsed .item{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:var(--surface-2)}
+.parsed .item .meta{margin-left:auto;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.sku{font:600 11px ui-monospace,Menlo,Consolas,monospace;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:900px){.board{grid-template-columns:minmax(0,1fr)}}
+.col{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.col h4{font-size:12.5px;display:flex;justify-content:space-between}
+.act{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.act .foot{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:11.5px}
+.act .foot .btn{margin-left:auto}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:999px;font-weight:600;font-size:12.5px;z-index:99}
+
+/* blueprint */
+.bp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:1000px){.bp{grid-template-columns:minmax(0,1fr)}}
+.bp .card p,.bp .card li{font-size:13px;max-width:72ch}
+.bp .card ul,.bp .card ol{padding-left:18px;margin:6px 0}
+.bp code{font:12px ui-monospace,Menlo,Consolas,monospace;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:12.5px}
+.kv dt{font-weight:700}
+.kv dd{margin:0;color:var(--muted)}
+.note{font-size:12px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="top">
+  <div class="mark" aria-hidden="true">Y4A</div>
+  <div>
+    <h1>Sales Performance Hub</h1>
+    <div class="sub">Amazon US · layout proposal v1</div>
+  </div>
+  <div class="right">
+    <span class="pill sample" title="Mọi con số trong prototype là dữ liệu mẫu sinh ngẫu nhiên có seed, chỉ để minh họa layout.">Dữ liệu mẫu · không phải số thật</span>
+    <span class="pill" id="asof">As of —</span>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Dashboard tabs">
+  <div class="wrap" role="tablist">
+    <button role="tab" data-tab="track" aria-selected="false">Tracking Target</button>
+    <button role="tab" data-tab="sales" aria-selected="true">Sales Performance<span class="new">new</span></button>
+    <button role="tab" data-tab="review" aria-selected="false">Weekly Review<span class="new">new</span></button>
+    <button role="tab" data-tab="market" aria-selected="false">Market<span class="new">new</span></button>
+    <button role="tab" data-tab="keep" aria-selected="false">Ads · Product · Projects</button>
+    <button role="tab" data-tab="blueprint" aria-selected="false">Blueprint</button>
+  </div>
+</nav>
+
+<div class="wrap">
+  <div class="filters" id="globalFilters">
+    <div class="fld"><label for="fFrom">Từ tháng</label><select id="fFrom"></select></div>
+    <div class="fld"><label for="fTo">Đến tháng</label><select id="fTo"></select></div>
+    <div class="fld"><label for="fCompare">So sánh</label><select id="fCompare"><option value="yoy">Cùng kỳ năm trước (YoY)</option><option value="pop">Kỳ liền trước</option></select></div>
+    <div class="fld"><label for="fPic">PIC</label><select id="fPic"><option value="">Tất cả</option></select></div>
+    <div class="fld"><label for="fPl">Old Product Line</label><select id="fPl"><option value="">Tất cả</option></select></div>
+    <div class="fld"><label for="fCh">Channel</label><select id="fCh"><option value="">Tất cả</option><option>DI</option><option>DS</option><option>SPT</option></select></div>
+    <span id="activeFilter"></span>
+  </div>
+
+  <!-- ============ TRACKING TARGET ============ -->
+  <section class="view" id="view-track" aria-label="Tracking Target">
+    <div class="section">
+      <div class="shead"><div><h2>Tracking Target · tháng hiện tại</h2><p>Giữ nguyên logic của tab Sales Performance cũ (target, run-rate, must-gain). Đổi layout: 1 hàng tile tóm tắt, rồi tiến độ theo PIC dạng bullet bar thay vì bảng 15 cột.</p></div></div>
+      <div class="tiles" id="trackTiles"></div>
+      <div class="grid g-7-5">
+        <div class="card"><h3>Tiến độ GMV theo PIC</h3><div class="hint">Thanh = GMV đạt / target tháng · vạch đứng = mức cần đạt theo số ngày đã qua · màu = run-rate (xanh ≥ 95%, vàng 70–95%, đỏ &lt; 70%)</div><div id="trackPic" class="plot"></div></div>
+        <div class="card"><h3>Product line cần chú ý</h3><div class="hint">Sắp theo GMV còn thiếu so với run-rate. Bấm một dòng để lọc toàn dashboard.</div><div class="tablewrap" style="max-height:340px"><table id="trackPl"></table></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SALES PERFORMANCE ============ -->
+  <section class="view on" id="view-sales" aria-label="Sales Performance">
+    <div class="section">
+      <div class="shead"><div><h2>Tổng quan kỳ đã chọn</h2><p id="salesPeriodNote">—</p></div></div>
+      <div class="tiles" id="salesTiles"></div>
+    </div>
+
+    <div class="section">
+      <div class="shead">
+        <div><h2>Trend explorer</h2><p>Panel trên: một chỉ số tuyệt đối (cột = kỳ này, đường chấm = cùng kỳ năm trước). Panel dưới: tối đa 3 tỷ lệ %. Hai panel chung trục thời gian, không dùng trục phụ, để không đọc nhầm tương quan.</p></div>
+        <div class="chipbar" id="grainBar"><span class="lbl">Grain</span><button class="chip" data-grain="week" aria-pressed="false">Tuần</button><button class="chip" data-grain="month" aria-pressed="true">Tháng</button></div>
+      </div>
+      <div class="card">
+        <div class="chipbar" id="absBar" style="margin-bottom:6px"><span class="lbl" style="margin-right:4px">Chỉ số chính</span></div>
+        <div class="chipbar" id="rateBar"><span class="lbl" style="margin-right:4px">Tỷ lệ (≤3)</span></div>
+        <div id="trendPlot" class="plot xl"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="shead"><div><h2>Product mix · Old Product Line</h2><p>Diện tích = GMV, màu = CM3/GMV (đỏ âm · xám hòa vốn · xanh dương tốt). Rê chuột để xem GMV, units, %MKT/GMV, ACOS, CM3. Bấm một ô để lọc cả dashboard theo group đó.</p></div></div>
+      <div class="grid g-8-4">
+        <div class="card"><div id="treemap" class="plot tall"></div></div>
+        <div class="card"><h3>Xếp hạng YoY</h3><div class="hint">Cùng bộ lọc; bấm dòng để lọc.</div><div class="tablewrap" style="max-height:420px"><table id="plRank"></table></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="shead">
+        <div><h2>Relationship explorer</h2><p>Mỗi chấm là một Product line hoặc SKU. Đường xu hướng (OLS) cùng hệ số tương quan Pearson r và Spearman ρ cho biết mức độ đi cùng nhau. Đây là quan hệ mô tả, không phải tác động nhân quả.</p></div>
+        <div class="chipbar" id="levelBar"><span class="lbl">Cấp</span><button class="chip" data-level="pl" aria-pressed="true">Product line</button><button class="chip" data-level="sku" aria-pressed="false">SKU</button></div>
+      </div>
+      <div class="card">
+        <div class="chipbar" id="presetBar" style="margin-bottom:8px"></div>
+        <div class="chipbar" id="customBar" hidden style="margin-bottom:8px">
+          <div class="fld"><label for="cx">Trục X</label><select id="cx"></select></div>
+          <div class="fld"><label for="cy">Trục Y</label><select id="cy"></select></div>
+          <div class="fld"><label for="cs">Kích thước</label><select id="cs"></select></div>
+        </div>
+        <div class="grid g-8-4">
+          <div id="relPlot" class="plot tall"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+            <div class="corr" id="corrBoxes"></div>
+            <div class="read" id="corrRead"></div>
+            <div class="note" id="quadNote"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="shead">
+        <div><h2>Tồn kho vs nhu cầu</h2><p>Tồn hiện tại + incoming theo tuần về, trừ số bán dự báo. Trạng thái tính ở cuối horizon: thiếu hàng (tồn chạm 0 trước khi hàng về), khỏe (4–16 tuần cover), dư (&gt; 16 tuần).</p></div>
+        <div class="chipbar" id="horizonBar"><span class="lbl">Horizon</span><button class="chip" data-h="8" aria-pressed="false">8 tuần</button><button class="chip" data-h="12" aria-pressed="true">12 tuần</button><button class="chip" data-h="26" aria-pressed="false">26 tuần</button></div>
+      </div>
+      <div class="grid g-7-5">
+        <div class="card"><h3>Weeks of cover theo group</h3><div class="hint">Bấm một thanh để xem đường tồn kho dự phóng bên phải.</div><div id="coverPlot" class="plot tall"></div></div>
+        <div class="card"><h3 id="projTitle">Dự phóng tồn kho</h3><div class="hint">Cột = nhu cầu dự báo/tuần · cột cam = incoming · đường = tồn cuối tuần</div><div id="projPlot" class="plot tall"></div></div>
+      </div>
+      <div class="card"><div class="tablewrap" style="max-height:360px"><table id="invTable"></table></div></div>
+    </div>
+  </section>
+
+  <!-- ============ WEEKLY REVIEW ============ -->
+  <section class="view" id="view-review" aria-label="Weekly Review">
+    <div class="section">
+      <div class="shead">
+        <div><h2>Weekly Review · diễn giải WoW của PIC</h2><p>Số liệu tuần được <b>chụp snapshot</b> vào mốc cố định nên không đổi dù data load daily. PIC vẫn nhập diễn giải bất cứ lúc nào; nhập sau hạn được gắn nhãn <i>Late</i> và mọi lần sửa đều lưu version.</p></div>
+        <div class="chipbar">
+          <div class="fld"><label for="rWeek">Tuần (CN → T7)</label><select id="rWeek"></select></div>
+          <div class="fld"><label for="rDeadlineDay">Hạn nhập</label><select id="rDeadlineDay"><option value="1">Thứ Hai</option><option value="2" selected>Thứ Ba</option><option value="3">Thứ Tư</option></select></div>
+          <div class="fld"><label for="rDeadlineTime">Giờ</label><input type="time" id="rDeadlineTime" value="12:00"></div>
+        </div>
+      </div>
+      <div class="lockbar" id="lockbar"></div>
+    </div>
+
+    <div class="section">
+      <div class="review-layout">
+        <div class="card">
+          <h3>Snapshot tuần theo Product line</h3>
+          <div class="hint">Bấm một dòng để mở ô diễn giải. Cột "Diễn giải" cho biết group nào còn thiếu.</div>
+          <div class="tablewrap" style="max-height:520px"><table id="reviewTable"></table></div>
+        </div>
+        <div class="card editor" id="editor">
+          <div><h3 id="edTitle">Chọn một Product line</h3><div class="hint" id="edSub"></div></div>
+          <div class="row">
+            <div class="fld"><label for="edStatus">Trạng thái</label><select id="edStatus"><option>Đạt tiến độ</option><option>Cần chú ý</option><option>Chậm tiến độ</option></select></div>
+            <div class="fld"><label for="edOwner">Owner</label><select id="edOwner"></select></div>
+          </div>
+          <div class="fld"><label for="edIssue">Vấn đề / Follow-up (mỗi ý một dòng)</label><textarea id="edIssue" placeholder="VD: Q6FU stock chỉ còn 5 units, 26/09 mới về thêm 14 units"></textarea></div>
+          <div class="fld"><label for="edAction">Hành động tiếp theo (ghi "dd/mm:" để đặt deadline)</label><textarea id="edAction" placeholder="VD: 02/10: Kiện case long shipping cho W1YT&#10;Push ads vào S4TG"></textarea></div>
+          <div>
+            <div class="lbl" style="margin-bottom:6px">Hệ thống tự bóc tách (xem trước khi lưu)</div>
+            <div class="parsed" id="parsedPreview"></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn primary" id="edSave">Lưu diễn giải</button>
+            <span class="note" id="edVersion"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="shead"><div><h2>Knowledge hub</h2><p>Gom tự động từ mọi diễn giải đã lưu: vấn đề theo mã, vấn đề lặp lại nhiều tuần, và bảng action có deadline.</p></div></div>
+      <div class="tiles" id="hubTiles"></div>
+      <div class="grid g2">
+        <div class="card"><h3>Vấn đề theo mã, theo tuần</h3><div class="hint">INV tồn kho · LIS listing · PRC giá · MKT ads/promo · Others</div><div id="issuePlot" class="plot"></div></div>
+        <div class="card"><h3>Vấn đề lặp lại (≥ 2 tuần)</h3><div class="hint">Cùng group + cùng mã xuất hiện nhiều tuần = vấn đề gốc cần xử lý dứt điểm.</div><div class="tablewrap" style="max-height:300px"><table id="recurTable"></table></div></div>
+      </div>
+      <div class="card">
+        <h3>Action tracker</h3><div class="hint">Deadline lấy từ "dd/mm:" trong ô Hành động; không ghi ngày thì mặc định thứ Bảy tuần kế tiếp.</div>
+        <div class="board" id="board" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MARKET ============ -->
+  <section class="view" id="view-market" aria-label="Market">
+    <div class="section">
+      <div class="shead">
+        <div><h2>Thị phần &amp; vị trí giá</h2><p>Brand đối thủ để tên chung (Brand A, Brand B). Khi nối data thật (Helium 10 Xray / SmartScout / Keepa) sẽ hiện tên brand thật. Y4A luôn màu cam; ngoài 2 đối thủ chính, các brand còn lại gộp màu xám.</p></div>
+        <div class="chipbar" id="catBar"><span class="lbl">Category</span></div>
+      </div>
+      <div class="tiles" id="mktTiles"></div>
+      <div class="card">
+        <h3>Brand map theo thời gian</h3>
+        <div class="hint">Trục dọc = giá bán trung bình · trục ngang = tháng · kích thước bong bóng = doanh thu (thị phần). Kéo thanh trượt bên dưới để phóng to/thu nhỏ khoảng thời gian.</div>
+        <div id="brandMap" class="plot xl"></div>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="shead"><div><h3>Price ladder theo variation</h3><div class="hint">Mỗi hàng là một variation. Bong bóng đặt tại giá của brand, kích thước = thị phần trong variation đó. Số cạnh chấm cam = thị phần Y4A.</div></div>
+            <div class="chipbar" id="varBar"></div></div>
+          <div id="ladder" class="plot tall"></div>
+        </div>
+        <div class="card">
+          <h3>Giá vs số bán</h3>
+          <div class="hint">Mỗi chấm là một ASIN (tháng gần nhất). Trục log. Đường = độ co giãn giá ước tính từ toàn category.</div>
+          <div id="priceSales" class="plot tall"></div>
+          <div class="read" id="elastRead"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ KEEP ============ -->
+  <section class="view" id="view-keep" aria-label="Ads, Product, Projects">
+    <div class="section">
+      <div class="shead"><div><h2>Giữ nguyên, chỉ đổi khung</h2><p>Ba tab này đang chạy tốt trên Supabase nên giữ logic, chỉ áp chung header, bộ lọc toàn cục và kiểu bảng mới.</p></div></div>
+      <div class="grid g3">
+        <div class="card"><h3>Ads Performance</h3><p class="note">Bảng KPI / Actual / Remain daily / % Achievement theo PIC và drill Main PL → Sub PL → SKU. Thêm: cột ACOS &amp; TACOS có tô màu theo ngưỡng, nút "mở trong Relationship explorer".</p></div>
+        <div class="card"><h3>Product Performance</h3><p class="note">Top movers 7 ngày và Suggested action. Thêm: link sang Weekly Review của group để thấy PIC đã diễn giải chưa.</p></div>
+        <div class="card"><h3>Projects</h3><p class="note">Giữ nguyên. Action từ Weekly Review có thể "promote" thành project khi kéo dài hơn 3 tuần.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BLUEPRINT ============ -->
+  <section class="view" id="view-blueprint" aria-label="Blueprint">
+    <div class="section">
+      <div class="shead"><div><h2>Blueprint triển khai</h2><p>Những gì cần thêm vào Supabase và pipeline để các tab mới chạy bằng data thật.</p></div></div>
+      <div class="bp">
+        <div class="card">
+          <h3>1 · Cấu trúc tab</h3>
+          <dl class="kv" style="margin-top:8px">
+            <dt>Tracking Target</dt><dd>Tab Sales Performance hiện tại, đổi tên. Target tháng, run-rate, must-gain.</dd>
+            <dt>Sales Performance</dt><dd>Lịch sử + YoY, trend explorer, treemap Old PL, relationship explorer, tồn kho vs nhu cầu.</dd>
+            <dt>Weekly Review</dt><dd>Snapshot tuần, diễn giải PIC, knowledge hub, action tracker. Thay thế tab Week 1–4 trong Excel.</dd>
+            <dt>Market</dt><dd>Thị phần theo tháng, price ladder theo variation, giá vs số bán.</dd>
+            <dt>Ads / Product / Projects</dt><dd>Giữ nguyên.</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>2 · Bảng mới trong Supabase</h3>
+          <ul>
+            <li><code>sales_monthly</code>: SKU × tháng từ 2023 (units, GMV, ads, promo, glance views, clicks, ad units). Cần cho YoY vì <code>sales_daily</code> hiện chỉ có 08–09/2026.</li>
+            <li><code>inventory_snapshot</code>, <code>incoming_po</code> (SKU, số lượng, ETA): cho chart tồn kho vs nhu cầu.</li>
+            <li><code>demand_forecast</code>: SKU × tuần, P50/P80, model, WAPE.</li>
+            <li><code>cm3_cost_stack</code>: từ file CM3 by Lane V9.8 (cost stack theo SKU và lane).</li>
+            <li><code>review_weeks</code>, <code>weekly_reviews</code>, <code>weekly_review_versions</code>, <code>review_issues</code>, <code>review_actions</code>.</li>
+            <li><code>market_brand_monthly</code>, <code>market_asin_snapshot</code>.</li>
+          </ul>
+          <p class="note">Bản SQL nháp: <code>supabase_schema_v2_draft.sql</code> (chưa chạy lên database).</p>
+        </div>
+        <div class="card">
+          <h3>3 · Cơ chế khóa tuần</h3>
+          <ol>
+            <li><b>Thứ Hai 06:00</b>: một cron (Supabase <code>pg_cron</code>) tính số liệu tuần CN→T7 vừa xong, ghi vào <code>review_weeks.snapshot</code>. Từ đây số của tuần đó không đổi nữa.</li>
+            <li><b>Thứ Ba 12:00</b> (chỉnh được): hạn nhập. Trước hạn là <i>On time</i>.</li>
+            <li>Sau hạn vẫn cho nhập, gắn <i>Late</i>. Mỗi lần lưu ghi thêm một dòng version, không ghi đè.</li>
+            <li>Khi lưu, hệ thống tách từng dòng thành issue (mã INV/LIS/PRC/MKT, SKU nhắc tới) và action (deadline từ "dd/mm:").</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>4 · AI cho forecast và diễn giải</h3>
+          <p><b>Forecast:</b> repo <code>yes4all-sales-dashboard</code> đã có pipeline chọn model theo WAPE (ETS, SARIMA, Prophet, LightGBM). Đề xuất chạy nó hàng tuần bằng GitHub Actions, ghi vào <code>demand_forecast</code>. Không tốn phí API. Muốn thêm một model nền tảng: Amazon Chronos (mã nguồn mở, chạy trong cùng Action) hoặc Nixtla TimeGPT (API trả phí). Amazon Forecast đã ngừng nhận khách mới nên không nên chọn.</p>
+          <p><b>Diễn giải PIC:</b> bản prototype dùng từ khóa. Muốn chính xác hơn thì gọi Claude API từ một Supabase Edge Function khi PIC bấm Lưu: trả về JSON issue/action/SKU/deadline. Claude Haiku 4.5 đủ cho việc tách, Claude Sonnet 5.5 cho bản tóm tắt tuần. API key để trong secret của Edge Function, không bao giờ để trong <code>index.html</code>.</p>
+        </div>
+        <div class="card">
+          <h3>5 · Bảo mật cần xử lý trước</h3>
+          <p>Repo đang public và anon key cho phép <b>ai có link cũng đọc được</b> mọi bảng có policy "public read". Hiện chấp nhận được với sales, nhưng <b>không được</b> đưa FOB, CM3 cost stack hay market research lên với policy đó.</p>
+          <ul><li>Bật Supabase Auth (magic link, giới hạn email công ty), đổi policy sang <code>auth.role() = 'authenticated'</code>.</li><li>Bảng cost chỉ đọc qua view đã tính sẵn CM3 theo SKU, không lộ FOB.</li></ul>
+        </div>
+        <div class="card">
+          <h3>6 · Thứ tự triển khai</h3>
+          <ol>
+            <li>Auth + đổi tên tab, filter toàn cục.</li>
+            <li><code>sales_monthly</code> + Sales Performance (trend, treemap, relationship).</li>
+            <li>Weekly Review + snapshot cron (thay Excel Week 1–4).</li>
+            <li>Inventory/incoming + forecast Action.</li>
+            <li>Market (cần file market research của bạn).</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+// ================= helpers =================
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt$ = v => !isFinite(v) ? '—' : (v<0?'-':'') + '$' + (Math.abs(v)>=1e6 ? (Math.abs(v)/1e6).toFixed(2)+'M' : Math.abs(v)>=1e4 ? (Math.abs(v)/1e3).toFixed(1)+'K' : Math.round(Math.abs(v)).toLocaleString('en-US'));
+const fmtN = v => !isFinite(v) ? '—' : Math.abs(v)>=1e6 ? (v/1e6).toFixed(2)+'M' : Math.abs(v)>=1e4 ? (v/1e3).toFixed(1)+'K' : Math.round(v).toLocaleString('en-US');
+const fmtP = (v,d=1) => !isFinite(v) ? '—' : (v*100).toFixed(d)+'%';
+const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const div = (a,b) => b ? a/b : NaN;
+const iso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const ddmm = d => String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0');
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const monthLabel = k => MONTHS[+k.slice(5,7)-1]+'-'+k.slice(2,4);
+function toast(msg){ const t = document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 2200); }
+const store = { get(k,d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} } };
+
+// seeded RNG
+let seed = 20260930;
+const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+const rn = (a,b) => a + (b-a)*rnd();
+const gauss = () => { let u=0,v=0; while(!u) u=rnd(); while(!v) v=rnd(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
+
+// ================= sample data =================
+const PLS = [
+  ['Standard Dumbbells','PIC C',14,18,1.05],['Adjustable Kettlebells','PIC A',6,34,0.92],['Combo Cable Attachments','PIC A',10,31,1.12],
+  ['Tricep Ropes','PIC A',9,14,0.88],['Kettle Grips','PIC A',5,28,1.18],['Double D Handles','PIC A',6,23,1.02],
+  ['Special Shape Kettlebells','PIC B',6,38,0.97],['Standard Balance Pads','PIC B',4,26,0.9],['Single D Handles','PIC A',3,13,1.1],
+  ['V Shape Tricep Handles','PIC A',2,18,1.0],['Straight Pulldown Bars','PIC A',3,27,0.8],['Curl Pulldown Bars','PIC A',2,45,1.06],
+  ['Adjustable Dumbbells','PIC C',5,160,1.25],['Special Shape Dumbbells','PIC D',3,27,0.75],['Standard Kettlebells','PIC A',4,35,0.95],
+  ['Massage Balance Pads','PIC B',2,22,1.0],
+];
+const SEASON = [1.35,1.15,1.02,0.95,0.9,0.86,1.12,0.9,0.95,1.08,1.25,1.12];
+const ALNUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
+const code4 = () => { let s=''; while(!/[A-Z]/.test(s) || s.length<4){ s=''; for(let i=0;i<4;i++) s+=ALNUM[Math.floor(rnd()*ALNUM.length)]; } return s; };
+const SKUS = [];
+const LOW_MARGIN = {'Adjustable Kettlebells':0.02,'Straight Pulldown Bars':0.04,'Special Shape Dumbbells':0.08};
+PLS.forEach(([pl,pic,n,price,growth]) => {
+  const pre = LOW_MARGIN[pl] ?? rn(0.18,0.38);
+  for(let i=0;i<n;i++){
+    SKUS.push({ sku:code4(), pl, pic, ch: rnd()<0.72?'DI':rnd()<0.6?'DS':'SPT',
+      price: price*rn(0.7,1.45), base: Math.exp(rn(1.4,4.2)), growth: growth*rn(0.85,1.15),
+      adsR: rn(0.03,0.13), promoR: rn(0.005,0.09), pre: pre + rn(-0.08,0.08), cr: rn(0.07,0.15), ctr: rn(0.0025,0.006), acos: rn(0.18,0.5) });
+  }
+});
+// weeks: Sunday starts from 2024-12-29 to 2026-09-20 (week ending 2026-09-26)
+const WEEKS = [];
+for(let d = new Date(2024,11,29); d <= new Date(2026,8,20); d = addDays(d,7)) WEEKS.push(new Date(d));
+const LAST_WEEK_END = addDays(WEEKS[WEEKS.length-1], 6);
+$('#asof').textContent = 'As of ' + iso(LAST_WEEK_END) + ' · tuần 39';
+// facts: one row per sku × week
+const FACT = [];
+SKUS.forEach(s => {
+  WEEKS.forEach((w,wi) => {
+    const mid = addDays(w,3);
+    const yearF = mid.getFullYear()===2026 ? s.growth : 1;
+    const priceF = 1 + 0.06*Math.sin(wi/5 + s.base);
+    const promoPulse = (mid.getMonth()===6 || mid.getMonth()===10) ? 1.9 : 1;
+    const units = Math.max(0, Math.round(s.base * SEASON[mid.getMonth()] * yearF * (1 + 0.22*gauss()) * (promoPulse>1?1.25:1)));
+    const price = s.price * priceF * (promoPulse>1?0.9:1);
+    const gmv = units * price;
+    const ads = gmv * s.adsR * (1+0.2*gauss()) * (promoPulse>1?1.3:1);
+    const promo = s.ch==='SPT' ? 0 : gmv * s.promoR * promoPulse * Math.max(0.2, 1+0.3*gauss());
+    const views = units / (s.cr*(1+0.1*gauss()));
+    const adSales = Math.max(0, ads / (s.acos*(1+0.12*gauss())));
+    const adUnits = adSales / price;
+    const clicks = views * 0.45;
+    const impr = clicks / s.ctr;
+    const cm3 = gmv*s.pre - ads - promo*0.75;
+    FACT.push({ s, w, wi, mk: iso(mid).slice(0,7), units, gmv, ads: Math.max(0,ads), promo: Math.max(0,promo), views, clicks, impr, adSales, adUnits, cm3 });
+  });
+});
+const MONTH_KEYS = [...new Set(FACT.map(f=>f.mk))].sort();
+
+// ================= global filter state =================
+const F = { from:'2026-01', to:'2026-09', compare:'yoy', pic:'', pl:'', ch:'' };
+function fillSel(id, vals, label=v=>v){ const el=$(id); vals.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=label(v); el.appendChild(o); }); }
+fillSel('#fFrom', MONTH_KEYS, monthLabel); fillSel('#fTo', MONTH_KEYS, monthLabel);
+$('#fFrom').value = F.from; $('#fTo').value = F.to;
+fillSel('#fPic', [...new Set(PLS.map(p=>p[1]))].sort());
+fillSel('#fPl', PLS.map(p=>p[0]).sort());
+const passDims = s => (!F.pic || s.pic===F.pic) && (!F.pl || s.pl===F.pl) && (!F.ch || s.ch===F.ch);
+const shiftMonth = (k,n) => { const d = new Date(+k.slice(0,4), +k.slice(5,7)-1+n, 1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); };
+const monthsBetween = (a,b) => (+b.slice(0,4)-+a.slice(0,4))*12 + (+b.slice(5,7)-+a.slice(5,7));
+function periodRows(from,to){ return FACT.filter(f => f.mk>=from && f.mk<=to && passDims(f.s)); }
+function comparePeriod(){
+  if(F.compare==='yoy') return [shiftMonth(F.from,-12), shiftMonth(F.to,-12)];
+  const n = monthsBetween(F.from,F.to)+1; return [shiftMonth(F.from,-n), shiftMonth(F.to,-n)];
+}
+function agg(rows){
+  const a = {units:0,gmv:0,ads:0,promo:0,views:0,clicks:0,impr:0,adSales:0,adUnits:0,cm3:0};
+  rows.forEach(r => { for(const k in a) a[k]+=r[k]; });
+  return derive(a);
+}
+function derive(a){
+  a.mkt = a.ads + a.promo; a.asp = div(a.gmv,a.units); a.mktGmv = div(a.mkt,a.gmv); a.tacos = div(a.ads,a.gmv);
+  a.promoGmv = div(a.promo,a.gmv); a.acos = div(a.ads,a.adSales); a.cr = div(a.units,a.views); a.ctr = div(a.clicks,a.impr);
+  a.cm3Pct = div(a.cm3,a.gmv); a.cm3Unit = div(a.cm3,a.units); a.mktUnit = div(a.mkt,a.units); a.adShare = div(a.adUnits,a.units);
+  return a;
+}
+function groupBy(rows, keyFn){
+  const m = new Map();
+  rows.forEach(r => { const k = keyFn(r); if(!m.has(k)) m.set(k, []); m.get(k).push(r); });
+  return m;
+}
+
+// ================= metric catalog =================
+const ABS = [
+  {k:'gmv',l:'GMV',f:fmt$},{k:'units',l:'Units',f:fmtN},{k:'asp',l:'ASP',f:v=>'$'+(isFinite(v)?v.toFixed(2):'—')},
+  {k:'mkt',l:'MKT $',f:fmt$,inv:1},{k:'ads',l:'Ads $',f:fmt$,inv:1},{k:'promo',l:'Promo $',f:fmt$,inv:1},
+  {k:'adUnits',l:'Ads units',f:fmtN},{k:'views',l:'Glance views',f:fmtN},{k:'cm3',l:'CM3 $',f:fmt$},
+];
+const RATES = [
+  {k:'mktGmv',l:'%MKT/GMV',inv:1},{k:'tacos',l:'TACOS',inv:1},{k:'promoGmv',l:'%Promo/GMV',inv:1},{k:'acos',l:'ACOS',inv:1},
+  {k:'cr',l:'CR'},{k:'ctr',l:'CTR',d:2},{k:'cm3Pct',l:'CM3 %'},{k:'adShare',l:'% Ads units'},
+];
+const ALLM = [...ABS, ...RATES.map(r=>({...r, f:v=>fmtP(v, r.d||1), rate:1})),
+  {k:'cm3Unit',l:'CM3 / unit',f:v=>'$'+(isFinite(v)?v.toFixed(2):'—')},{k:'mktUnit',l:'MKT / unit',f:v=>'$'+(isFinite(v)?v.toFixed(2):'—'),inv:1},
+  {k:'gmvYoy',l:'GMV YoY %',f:v=>fmtP(v),rate:1}];
+const M = Object.fromEntries(ALLM.map(m=>[m.k,m]));
+
+// ================= plotly theming =================
+function baseLayout(extra={}){
+  const ink = css('--ink'), muted = css('--muted'), line = css('--line');
+  return Object.assign({
+    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    font:{family:'Be Vietnam Pro, Segoe UI, Arial, sans-serif', size:12, color:ink},
+    margin:{l:56,r:18,t:16,b:44},
+    hoverlabel:{bgcolor:css('--surface'), bordercolor:line, font:{color:ink, family:'Be Vietnam Pro, Arial', size:12}},
+    legend:{orientation:'h', y:-0.16, x:0, font:{color:muted, size:11.5}},
+    xaxis:{gridcolor:line, linecolor:line, zeroline:false, tickfont:{color:muted}, title:{font:{color:muted, size:11.5}}},
+    yaxis:{gridcolor:line, linecolor:line, zeroline:false, tickfont:{color:muted}, title:{font:{color:muted, size:11.5}}},
+  }, extra);
+}
+const PCFG = {displaylogo:false, responsive:true, modeBarButtonsToRemove:['lasso2d','select2d','autoScale2d','toggleSpikelines']};
+function axis(extra){ const line = css('--line'), muted = css('--muted'); return Object.assign({gridcolor:line, linecolor:line, zeroline:false, tickfont:{color:muted}, title:{font:{color:muted,size:11.5}}}, extra); }
+const divScale = () => [[0,css('--div-neg')],[0.5,css('--div-mid')],[1,css('--div-pos')]];
+function draw(id, data, layout){ Plotly.react(id, data, layout, PCFG); }
+
+// ================= sparkline tile =================
+function spark(values, color){
+  const v = values.filter(isFinite); if(v.length<2) return '';
+  const min = Math.min(...v), max = Math.max(...v), W = 160, H = 28, p = 3;
+  const x = i => p + i*(W-2*p)/(values.length-1), y = val => H-p - (max===min?0.5:(val-min)/(max-min))*(H-2*p);
+  const pts = values.map((val,i)=>isFinite(val)?`${x(i).toFixed(1)},${y(val).toFixed(1)}`:null).filter(Boolean);
+  const last = values.length-1;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/><circle cx="${x(last)}" cy="${y(values[last])}" r="2.6" fill="${color}"/></svg>`;
+}
+function deltaHtml(cur, prev, inv, isRate){
+  if(!isFinite(cur) || !isFinite(prev) || prev===0) return '<span class="delta flat">n/a</span>';
+  const d = isRate ? (cur-prev) : (cur/prev-1);
+  const good = inv ? d<0 : d>0;
+  const cls = Math.abs(d) < (isRate?0.001:0.005) ? 'flat' : good ? 'up' : 'down';
+  const txt = isRate ? ((d>=0?'+':'')+(d*100).toFixed(1)+' pt') : ((d>=0?'+':'')+(d*100).toFixed(1)+'%');
+  return `<span class="delta ${cls}">${d>=0?'▲':'▼'} ${txt}</span>`;
+}
+
+// ================= SALES: tiles =================
+function renderSalesTiles(){
+  const cur = agg(periodRows(F.from,F.to));
+  const [pf,pt] = comparePeriod(); const prev = agg(periodRows(pf,pt));
+  const cmpLabel = F.compare==='yoy' ? 'vs LY' : 'vs kỳ trước';
+  $('#salesPeriodNote').textContent = `${monthLabel(F.from)} → ${monthLabel(F.to)} so với ${monthLabel(pf)} → ${monthLabel(pt)}. Tháng 09/2026 là MTD tới ${iso(LAST_WEEK_END)}.`;
+  const byMonth = groupBy(periodRows(shiftMonth(F.to,-11),F.to), r=>r.mk);
+  const series = k => [...byMonth.keys()].sort().map(mk => agg(byMonth.get(mk))[k]);
+  const keys = ['gmv','units','asp','mkt','mktGmv','tacos','acos','adUnits','cr','cm3','cm3Pct'];
+  $('#salesTiles').innerHTML = keys.map(k => {
+    const m = M[k]; const color = css('--s2');
+    return `<div class="tile"><div class="k">${m.l}</div><div class="v">${m.f(cur[k])}</div><div class="d">${deltaHtml(cur[k],prev[k],m.inv,m.rate)}<span>${cmpLabel}</span></div>${spark(series(k), color)}</div>`;
+  }).join('');
+}
+
+// ================= SALES: trend explorer =================
+const TS = { grain:'month', abs:'gmv', rates:['mktGmv','tacos','cm3Pct'] };
+function chipRow(el, items, isOn, onClick, swatch){
+  el.querySelectorAll('.chip').forEach(c=>c.remove());
+  items.forEach((m,i) => {
+    const b = document.createElement('button'); b.className='chip'; b.setAttribute('aria-pressed', isOn(m)?'true':'false');
+    b.innerHTML = (swatch && isOn(m) ? `<span class="sw" style="background:${swatch(m)}"></span>` : '') + esc(m.l);
+    b.onclick = () => onClick(m); el.appendChild(b);
+  });
+}
+function renderTrend(){
+  chipRow($('#absBar'), ABS, m=>m.k===TS.abs, m=>{ TS.abs=m.k; renderTrend(); });
+  const rateColors = [css('--c1'), css('--c2'), css('--c3')];
+  chipRow($('#rateBar'), RATES, m=>TS.rates.includes(m.k), m=>{
+    if(TS.rates.includes(m.k)) TS.rates = TS.rates.filter(x=>x!==m.k);
+    else { TS.rates.push(m.k); if(TS.rates.length>3) TS.rates.shift(); }
+    renderTrend();
+  }, m=>rateColors[TS.rates.indexOf(m.k)]);
+  $$('#grainBar .chip').forEach(c=>c.setAttribute('aria-pressed', c.dataset.grain===TS.grain?'true':'false'));
+
+  const rows = periodRows(F.from,F.to);
+  let keys, labelOf, cur, ly;
+  if(TS.grain==='month'){
+    const g = groupBy(rows, r=>r.mk); keys = [...g.keys()].sort();
+    const lyRows = FACT.filter(f=>passDims(f.s)); const lg = groupBy(lyRows, r=>r.mk);
+    cur = keys.map(k=>agg(g.get(k))); ly = keys.map(k=>{ const r = lg.get(shiftMonth(k,-12)); return r ? agg(r) : null; });
+    labelOf = k => monthLabel(k);
+  } else {
+    const g = groupBy(rows, r=>r.wi); keys = [...g.keys()].sort((a,b)=>a-b);
+    const all = groupBy(FACT.filter(f=>passDims(f.s)), r=>r.wi);
+    cur = keys.map(k=>agg(g.get(k))); ly = keys.map(k=>{ const r = all.get(k-52); return r ? agg(r) : null; });
+    labelOf = k => 'W'+String(isoWeekNo(WEEKS[k])).padStart(2,'0')+' '+ddmm(WEEKS[k]);
+  }
+  const x = keys.map(labelOf);
+  const am = M[TS.abs];
+  const isMoney = ['gmv','mkt','ads','promo','cm3','asp'].includes(TS.abs);
+  const data = [
+    {type:'bar', x, y:cur.map(a=>a[TS.abs]), name:am.l+' kỳ này', marker:{color:css('--s2'), line:{width:0}}, xaxis:'x', yaxis:'y',
+     hovertemplate:`%{x}<br>${am.l}: ${isMoney?'$':''}%{y:,.${TS.abs==='asp'?2:0}f}<extra></extra>`},
+    {type:'scatter', mode:'lines+markers', x, y:ly.map(a=>a?a[TS.abs]:null), name:am.l+' năm trước', line:{color:css('--muted'), width:1.6, dash:'dot'}, marker:{size:5, color:css('--muted')}, xaxis:'x', yaxis:'y',
+     hovertemplate:`%{x} (LY)<br>${am.l}: ${isMoney?'$':''}%{y:,.${TS.abs==='asp'?2:0}f}<extra></extra>`},
+  ];
+  TS.rates.forEach((k,i) => {
+    const m = M[k];
+    data.push({type:'scatter', mode:'lines+markers', x, y:cur.map(a=>a[k]), name:m.l, line:{color:rateColors[i], width:2}, marker:{size:7, color:rateColors[i], line:{width:1.5, color:css('--surface')}}, xaxis:'x', yaxis:'y2',
+      hovertemplate:`%{x}<br>${m.l}: %{y:.${m.d||1}%}<extra></extra>`});
+  });
+  const layout = baseLayout({
+    grid:{rows:2, columns:1, subplots:[['xy'],['xy2']], roworder:'top to bottom'},
+    xaxis: axis({anchor:'y2', tickangle: TS.grain==='week'?-45:0, tickfont:{color:css('--muted'), size:TS.grain==='week'?10:11.5}}),
+    yaxis: axis({domain:[0.44,1], title:{text:am.l, font:{color:css('--muted'),size:11.5}}, tickprefix:isMoney?'$':'', tickformat:TS.abs==='asp'?',.0f':'~s', rangemode:'tozero'}),
+    yaxis2: axis({domain:[0,0.36], title:{text:'Tỷ lệ', font:{color:css('--muted'),size:11.5}}, tickformat:'.0%', rangemode:'tozero'}),
+    hovermode:'x unified', bargap:0.35, margin:{l:62,r:18,t:10,b:TS.grain==='week'?80:60},
+    legend:{orientation:'h', y:TS.grain==='week'?-0.28:-0.14, x:0, font:{color:css('--muted'),size:11.5}},
+  });
+  layout.xaxis.matches = undefined;
+  draw('trendPlot', data, layout);
+}
+function isoWeekNo(sunday){ // week number as in the tracker: week containing the Saturday
+  const sat = addDays(sunday,6); const jan1 = new Date(sat.getFullYear(),0,1);
+  return Math.ceil(((sat - jan1)/86400000 + jan1.getDay() + 1)/7);
+}
+$$('#grainBar .chip').forEach(c=>c.onclick=()=>{ TS.grain=c.dataset.grain; renderTrend(); });
+
+// ================= SALES: treemap + rank =================
+function plStats(from,to){
+  const g = groupBy(periodRows(from,to), r=>r.s.pl);
+  return new Map([...g].map(([k,v])=>[k, agg(v)]));
+}
+function renderTreemap(){
+  const savedPl = F.pl; F.pl = ''; // treemap always shows every group; the selected one is outlined
+  const cur = plStats(F.from,F.to); const [pf,pt] = comparePeriod(); const prev = plStats(pf,pt);
+  F.pl = savedPl;
+  const items = [...cur].filter(([,a])=>a.gmv>0).sort((a,b)=>b[1].gmv-a[1].gmv);
+  const maxAbs = Math.max(0.05, ...items.map(([,a])=>Math.abs(a.cm3Pct)));
+  const ROOT = 'Tất cả group';
+  const labels = [ROOT, ...items.map(([k])=>k)];
+  const sel = F.pl;
+  draw('treemap', [{
+    type:'treemap', labels, parents: labels.map((l,i)=>i?ROOT:''), values: [items.reduce((t,[,a])=>t+a.gmv,0), ...items.map(([,a])=>a.gmv)], branchvalues:'total',
+    marker:{colors: [0, ...items.map(([,a])=>a.cm3Pct)], colorscale:divScale(), cmin:-maxAbs, cmax:maxAbs, cmid:0, pad:{t:0,l:0,r:0,b:0},
+      line:{width: labels.map(l=>l===sel?4:2), color: labels.map(l=>l===sel?css('--accent'):css('--surface'))},
+      colorbar:{title:{text:'CM3 %', font:{color:css('--muted'),size:11}}, tickformat:'.0%', tickfont:{color:css('--muted')}, thickness:10, len:0.8, outlinewidth:0}},
+    customdata: [[0,0,0,0,0,0,NaN], ...items.map(([k,a])=>[a.gmv, a.units, a.mktGmv, a.acos, a.cm3, a.cm3Pct, prev.get(k) ? a.gmv/prev.get(k).gmv-1 : NaN])],
+    texttemplate:'<b>%{label}</b><br>%{customdata[0]:$,.3s}<br>CM3 %{customdata[5]:.1%}',
+    textfont:{family:'Be Vietnam Pro, Arial', size:12, color:css('--ink')},
+    hovertemplate:'<b>%{label}</b><br>GMV: %{customdata[0]:$,.0f} (YoY %{customdata[6]:+.1%})<br>Units: %{customdata[1]:,.0f}<br>%MKT/GMV: %{customdata[2]:.1%}<br>ACOS: %{customdata[3]:.1%}<br>CM3: %{customdata[4]:$,.0f} · %{customdata[5]:.1%}<extra>Bấm để lọc</extra>',
+    tiling:{pad:2}, pathbar:{visible:false}, root:{color:'rgba(0,0,0,0)'},
+  }], baseLayout({margin:{l:0,r:0,t:0,b:0}}));
+  const el = $('#treemap');
+  el.removeAllListeners && el.removeAllListeners('plotly_treemapclick');
+  el.on('plotly_treemapclick', ev => { const pl = ev.points[0].label; if(pl!==ROOT) setPl(F.pl===pl ? '' : pl); return false; });
+
+  const rows = items.map(([k,a])=>{ const p = prev.get(k); return {k, a, yoy: p ? a.gmv/p.gmv-1 : NaN}; }).sort((x,y)=>y.a.gmv-x.a.gmv);
+  const maxG = Math.max(...rows.map(r=>r.a.gmv));
+  $('#plRank').innerHTML = `<thead><tr><th>Group</th><th class="n">GMV</th><th class="n">YoY</th><th class="n">CM3 %</th></tr></thead><tbody>` +
+    rows.map(r=>`<tr class="clickable${r.k===sel?' sel':''}" data-pl="${esc(r.k)}"><td><div class="bar-cell" style="min-width:150px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(r.k)}</span></div><div class="bar-track" style="height:4px;margin-top:3px"><div class="bar-fill" style="width:${(r.a.gmv/maxG*100).toFixed(1)}%;background:${css('--s2')}"></div></div></td><td class="n">${fmt$(r.a.gmv)}</td><td class="n">${deltaHtml(r.a.gmv, r.a.gmv/(1+r.yoy), false, false)}</td><td class="n">${fmtP(r.a.cm3Pct)}</td></tr>`).join('') + '</tbody>';
+  $$('#plRank tr.clickable').forEach(tr=>tr.onclick=()=>setPl(F.pl===tr.dataset.pl?'':tr.dataset.pl));
+}
+
+// ================= SALES: relationship explorer =================
+const PRESETS = [
+  {id:'promoAds', l:'Promo vs Ads', x:'promo', y:'ads', s:'gmv', read:'Chấm nằm cao (nhiều Ads) mà xanh dương = Ads đang hiệu quả; nằm phải và đỏ = phụ thuộc Promo nhưng margin âm.'},
+  {id:'priceCm3', l:'Giá × chi phí MKT × CM3', x:'asp', y:'cm3Unit', s:'mktUnit', read:'Bong bóng to (MKT/unit cao) nằm dưới vạch 0 = marketing đang ăn hết margin. Giá cao không tự động đồng nghĩa CM3 tốt.'},
+  {id:'mktGrowth', l:'%MKT/GMV vs tăng trưởng', x:'mktGmv', y:'gmvYoy', s:'gmv', read:'Nếu tương quan yếu: tăng chi MKT không đi kèm tăng trưởng. Tìm group góc dưới-phải (chi nhiều, tăng ít).'},
+  {id:'adsUnits', l:'Ads $ vs Ads units', x:'ads', y:'adUnits', s:'gmv', read:'Độ dốc = số unit mua được trên mỗi $ ads. Chấm dưới đường xu hướng = kém hiệu quả hơn mặt bằng.'},
+  {id:'tacosCm3', l:'TACOS vs CM3 %', x:'tacos', y:'cm3Pct', s:'gmv', read:'Tương quan âm mạnh nghĩa là CM3 nhạy với chi ads; nên đặt trần TACOS theo group.'},
+  {id:'custom', l:'Tùy chọn…'},
+];
+const RS = { level:'pl', preset:'promoAds', x:'promo', y:'ads', s:'gmv' };
+const REL_METRICS = ['gmv','units','asp','mkt','ads','promo','adUnits','views','cm3','mktGmv','tacos','promoGmv','acos','cr','cm3Pct','cm3Unit','mktUnit','gmvYoy'];
+['#cx','#cy','#cs'].forEach(id=>fillSel(id, REL_METRICS, k=>M[k].l));
+['cx','cy','cs'].forEach(id=>$('#'+id).onchange=()=>{ RS.x=$('#cx').value; RS.y=$('#cy').value; RS.s=$('#cs').value; renderRel(); });
+function pearson(xs,ys){ const n=xs.length; if(n<3) return NaN; const mx=xs.reduce((a,b)=>a+b)/n, my=ys.reduce((a,b)=>a+b)/n; let sxy=0,sxx=0,syy=0; for(let i=0;i<n;i++){ sxy+=(xs[i]-mx)*(ys[i]-my); sxx+=(xs[i]-mx)**2; syy+=(ys[i]-my)**2; } return sxy/Math.sqrt(sxx*syy); }
+function ranks(a){ const idx=a.map((v,i)=>[v,i]).sort((p,q)=>p[0]-q[0]); const r=new Array(a.length); let i=0; while(i<idx.length){ let j=i; while(j+1<idx.length && idx[j+1][0]===idx[i][0]) j++; for(let k=i;k<=j;k++) r[idx[k][1]]=(i+j)/2+1; i=j+1; } return r; }
+function ols(xs,ys){ const n=xs.length, mx=xs.reduce((a,b)=>a+b)/n, my=ys.reduce((a,b)=>a+b)/n; let sxy=0,sxx=0; for(let i=0;i<n;i++){ sxy+=(xs[i]-mx)*(ys[i]-my); sxx+=(xs[i]-mx)**2; } const b=sxy/sxx; return {b, a:my-b*mx}; }
+const strength = r => { const a=Math.abs(r); return !isFinite(r)?'không đủ dữ liệu': a<0.1?'gần như không có': a<0.3?'yếu': a<0.5?'vừa': a<0.7?'khá mạnh':'mạnh'; };
+function renderRel(){
+  chipRow($('#presetBar'), PRESETS, p=>p.id===RS.preset, p=>{ RS.preset=p.id; if(p.id!=='custom'){ RS.x=p.x; RS.y=p.y; RS.s=p.s; } renderRel(); });
+  $('#customBar').hidden = RS.preset!=='custom';
+  $('#cx').value=RS.x; $('#cy').value=RS.y; $('#cs').value=RS.s;
+  $$('#levelBar .chip').forEach(c=>c.setAttribute('aria-pressed', c.dataset.level===RS.level?'true':'false'));
+  const keyFn = RS.level==='pl' ? r=>r.s.pl : r=>r.s.sku;
+  const cur = groupBy(periodRows(F.from,F.to), keyFn); const [pf,pt] = comparePeriod(); const prev = groupBy(periodRows(pf,pt), keyFn);
+  let pts = [...cur].map(([k,v])=>{ const a = agg(v); const p = prev.get(k); a.gmvYoy = p ? a.gmv/agg(p).gmv-1 : NaN; a.key=k; a.pl=v[0].s.pl; return a; })
+    .filter(a=>a.gmv>0 && isFinite(a[RS.x]) && isFinite(a[RS.y]));
+  if(RS.level==='sku') pts = pts.sort((a,b)=>b.gmv-a.gmv).slice(0,300);
+  const xs = pts.map(a=>a[RS.x]), ys = pts.map(a=>a[RS.y]);
+  const r = pearson(xs,ys), rho = pearson(ranks(xs), ranks(ys));
+  const sizes = pts.map(a=>Math.max(0,a[RS.s])||0); const smax = Math.max(...sizes,1);
+  const mx = M[RS.x], my = M[RS.y];
+  const tf = m => m.rate ? '.1%' : ['asp','cm3Unit','mktUnit'].includes(m.k) ? '$,.2f' : ['units','adUnits','views'].includes(m.k) ? ',.0f' : '$,.0f';
+  const maxAbs = Math.max(0.05, ...pts.map(a=>Math.abs(a.cm3Pct)).filter(isFinite));
+  const data = [{
+    type:'scatter', mode: RS.level==='pl' ? 'markers+text' : 'markers', x:xs, y:ys,
+    text: pts.map(a=> RS.level==='pl' && a.gmv >= [...pts].sort((p,q)=>q.gmv-p.gmv)[Math.min(3,pts.length-1)].gmv ? a.key : ''),
+    textposition:'top center', textfont:{size:10.5, color:css('--muted')},
+    marker:{size:sizes.map(s=>8 + 34*Math.sqrt(s/smax)), color:pts.map(a=>a.cm3Pct), colorscale:divScale(), cmin:-maxAbs, cmax:maxAbs, cmid:0, opacity:0.85,
+      line:{width:1.5, color:css('--surface')}, colorbar:{title:{text:'CM3 %',font:{color:css('--muted'),size:11}}, tickformat:'.0%', tickfont:{color:css('--muted')}, thickness:10, len:0.7, outlinewidth:0}},
+    customdata: pts.map(a=>[a.key, a.pl, a.gmv, a.cm3Pct, a[RS.s]]),
+    hovertemplate:`<b>%{customdata[0]}</b>${RS.level==='sku'?'<br>%{customdata[1]}':''}<br>${mx.l}: %{x:${tf(mx)}}<br>${my.l}: %{y:${tf(my)}}<br>${M[RS.s].l}: %{customdata[4]:${tf(M[RS.s])}}<br>GMV: %{customdata[2]:$,.0f} · CM3 %{customdata[3]:.1%}<extra></extra>`,
+    showlegend:false,
+  }];
+  if(pts.length>=3){
+    const {a,b} = ols(xs,ys); const lo=Math.min(...xs), hi=Math.max(...xs);
+    data.push({type:'scatter', mode:'lines', x:[lo,hi], y:[a+b*lo, a+b*hi], line:{color:css('--ink'), width:1.5, dash:'dash'}, hoverinfo:'skip', showlegend:false});
+  }
+  const med = arr => { const s=[...arr].sort((p,q)=>p-q); return s[Math.floor(s.length/2)]; };
+  const shapes = pts.length ? [
+    {type:'line', xref:'x', yref:'paper', x0:med(xs), x1:med(xs), y0:0, y1:1, line:{color:css('--line'), width:1.5}},
+    {type:'line', xref:'paper', yref:'y', x0:0, x1:1, y0:med(ys), y1:med(ys), line:{color:css('--line'), width:1.5}},
+  ] : [];
+  if(RS.y==='cm3Unit' || RS.y==='cm3Pct' || RS.y==='gmvYoy') shapes.push({type:'line', xref:'paper', yref:'y', x0:0, x1:1, y0:0, y1:0, line:{color:css('--crit'), width:1.5, dash:'dot'}});
+  const tickOf = m => m.rate ? {tickformat:'.0%'} : ['units','adUnits','views'].includes(m.k) ? {tickformat:'~s'} : {tickprefix:'$', tickformat:'~s'};
+  draw('relPlot', data, baseLayout({
+    xaxis:axis({title:{text:mx.l, font:{color:css('--muted'),size:11.5}}, ...tickOf(mx)}),
+    yaxis:axis({title:{text:my.l, font:{color:css('--muted'),size:11.5}}, ...tickOf(my)}),
+    shapes, margin:{l:62,r:10,t:10,b:48}, hovermode:'closest',
+  }));
+  const rCls = !isFinite(r)?'':Math.abs(r)>=0.5?'good':Math.abs(r)>=0.3?'warn':'neutral';
+  $('#corrBoxes').innerHTML = `
+    <div class="box"><div class="t">Pearson r</div><div class="v">${isFinite(r)?r.toFixed(2):'—'}</div><span class="status ${rCls}">${strength(r)}</span></div>
+    <div class="box"><div class="t">Spearman ρ</div><div class="v">${isFinite(rho)?rho.toFixed(2):'—'}</div><div class="t">theo thứ hạng, ít bị outlier kéo</div></div>
+    <div class="box"><div class="t">R²</div><div class="v">${isFinite(r)?(r*r).toFixed(2):'—'}</div><div class="t">n = ${pts.length} ${RS.level==='pl'?'group':'SKU'}</div></div>`;
+  const preset = PRESETS.find(p=>p.id===RS.preset);
+  const dir = !isFinite(r) ? '' : r>0 ? `${mx.l} càng cao thì ${my.l} càng cao` : `${mx.l} càng cao thì ${my.l} càng thấp`;
+  $('#corrRead').innerHTML = `<b>Đọc nhanh:</b> tương quan ${strength(r)}${dir?' ('+dir+')':''}. ${preset && preset.read ? esc(preset.read) : ''}`;
+  $('#quadNote').textContent = 'Hai đường xám là trung vị của X và Y, chia 4 góc để so từng chấm với mặt bằng chung. Màu = CM3 %, kích thước = ' + M[RS.s].l + '.';
+}
+$$('#levelBar .chip').forEach(c=>c.onclick=()=>{ RS.level=c.dataset.level; renderRel(); });
+
+// ================= SALES: inventory vs demand =================
+const INV = new Map(); // sku -> {onhand, incoming:[{week, qty}]}
+SKUS.forEach(s => {
+  const weeksCover = rnd()<0.15 ? rn(0,1.5) : rnd()<0.2 ? rn(22,45) : rn(3,16);
+  const incoming = [];
+  if(rnd()<0.65) incoming.push({week: Math.floor(rn(1,10)), qty: Math.round(s.base*rn(6,16))});
+  if(rnd()<0.25) incoming.push({week: Math.floor(rn(8,20)), qty: Math.round(s.base*rn(6,14))});
+  INV.set(s.sku, {onhand: Math.round(s.base*s.growth*weeksCover), incoming});
+});
+const IS = { h:12, sel:null };
+function forecastFor(s, horizon){
+  // sample baseline: last 4 weeks avg, deseasonalised, re-seasonalised by future month
+  const last = FACT.filter(f=>f.s===s && f.wi>=WEEKS.length-4);
+  const lvl = last.reduce((t,f)=>t+f.units/SEASON[new Date(f.mk+'-15').getMonth()],0)/Math.max(1,last.length);
+  return Array.from({length:horizon}, (_,i)=>{ const d = addDays(LAST_WEEK_END, 1+7*i+3); return lvl*SEASON[d.getMonth()]; });
+}
+function invRows(){
+  const skus = SKUS.filter(passDims);
+  const byPl = groupBy(skus, s => F.pl ? s.sku : s.pl);
+  return [...byPl].map(([k, ss]) => {
+    let onhand=0; const inc = new Array(IS.h).fill(0); const dem = new Array(IS.h).fill(0);
+    ss.forEach(s => { const iv = INV.get(s.sku); onhand += iv.onhand; iv.incoming.forEach(x=>{ if(x.week<IS.h) inc[x.week]+=x.qty; }); forecastFor(s,IS.h).forEach((v,i)=>dem[i]+=v); });
+    let bal = onhand, stockoutWeek = null, lost = 0; const end = [];
+    for(let i=0;i<IS.h;i++){ bal += inc[i]; const sold = Math.min(bal, dem[i]); lost += dem[i]-sold; bal -= sold; end.push(bal); if(stockoutWeek===null && dem[i]>0 && bal<=0.5) stockoutWeek=i+1; }
+    const avgDem = dem.reduce((a,b)=>a+b,0)/IS.h;
+    const coverNow = avgDem ? onhand/avgDem : Infinity;
+    const coverEnd = avgDem ? bal/avgDem : Infinity;
+    const totalInc = inc.reduce((a,b)=>a+b,0);
+    const status = stockoutWeek!==null ? 'short' : coverEnd>16 ? 'over' : coverEnd<4 ? 'watch' : 'ok';
+    return {k, onhand, inc, dem, end, totalInc, avgDem, coverNow, coverEnd, stockoutWeek, lost, status, n:ss.length, pl: ss[0].pl};
+  }).sort((a,b)=>(a.coverNow===Infinity?1e9:a.coverNow)-(b.coverNow===Infinity?1e9:b.coverNow));
+}
+const STATUS = { short:['crit','Thiếu hàng'], watch:['warn','Sát ngưỡng'], ok:['good','Khỏe'], over:['neutral','Dư hàng'] };
+function renderInv(){
+  $$('#horizonBar .chip').forEach(c=>c.setAttribute('aria-pressed', +c.dataset.h===IS.h?'true':'false'));
+  const rows = invRows().slice(0, 40);
+  if(!rows.find(r=>r.k===IS.sel)) IS.sel = rows.length ? rows[0].k : null;
+  const col = st => ({short:css('--crit'), watch:css('--warn'), ok:css('--good'), over:css('--other')})[st];
+  const cap = 40;
+  const ordered = [...rows].reverse();
+  draw('coverPlot', [{
+    type:'bar', orientation:'h', y:ordered.map(r=>r.k), x:ordered.map(r=>Math.min(cap, r.coverNow)),
+    marker:{color:ordered.map(r=>col(r.status)), line:{width:ordered.map(r=>r.k===IS.sel?2.5:0), color:css('--ink')}},
+    customdata: ordered.map(r=>[r.onhand, r.totalInc, r.avgDem, r.coverEnd, r.stockoutWeek?('tuần '+r.stockoutWeek):'không', STATUS[r.status][1], r.coverNow]),
+    text: ordered.map(r=>STATUS[r.status][1]), textposition:'outside', textfont:{size:10.5, color:css('--muted')}, cliponaxis:false,
+    hovertemplate:'<b>%{y}</b><br>Tồn hiện tại: %{customdata[0]:,.0f}<br>Incoming (horizon): %{customdata[1]:,.0f}<br>Bán dự báo: %{customdata[2]:,.0f}/tuần<br>Cover hiện tại: %{customdata[6]:.1f} tuần<br>Cover cuối horizon: %{customdata[3]:.1f} tuần<br>Hết hàng: %{customdata[4]}<br><b>%{customdata[5]}</b><extra></extra>',
+  }], baseLayout({
+    xaxis:axis({title:{text:'Weeks of cover hiện tại (cắt ở 40)', font:{color:css('--muted'),size:11.5}}, range:[0,cap+8]}),
+    yaxis:axis({automargin:true, tickfont:{size:10.5, color:css('--muted')}}),
+    margin:{l:10,r:10,t:6,b:44}, bargap:0.3, showlegend:false,
+    shapes:[4,16].map(v=>({type:'line', xref:'x', yref:'paper', x0:v, x1:v, y0:0, y1:1, line:{color:css('--muted'), width:1, dash:'dot'}})),
+    annotations:[{x:4,y:1,xref:'x',yref:'paper',text:'4 tuần',showarrow:false,yanchor:'bottom',font:{size:10,color:css('--muted')}},{x:16,y:1,xref:'x',yref:'paper',text:'16 tuần',showarrow:false,yanchor:'bottom',font:{size:10,color:css('--muted')}}],
+    height: Math.max(360, rows.length*24+70),
+  }));
+  const el = $('#coverPlot'); el.removeAllListeners && el.removeAllListeners('plotly_click');
+  el.on('plotly_click', ev => { IS.sel = ev.points[0].y; renderInv(); });
+  const r = rows.find(x=>x.k===IS.sel);
+  if(r){
+    const wk = Array.from({length:IS.h}, (_,i)=>'W+'+(i+1)+' '+ddmm(addDays(LAST_WEEK_END,1+7*i)));
+    $('#projTitle').innerHTML = `Dự phóng tồn kho · ${esc(r.k)} <span class="status ${STATUS[r.status][0]}">${STATUS[r.status][1]}</span>`;
+    draw('projPlot', [
+      {type:'bar', x:wk, y:r.dem, name:'Nhu cầu dự báo', marker:{color:css('--s2')}, hovertemplate:'%{x}<br>Nhu cầu: %{y:,.0f}<extra></extra>'},
+      {type:'bar', x:wk, y:r.inc, name:'Incoming', marker:{color:css('--s1')}, hovertemplate:'%{x}<br>Incoming: %{y:,.0f}<extra></extra>'},
+      {type:'scatter', mode:'lines+markers', x:wk, y:r.end, name:'Tồn cuối tuần', line:{color:css('--ink'), width:2}, marker:{size:6, color:r.end.map(v=>v<=0.5?css('--crit'):css('--ink')), line:{width:1.5,color:css('--surface')}}, hovertemplate:'%{x}<br>Tồn cuối: %{y:,.0f}<extra></extra>'},
+    ], baseLayout({barmode:'group', bargap:0.35, bargroupgap:0.08, xaxis:axis({tickangle:-45, tickfont:{size:10,color:css('--muted')}}), yaxis:axis({title:{text:'Units',font:{color:css('--muted'),size:11.5}}, rangemode:'tozero', tickformat:'~s'}), margin:{l:56,r:10,t:6,b:92}, legend:{orientation:'h', y:-0.42, x:0, font:{color:css('--muted'),size:11.5}}, hovermode:'x unified'}));
+  }
+  $('#invTable').innerHTML = `<thead><tr><th>${F.pl?'SKU':'Group'}</th><th>Trạng thái</th><th class="n">Tồn hiện tại</th><th class="n">Incoming</th><th class="n">Bán dự báo / tuần</th><th class="n">Cover hiện tại</th><th class="n">Cover cuối horizon</th><th class="n">Units có thể mất</th></tr></thead><tbody>` +
+    rows.map(r=>`<tr class="clickable${r.k===IS.sel?' sel':''}" data-k="${esc(r.k)}"><td>${esc(r.k)}</td><td><span class="status ${STATUS[r.status][0]}">${STATUS[r.status][1]}</span></td><td class="n">${fmtN(r.onhand)}</td><td class="n">${fmtN(r.totalInc)}</td><td class="n">${fmtN(r.avgDem)}</td><td class="n">${isFinite(r.coverNow)?r.coverNow.toFixed(1)+' w':'∞'}</td><td class="n">${isFinite(r.coverEnd)?r.coverEnd.toFixed(1)+' w':'∞'}</td><td class="n">${r.lost>0.5?fmtN(r.lost):'—'}</td></tr>`).join('') + '</tbody>';
+  $$('#invTable tr.clickable').forEach(tr=>tr.onclick=()=>{ IS.sel=tr.dataset.k; renderInv(); });
+}
+$$('#horizonBar .chip').forEach(c=>c.onclick=()=>{ IS.h=+c.dataset.h; renderInv(); });
+
+// ================= TRACKING TARGET =================
+function renderTrack(){
+  const month = '2026-09', daysIn = 30, elapsed = 26;
+  const rows = periodRows(month, month);
+  const bySku = groupBy(rows, r=>r.s.sku);
+  const tgt = s => { const ly = FACT.filter(f=>f.s===s && f.mk==='2025-09'); return agg(ly).gmv * s.growth * 1.08; };
+  const pics = groupBy(SKUS.filter(passDims), s=>s.pic);
+  const picRows = [...pics].map(([p, ss]) => { let t=0,a=0; ss.forEach(s=>{ t+=tgt(s); a+=agg(bySku.get(s.sku)||[]).gmv; }); return {p,t,a,rr:a/elapsed*daysIn/t}; }).sort((x,y)=>y.t-x.t);
+  const T = picRows.reduce((s,r)=>s+r.t,0), A = picRows.reduce((s,r)=>s+r.a,0);
+  const tot = agg(rows);
+  const rr = A/elapsed*daysIn;
+  $('#trackTiles').innerHTML = [
+    ['GMV target tháng 9', fmt$(T), ''],['GMV actual MTD', fmt$(A), `<span class="delta ${A/T>=elapsed/daysIn?'up':'down'}">${fmtP(A/T,0)} target</span><span>ngày ${elapsed}/${daysIn}</span>`],
+    ['Run-rate cuối tháng', fmt$(rr), `<span class="delta ${rr/T>=0.95?'up':rr/T>=0.7?'flat':'down'}">${fmtP(rr/T,0)}</span>`],
+    ['Cần đạt / ngày còn lại', fmt$((T-A)/(daysIn-elapsed)), '<span>để về đích</span>'],
+    ['%MKT/GMV actual', fmtP(tot.mktGmv), '<span>target 12.0%</span>'],
+    ['CM3 % actual', fmtP(tot.cm3Pct), ''],
+  ].map(([k,v,d])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
+  const ord = [...picRows].reverse();
+  const col = r => r>=0.95?css('--good'):r>=0.7?css('--warn'):css('--crit');
+  draw('trackPic', [
+    {type:'bar', orientation:'h', y:ord.map(r=>r.p), x:ord.map(r=>r.t), name:'Target', marker:{color:css('--surface-2'), line:{color:css('--line'),width:1}}, hoverinfo:'skip', width:0.62},
+    {type:'bar', orientation:'h', y:ord.map(r=>r.p), x:ord.map(r=>r.a), name:'Actual MTD', marker:{color:ord.map(r=>col(r.rr))}, width:0.3,
+     customdata:ord.map(r=>[r.t, r.a/r.t, r.rr]), hovertemplate:'<b>%{y}</b><br>Actual: %{x:$,.0f}<br>Target: %{customdata[0]:$,.0f}<br>Đạt: %{customdata[1]:.0%} · run-rate %{customdata[2]:.0%}<extra></extra>'},
+  ], baseLayout({barmode:'overlay', showlegend:false, xaxis:axis({tickprefix:'$', tickformat:'~s'}), yaxis:axis({automargin:true}), margin:{l:10,r:14,t:6,b:36},
+    shapes: ord.map((r,i)=>({type:'line', xref:'x', yref:'y', x0:r.t*elapsed/daysIn, x1:r.t*elapsed/daysIn, y0:i-0.36, y1:i+0.36, line:{color:css('--ink'), width:2}})) }));
+  const plRows = [...groupBy(SKUS.filter(passDims), s=>s.pl)].map(([pl, ss]) => { let t=0,a=0; ss.forEach(s=>{ t+=tgt(s); a+=agg(bySku.get(s.sku)||[]).gmv; }); return {pl,t,a,rr:a/elapsed*daysIn/t,gap:t-a/elapsed*daysIn}; }).sort((x,y)=>y.gap-x.gap);
+  $('#trackPl').innerHTML = '<thead><tr><th>Group</th><th class="n">Target</th><th>Run-rate</th><th class="n">Thiếu (dự kiến)</th></tr></thead><tbody>' +
+    plRows.map(r=>`<tr class="clickable${r.pl===F.pl?' sel':''}" data-pl="${esc(r.pl)}"><td>${esc(r.pl)}</td><td class="n">${fmt$(r.t)}</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,r.rr*100).toFixed(0)}%;background:${col(r.rr)}"></div></div><span class="num" style="min-width:38px;text-align:right">${fmtP(r.rr,0)}</span></div></td><td class="n">${r.gap>0?fmt$(r.gap):'—'}</td></tr>`).join('') + '</tbody>';
+  $$('#trackPl tr.clickable').forEach(tr=>tr.onclick=()=>setPl(F.pl===tr.dataset.pl?'':tr.dataset.pl));
+}
+
+// ================= WEEKLY REVIEW =================
+const REVIEW_WEEKS = WEEKS.slice(-4); // W36..W39
+fillSel('#rWeek', REVIEW_WEEKS.map((w,i)=>i), i=>{ const w = REVIEW_WEEKS[i]; return 'W'+isoWeekNo(w)+' · '+ddmm(w)+' → '+ddmm(addDays(w,6)); });
+$('#rWeek').value = String(REVIEW_WEEKS.length-1);
+const CODES = ['INV','LIS','PRC','MKT','Others'];
+const CODE_RX = {
+  INV:/(tồn|stock|\boos\b|hết hàng|hàng về|về hàng|incoming|replenish|\bmoc\b|inventory|lô hàng)/i,
+  LIS:/(listing|badge|hình|image|review|block|zip ?code|zipcode|shipping|kiện case|\bcase\b|swatch|content|item highlight)/i,
+  PRC:/(giá|price|\brrp\b|coupon|\bmap\b|discount|ppm)/i,
+  MKT:/(\bads?\b|promo|deal|\bbd\b|\bcamp|acos|tacos|budget|spend|traffic|keyword)/i,
+};
+const SKU_SET = new Set(SKUS.map(s=>s.sku));
+const SKU_STOP = new Set(['ASIN','PUSH','DEAL','BEST','PRIME','TYPE','CASE','LOW','ACOS','TACOS','MOC']);
+function parseIssues(text){
+  return String(text||'').split(/\n+/).map(t=>t.replace(/^[\s\-•*·]+/,'').trim()).filter(t=>t.length>3).map(t=>{
+    const hits = CODES.slice(0,4).map(c=>({c, i:t.search(CODE_RX[c])})).filter(h=>h.i>=0).sort((a,b)=>a.i-b.i).map(h=>h.c);
+    const skus = [...new Set((t.match(/\b[A-Z0-9]{4}\b/g)||[]).filter(x=>/[A-Z]/.test(x) && !SKU_STOP.has(x)))];
+    return {text:t, codes: hits.length?hits:['Others'], skus};
+  });
+}
+function parseActions(text, weekStart){
+  const out = []; let current = null; const year = weekStart.getFullYear();
+  const defDue = addDays(weekStart, 13); // Saturday of next week
+  String(text||'').split(/\n+/).forEach(raw => {
+    let t = raw.trim(); if(!t) return;
+    const m = t.match(/^(\d{1,2})\/(\d{1,2})\s*[:\-]?\s*(.*)$/);
+    if(m){ current = new Date(year, +m[2]-1, +m[1]); t = m[3].trim(); if(!t) return; }
+    t = t.replace(/^[\-•*·]+\s*/,'');
+    if(t.length<3) return;
+    out.push({text:t, due: iso(current || defDue), dated: !!current, skus:[...new Set((t.match(/\b[A-Z0-9]{4}\b/g)||[]).filter(x=>/[A-Z]/.test(x) && !SKU_STOP.has(x)))]});
+  });
+  return out;
+}
+// Seed examples (adapted from the Sep KPI tracker notes; illustrative only)
+const SEED = [
+  [1,'Special Shape Kettlebells','PIC B','Cần chú ý','Kiện case giải quyết được các vấn đề stock trên listing\nReallocate promotion budget sang ads, đẩy được số bán gần đạt target tuần','14/09: Mở 5 case kiện\nGiảm ad'],
+  [1,'Standard Dumbbells','PIC C','Chậm tiến độ','Bung giá key size 3lb, 6lbs (giá bán tăng vượt RRP)\nLong shipping time size 2lbs khoảng 10 ngày\nLow MOC size 12lbs','15/09: Invest deal push lại sức bán sau khi merge listing\nPush ads cho các size đang có deal'],
+  [1,'Combo Cable Attachments','PIC A','Chậm tiến độ','K7QX, P2LM, R9TA đang low stock\nK7QX, H4WE bị long shipping time\nZ3NB đang OOS','Push ads vào SKU còn đủ stock và giá competitive\n16/09: Kiện case shipping cho K7QX/H4WE'],
+  [2,'Special Shape Kettlebells','PIC B','Cần chú ý','C8VD mất badge Best Deal, chỉ bán được 2 units\nD5JR lô incoming 26 units đổi dimension, cần đổi hình listing\nQ6FU stock chỉ còn 5 units, 26/09 mới về 14 units\nW1YT có tồn nhưng listing hiển thị long shipping','17/09: Update hình dimension mới cho D5JR\n18/09: Tổng hợp các case long shipping'],
+  [2,'Standard Balance Pads','PIC B','Chậm tiến độ','SKU key B2AX 26/09 mới về hàng, chỉ còn 4 ngày để bán\nN7SE chạy promotion chưa đủ thu hút\nA9CH bị block sale ở zip code 10001 & 60601','15/09: Kiện case A9CH\n16/09: A/B test main image B0EK\nTest camp KW, camp SB thay các camp ACOS cao'],
+  [2,'Tricep Ropes','PIC A','Chậm tiến độ','Mất Item Highlights, giá bán tăng so với T8 làm giảm price competitiveness\nĐối thủ chạy deal full listing từ đầu tháng','Kiện case Item Highlights\nPush ads trên converting keywords để recover traffic'],
+  [2,'Standard Dumbbells','PIC C','Chậm tiến độ','Bung giá 5lbs Neo + Type C\nDB Set with rack thiếu stock, không có incoming\nVinyl coated 5lbs bị block zipcode','Set camp cho Neo + Type C\n22/09: Làm lại hình swatch cho Type C'],
+  [3,'Standard Dumbbells','PIC C','Cần chú ý','Size 3lb vẫn bung giá, đã map lại\nLong shipping size 2lbs chưa hết','25/09: Theo dõi giá sau khi map\nKiện case shipping 2lbs'],
+  [3,'Combo Cable Attachments','PIC A','Cần chú ý','Z3NB đã về hàng giữa tháng\nK7QX vẫn low stock','Scale ads lại cho Z3NB\n29/09: Check incoming K7QX'],
+];
+let REVIEWS = store.get('y4a_reviews_v1', null);
+if(!REVIEWS){
+  REVIEWS = SEED.map(([wi,pl,owner,status,issue,action]) => ({wi, pl, owner, status, issue, action, versions:[{at: iso(addDays(REVIEW_WEEKS[wi],9))+'T10:00', late:false}], actionsDone:{}}));
+  // one example action already done
+  REVIEWS[0].actionsDone['0'] = true;
+}
+const saveReviews = () => store.set('y4a_reviews_v1', REVIEWS);
+const RV = { wi: REVIEW_WEEKS.length-1, pl: null };
+function windowFor(wi){
+  const ws = REVIEW_WEEKS[wi]; const we = addDays(ws,6);
+  const snap = addDays(ws,8); snap.setHours(6,0,0,0); // Monday 06:00 after week end
+  const dd = +$('#rDeadlineDay').value; const [hh,mm] = ($('#rDeadlineTime').value||'12:00').split(':').map(Number);
+  const due = addDays(ws, 7+dd); due.setHours(hh,mm,0,0);
+  return {ws, we, snap, due};
+}
+function weekPlStats(wi){
+  const g = groupBy(FACT.filter(f=>f.wi===WEEKS.length-4+wi && passDims(f.s)), r=>r.s.pl);
+  const p = groupBy(FACT.filter(f=>f.wi===WEEKS.length-5+wi && passDims(f.s)), r=>r.s.pl);
+  return [...g].map(([pl,v])=>{ const a = agg(v); const b = p.get(pl) ? agg(p.get(pl)) : null; const tgtW = b ? b.gmv*1.06 : a.gmv;
+    const pic = v[0].s.pic; return {pl, pic, a, wow: b ? a.gmv/b.gmv-1 : NaN, ach: a.gmv/tgtW}; }).sort((x,y)=>y.a.gmv-x.a.gmv);
+}
+function autoStatus(ach){ return ach>=0.95?['good','Đạt tiến độ']:ach>=0.8?['warn','Cần chú ý']:['crit','Chậm tiến độ']; }
+function fmtDT(d){ return ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()]+' '+ddmm(d)+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function renderLockbar(){
+  const {ws,we,snap,due} = windowFor(RV.wi); const now = new Date();
+  const phase = now < we ? 0 : now < snap ? 1 : now < due ? 2 : 3;
+  const steps = [
+    ['Tuần bán hàng', ddmm(ws)+' → '+ddmm(we), 'Data load daily, số còn thay đổi'],
+    ['Chụp snapshot', fmtDT(snap), 'Khóa số liệu tuần, không đổi nữa'],
+    ['Hạn nhập diễn giải', fmtDT(due), 'PIC nhập trước hạn = On time'],
+    ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn Late, lưu version'],
+  ];
+  $('#lockbar').innerHTML = steps.map((s,i)=>`<div class="step ${i<phase?'done':''} ${i===phase?'now':''}"><span class="lbl">${s[0]}</span><span class="when">${s[1]}</span><span class="note">${s[2]}${i===phase?' · <b>đang ở bước này</b>':''}</span></div>`).join('');
+}
+function reviewFor(wi,pl){ return REVIEWS.find(r=>r.wi===wi && r.pl===pl); }
+function renderReviewTable(){
+  const stats = weekPlStats(RV.wi);
+  if(!RV.pl || !stats.find(s=>s.pl===RV.pl)) RV.pl = (stats.find(s=>!reviewFor(RV.wi,s.pl)) || stats[0] || {}).pl;
+  $('#reviewTable').innerHTML = `<thead><tr><th>Group</th><th>Diễn giải</th><th>Tự động</th><th class="n">GMV tuần</th><th class="n">WoW</th><th class="n">% target tuần</th><th class="n">%MKT/GMV</th><th>PIC</th></tr></thead><tbody>` +
+    stats.map(s=>{ const rv = reviewFor(RV.wi,s.pl); const st = autoStatus(s.ach); const late = rv && rv.versions.some(v=>v.late);
+      return `<tr class="clickable${s.pl===RV.pl?' sel':''}" data-pl="${esc(s.pl)}"><td>${esc(s.pl)}</td><td>${rv?`<span class="status ${late?'warn':'good'}">${late?'Late':'Đã nhập'} · v${rv.versions.length}</span>`:(st[0]==='good'?'<span class="status neutral">Không bắt buộc</span>':'<span class="status crit">Thiếu</span>')}</td><td><span class="status ${st[0]}">${st[1]}</span></td><td class="n">${fmt$(s.a.gmv)}</td><td class="n">${deltaHtml(s.a.gmv, s.a.gmv/(1+s.wow), false,false)}</td><td class="n">${fmtP(s.ach,0)}</td><td class="n">${fmtP(s.a.mktGmv)}</td><td>${esc(s.pic)}</td></tr>`; }).join('') + '</tbody>';
+  $$('#reviewTable tr.clickable').forEach(tr=>tr.onclick=()=>{ RV.pl = tr.dataset.pl; renderReviewTable(); renderEditor(); });
+}
+const OWNERS = [...new Set(PLS.map(p=>p[1]))].sort();
+fillSel('#edOwner', OWNERS);
+function renderEditor(){
+  const s = weekPlStats(RV.wi).find(x=>x.pl===RV.pl);
+  if(!s){ $('#edTitle').textContent = 'Chọn một Product line'; return; }
+  const rv = reviewFor(RV.wi, RV.pl);
+  $('#edTitle').textContent = s.pl;
+  $('#edSub').innerHTML = `Snapshot: GMV ${fmt$(s.a.gmv)} · WoW ${fmtP(s.wow)} · %MKT/GMV ${fmtP(s.a.mktGmv)} · Ads units ${fmtN(s.a.adUnits)}`;
+  $('#edStatus').value = rv ? rv.status : autoStatus(s.ach)[1];
+  $('#edOwner').value = rv ? rv.owner : s.pic;
+  $('#edIssue').value = rv ? rv.issue : '';
+  $('#edAction').value = rv ? rv.action : '';
+  $('#edVersion').textContent = rv ? `Đã lưu ${rv.versions.length} lần · lần cuối ${rv.versions[rv.versions.length-1].at.replace('T',' ')}${rv.versions.some(v=>v.late)?' · có bản nhập sau hạn':''}` : 'Chưa có diễn giải cho tuần này.';
+  renderParsed();
+}
+function renderParsed(){
+  const iss = parseIssues($('#edIssue').value), acts = parseActions($('#edAction').value, REVIEW_WEEKS[RV.wi]);
+  const skuTag = x => `<span class="sku" title="${SKU_SET.has(x)?'SKU có trong danh mục':'Mã chưa khớp danh mục SKU'}">${esc(x)}</span>`;
+  $('#parsedPreview').innerHTML = (iss.length||acts.length) ?
+    iss.map(i=>`<div class="item"><span>${i.codes.map(c=>`<span class="code ${c}">${c}</span>`).join(' ')}</span><span>${esc(i.text)}</span><span class="meta">${i.skus.map(skuTag).join(' ')}</span></div>`).join('') +
+    acts.map(a=>`<div class="item"><span class="status neutral">Action</span><span>${esc(a.text)}</span><span class="meta">hạn ${a.due.slice(8,10)}/${a.due.slice(5,7)}${a.dated?'':' (mặc định)'}</span></div>`).join('')
+    : '<span class="note">Gõ vào hai ô trên, phần tách issue/action sẽ hiện ở đây.</span>';
+}
+['#edIssue','#edAction'].forEach(id=>$(id).addEventListener('input', renderParsed));
+$('#edSave').onclick = () => {
+  if(!RV.pl) return;
+  const issue = $('#edIssue').value.trim(), action = $('#edAction').value.trim();
+  if(!issue && !action){ toast('Nhập ít nhất một vấn đề hoặc hành động trước khi lưu'); return; }
+  const {due} = windowFor(RV.wi); const now = new Date();
+  let rv = reviewFor(RV.wi, RV.pl);
+  if(!rv){ rv = {wi:RV.wi, pl:RV.pl, versions:[], actionsDone:{}}; REVIEWS.push(rv); }
+  Object.assign(rv, {owner:$('#edOwner').value, status:$('#edStatus').value, issue, action});
+  rv.versions.push({at: iso(now)+'T'+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'), late: now > due});
+  saveReviews();
+  toast(now > due ? 'Đã lưu · gắn nhãn Late (sau hạn)' : 'Đã lưu diễn giải');
+  renderReviewTable(); renderEditor(); renderHub();
+};
+function allIssues(){ return REVIEWS.flatMap(r => parseIssues(r.issue).map(i=>({...i, wi:r.wi, pl:r.pl, owner:r.owner}))); }
+function allActions(){ return REVIEWS.flatMap(r => parseActions(r.action, REVIEW_WEEKS[r.wi]).map((a,idx)=>({...a, wi:r.wi, pl:r.pl, owner:r.owner, done: !!r.actionsDone[String(idx)], ref:[r, idx]}))); }
+function renderHub(){
+  const issues = allIssues(), actions = allActions(); const today = iso(new Date());
+  const stats = weekPlStats(RV.wi); const need = stats.filter(s=>autoStatus(s.ach)[0]!=='good');
+  const done = need.filter(s=>reviewFor(RV.wi,s.pl)).length;
+  const open = actions.filter(a=>!a.done), overdue = open.filter(a=>a.due<today);
+  const wkIssues = issues.filter(i=>i.wi===RV.wi); const codeCount = {}; wkIssues.forEach(i=>i.codes.forEach(c=>codeCount[c]=(codeCount[c]||0)+1));
+  const topCode = Object.entries(codeCount).sort((a,b)=>b[1]-a[1])[0];
+  $('#hubTiles').innerHTML = [
+    ['Group cần diễn giải', `${done}/${need.length}`, need.length&&done<need.length?'<span class="delta down">còn thiếu</span>':'<span class="delta up">đủ</span>'],
+    ['Issue tuần này', fmtN(wkIssues.length), ''],
+    ['Mã nổi bật', topCode?topCode[0]:'—', topCode?`<span>${topCode[1]} lần</span>`:''],
+    ['Action đang mở', fmtN(open.length), ''],
+    ['Quá hạn', fmtN(overdue.length), overdue.length?'<span class="delta down">cần xử lý</span>':'<span class="delta up">0</span>'],
+  ].map(([k,v,d])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
+  const wl = REVIEW_WEEKS.map(w=>'W'+isoWeekNo(w));
+  draw('issuePlot', CODES.map((c,i)=>({type:'bar', name:c, x:wl, y:REVIEW_WEEKS.map((_,wi)=>issues.filter(x=>x.wi===wi && x.codes.includes(c)).length), marker:{color:css('--c'+(i+1)), line:{color:css('--surface'), width:2}}, hovertemplate:`%{x} · ${c}: %{y}<extra></extra>`})),
+    baseLayout({barmode:'stack', bargap:0.45, yaxis:axis({title:{text:'Số issue',font:{color:css('--muted'),size:11.5}}, dtick:2}), xaxis:axis({}), margin:{l:50,r:10,t:6,b:56}, legend:{orientation:'h', y:-0.2, x:0, font:{color:css('--muted'),size:11.5}}}));
+  const rec = new Map();
+  issues.forEach(i=>i.codes.forEach(c=>{ const k = i.pl+'|'+c; if(!rec.has(k)) rec.set(k,{pl:i.pl,c,weeks:new Set(),last:''}); const r = rec.get(k); r.weeks.add(i.wi); if(i.wi>=Math.max(...r.weeks)) r.last=i.text; }));
+  const recRows = [...rec.values()].filter(r=>r.weeks.size>=2).sort((a,b)=>b.weeks.size-a.weeks.size);
+  $('#recurTable').innerHTML = '<thead><tr><th>Group</th><th>Mã</th><th class="n">Số tuần</th><th>Ghi chú gần nhất</th></tr></thead><tbody>' +
+    (recRows.length ? recRows.map(r=>`<tr><td>${esc(r.pl)}</td><td><span class="code ${r.c}">${r.c}</span></td><td class="n">${r.weeks.size}</td><td style="white-space:normal;min-width:220px">${esc(r.last)}</td></tr>`).join('') : '<tr><td colspan="4" class="note">Chưa có vấn đề lặp lại.</td></tr>') + '</tbody>';
+  const colHtml = (title, list, cls) => `<div class="col"><h4><span>${title}</span><span class="status ${cls}">${list.length}</span></h4>${list.slice(0,12).map(a=>`<div class="act"><div>${esc(a.text)}</div><div class="foot"><span>${esc(a.pl)}</span><span>· ${esc(a.owner)}</span><span>· hạn ${a.due.slice(8,10)}/${a.due.slice(5,7)}</span>${a.skus.map(x=>`<span class="sku">${esc(x)}</span>`).join('')}<button class="btn sm" data-toggle="${REVIEWS.indexOf(a.ref[0])}:${a.ref[1]}">${a.done?'Mở lại':'Xong'}</button></div></div>`).join('') || '<span class="note">Trống</span>'}${list.length>12?`<span class="note">+${list.length-12} action khác</span>`:''}</div>`;
+  $('#board').innerHTML = colHtml('Quá hạn', overdue.sort((a,b)=>a.due.localeCompare(b.due)), 'crit') + colHtml('Đang mở', open.filter(a=>a.due>=today).sort((a,b)=>a.due.localeCompare(b.due)), 'warn') + colHtml('Hoàn thành', actions.filter(a=>a.done), 'good');
+  $$('#board [data-toggle]').forEach(b=>b.onclick=()=>{ const [ri,ai] = b.dataset.toggle.split(':'); const r = REVIEWS[+ri]; r.actionsDone[ai] = !r.actionsDone[ai]; saveReviews(); renderHub(); });
+}
+$('#rWeek').onchange = () => { RV.wi = +$('#rWeek').value; RV.pl = null; renderReview(); };
+['#rDeadlineDay','#rDeadlineTime'].forEach(id=>$(id).onchange=()=>renderLockbar());
+function renderReview(){ renderLockbar(); renderReviewTable(); renderEditor(); renderHub(); }
+
+// ================= MARKET =================
+const CATS = [
+  {id:'db', l:'Dumbbells', attr:{Weight:['2 lb','3 lb','5 lb','8 lb','10 lb','15 lb','20 lb','25 lb'], Color:['Black','Blue','Pink','Purple','Grey'], Size:['Single','Pair','Set w/ rack']}, p:18},
+  {id:'kb', l:'Kettlebells', attr:{Weight:['10 lb','15 lb','20 lb','25 lb','30 lb','35 lb','40 lb','50 lb'], Color:['Black','Orange','Blue','Green'], Size:['Single','Adjustable']}, p:36},
+  {id:'ca', l:'Cable attachments', attr:{Size:['Rope 27"','Rope 36"','D handle','V bar','Straight bar','Combo set'], Color:['Black','Red','Blue']}, p:24},
+];
+const BRANDS = [{b:'Yes4All', c:'--s1', base:0.19, pr:1.0},{b:'Brand A', c:'--s2', base:0.23, pr:1.12},{b:'Brand B', c:'--s3', base:0.14, pr:0.86},
+  {b:'Brand C', c:'--other', base:0.1, pr:1.3},{b:'Brand D', c:'--other', base:0.08, pr:0.78},{b:'Brand E', c:'--other', base:0.07, pr:1.05},{b:'Others', c:'--other', base:0.19, pr:0.95}];
+const MKT_MONTHS = MONTH_KEYS.slice(-21);
+const MARKET = {};
+CATS.forEach(cat => {
+  seed = 777 + cat.id.charCodeAt(0);
+  const drift = BRANDS.map(()=>rn(-0.004,0.004));
+  const rows = [];
+  MKT_MONTHS.forEach((mk,mi) => {
+    const size = 900000 * (cat.p/20) * SEASON[+mk.slice(5,7)-1] * (1+mi*0.004);
+    let shares = BRANDS.map((b,i)=>Math.max(0.02, b.base + drift[i]*mi + 0.01*gauss()));
+    const tot = shares.reduce((a,b)=>a+b,0); shares = shares.map(s=>s/tot);
+    BRANDS.forEach((b,i)=>rows.push({mk, brand:b.b, share:shares[i], rev:size*shares[i], price: cat.p*b.pr*(1+0.05*Math.sin(mi/3+i)+0.02*gauss())}));
+  });
+  const ladder = {};
+  Object.entries(cat.attr).forEach(([attr, vals]) => {
+    ladder[attr] = vals.map((v,vi) => { const bp = cat.p * (attr==='Weight' ? (0.45 + vi*0.28) : rn(0.85,1.4));
+      let sh = BRANDS.slice(0,6).map(b=>Math.max(0.02, b.base*rn(0.5,1.6))); const t = sh.reduce((a,b)=>a+b,0);
+      return {v, brands: BRANDS.slice(0,6).map((b,i)=>({brand:b.b, price: bp*b.pr*rn(0.9,1.1), share: sh[i]/t}))}; });
+  });
+  const asins = [];
+  BRANDS.slice(0,6).forEach(b => { for(let i=0;i<(b.b==='Yes4All'?9:7);i++){ const pi = rn(0.6,1.6)*b.pr; asins.push({brand:b.b, price: cat.p*pi, units: Math.max(20, 1400*Math.pow(pi,-1.5)*Math.exp(0.45*gauss())*(b.base/0.15)) }); } });
+  MARKET[cat.id] = {rows, ladder, asins};
+});
+seed = 99;
+const MS = { cat:'db', attr:'Weight' };
+function brandColor(b){ const x = BRANDS.find(y=>y.b===b); return css(x ? x.c : '--other'); }
+function renderMarket(){
+  chipRow($('#catBar'), CATS, c=>c.id===MS.cat, c=>{ MS.cat=c.id; if(!c.attr[MS.attr]) MS.attr=Object.keys(c.attr)[0]; renderMarket(); });
+  const cat = CATS.find(c=>c.id===MS.cat); const D = MARKET[MS.cat];
+  chipRow($('#varBar'), Object.keys(cat.attr).map(a=>({l:a})), a=>a.l===MS.attr, a=>{ MS.attr=a.l; renderMarket(); });
+  const last = MKT_MONTHS[MKT_MONTHS.length-1], prev12 = MKT_MONTHS[MKT_MONTHS.length-13] || MKT_MONTHS[0];
+  const y = D.rows.filter(r=>r.brand==='Yes4All');
+  const yl = y.find(r=>r.mk===last), yp = y.find(r=>r.mk===prev12);
+  const rankNow = D.rows.filter(r=>r.mk===last && r.brand!=='Others').sort((a,b)=>b.share-a.share).findIndex(r=>r.brand==='Yes4All')+1;
+  const mktNow = D.rows.filter(r=>r.mk===last).reduce((a,r)=>a+r.rev,0), mktPrev = D.rows.filter(r=>r.mk===prev12).reduce((a,r)=>a+r.rev,0);
+  const aPrice = D.rows.filter(r=>r.mk===last && r.brand==='Brand A')[0].price;
+  $('#mktTiles').innerHTML = [
+    ['Thị phần Y4A · '+monthLabel(last), fmtP(yl.share), deltaHtml(yl.share, yp.share, false, true)+'<span>vs 12 tháng trước</span>'],
+    ['Xếp hạng brand', '#'+rankNow, '<span>theo doanh thu</span>'],
+    ['Quy mô category / tháng', fmt$(mktNow), deltaHtml(mktNow, mktPrev, false, false)+'<span>YoY</span>'],
+    ['Giá TB Y4A vs Brand A', '$'+yl.price.toFixed(2), `<span class="delta ${yl.price<aPrice?'up':'down'}">${((yl.price/aPrice-1)*100).toFixed(0)}%</span><span>so với Brand A</span>`],
+  ].map(([k,v,d])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
+  // brand map
+  const maxRev = Math.max(...D.rows.map(r=>r.rev));
+  const traces = BRANDS.map(b => { const rs = D.rows.filter(r=>r.brand===b.b); const hi = ['Yes4All','Brand A','Brand B'].includes(b.b);
+    return {type:'scatter', mode:'lines+markers', name:hi?b.b:'Brand khác', legendgroup:hi?b.b:'other', showlegend: hi || b.b==='Brand C', x:rs.map(r=>r.mk+'-15'), y:rs.map(r=>r.price),
+      line:{color:brandColor(b.b), width:hi?1.6:0.8, shape:'spline'}, opacity: hi?1:0.55,
+      marker:{size:rs.map(r=>8+44*Math.sqrt(r.rev/maxRev)), color:brandColor(b.b), opacity: hi?0.78:0.4, line:{width:1.5, color:css('--surface')}},
+      customdata:rs.map(r=>[r.share, r.rev]), hovertemplate:`<b>${b.b}</b> · %{x|%b-%y}<br>Giá TB: %{y:$.2f}<br>Thị phần: %{customdata[0]:.1%}<br>Doanh thu: %{customdata[1]:$,.0f}<extra></extra>`}; });
+  const lastRows = D.rows.filter(r=>r.mk===last && ['Yes4All','Brand A','Brand B'].includes(r.brand));
+  draw('brandMap', traces, baseLayout({
+    xaxis:axis({type:'date', tickformat:'%b-%y', rangeslider:{visible:true, thickness:0.08, bgcolor:css('--surface-2'), bordercolor:css('--line')}, range:[MKT_MONTHS[MKT_MONTHS.length-13]+'-01', last+'-28']}),
+    yaxis:axis({title:{text:'Giá bán trung bình', font:{color:css('--muted'),size:11.5}}, tickprefix:'$'}),
+    hovermode:'closest', margin:{l:60,r:80,t:10,b:30}, legend:{orientation:'h', y:1.08, x:0, font:{color:css('--muted'),size:11.5}},
+    annotations: lastRows.map(r=>({x:last+'-15', y:r.price, text:`<b>${r.brand}</b> ${fmtP(r.share,0)}`, xanchor:'left', xshift:22, showarrow:false, font:{size:11, color:css('--ink')}})),
+  }));
+  // ladder
+  const L = D.ladder[MS.attr];
+  const lt = BRANDS.slice(0,6).map(b => ({type:'scatter', mode:'markers', name:b.b, y:L.map(r=>r.v), x:L.map(r=>r.brands.find(x=>x.brand===b.b).price),
+    marker:{size:L.map(r=>10+36*Math.sqrt(r.brands.find(x=>x.brand===b.b).share)), color:brandColor(b.b), opacity: ['Yes4All','Brand A','Brand B'].includes(b.b)?0.85:0.4, line:{width:1.5,color:css('--surface')}},
+    customdata:L.map(r=>r.brands.find(x=>x.brand===b.b).share), hovertemplate:`<b>${b.b}</b> · %{y}<br>Giá: %{x:$.2f}<br>Thị phần trong variation: %{customdata:.0%}<extra></extra>`,
+    showlegend: ['Yes4All','Brand A','Brand B'].includes(b.b)}));
+  const rangeShapes = L.map(r=>{ const ps = r.brands.map(x=>x.price); return {type:'line', xref:'x', yref:'y', x0:Math.min(...ps), x1:Math.max(...ps), y0:r.v, y1:r.v, line:{color:css('--line'), width:6}, layer:'below'}; });
+  draw('ladder', lt, baseLayout({xaxis:axis({title:{text:'Giá',font:{color:css('--muted'),size:11.5}}, tickprefix:'$'}), yaxis:axis({type:'category', automargin:true, autorange:'reversed'}), shapes:rangeShapes, hovermode:'closest', margin:{l:10,r:40,t:10,b:56},
+    annotations: L.map(r=>{ const y4 = r.brands.find(x=>x.brand==='Yes4All'); return {x:y4.price, y:r.v, text:fmtP(y4.share,0), xshift:24, showarrow:false, font:{size:10.5, color:css('--ink')}}; })}));
+  // price vs sales
+  const A = D.asins; const lx = A.map(a=>Math.log(a.price)), ly = A.map(a=>Math.log(a.units)); const {a:ia,b:el} = ols(lx,ly);
+  const pmin = Math.min(...A.map(a=>a.price)), pmax = Math.max(...A.map(a=>a.price));
+  const curve = Array.from({length:30},(_,i)=>pmin*Math.pow(pmax/pmin,i/29));
+  draw('priceSales', [
+    ...BRANDS.slice(0,6).map(b=>{ const as = A.filter(a=>a.brand===b.b); const hi = ['Yes4All','Brand A','Brand B'].includes(b.b);
+      return {type:'scatter', mode:'markers', name:b.b, x:as.map(a=>a.price), y:as.map(a=>a.units), marker:{size:hi?10:8, color:brandColor(b.b), opacity:hi?0.85:0.45, line:{width:1.5,color:css('--surface')}}, showlegend:hi, hovertemplate:`<b>${b.b}</b><br>Giá: %{x:$.2f}<br>Units/tháng: %{y:,.0f}<extra></extra>`}; }),
+    {type:'scatter', mode:'lines', name:'Xu hướng category', x:curve, y:curve.map(p=>Math.exp(ia+el*Math.log(p))), line:{color:css('--ink'), width:1.5, dash:'dash'}, hoverinfo:'skip'},
+  ], baseLayout({xaxis:axis({type:'log', dtick:'D2', title:{text:'Giá (log)',font:{color:css('--muted'),size:11.5}}, tickprefix:'$'}), yaxis:axis({type:'log', dtick:'D2', tickformat:'~s', title:{text:'Units / tháng (log)',font:{color:css('--muted'),size:11.5}}}), hovermode:'closest', margin:{l:62,r:10,t:10,b:56}}));
+  const y4 = A.filter(a=>a.brand==='Yes4All'); const above = y4.filter(a=>a.units > Math.exp(ia+el*Math.log(a.price))).length;
+  $('#elastRead').innerHTML = `<b>Độ co giãn ≈ ${el.toFixed(2)}</b>: giá cao hơn 10% thì số bán thấp hơn khoảng ${Math.abs(el*10).toFixed(0)}% ở mặt bằng category. ${above}/${y4.length} ASIN Y4A nằm trên đường xu hướng, tức bán tốt hơn mức giá của nó gợi ý.`;
+}
+
+// ================= global filter wiring =================
+function setPl(pl){ F.pl = pl; $('#fPl').value = pl; IS.sel = null; renderAll(); }
+function renderActiveFilter(){
+  $('#activeFilter').innerHTML = F.pl ? `<span class="active-filter">Đang lọc: ${esc(F.pl)} <button type="button" aria-label="Bỏ lọc group" id="clearPl">×</button></span>` : '';
+  const b = $('#clearPl'); if(b) b.onclick = () => setPl('');
+}
+$('#fFrom').onchange = () => { F.from = $('#fFrom').value; if(F.from>F.to){ F.to=F.from; $('#fTo').value=F.to; } renderAll(); };
+$('#fTo').onchange = () => { F.to = $('#fTo').value; if(F.to<F.from){ F.from=F.to; $('#fFrom').value=F.from; } renderAll(); };
+$('#fCompare').onchange = () => { F.compare = $('#fCompare').value; renderAll(); };
+$('#fPic').onchange = () => { F.pic = $('#fPic').value; renderAll(); };
+$('#fPl').onchange = () => setPl($('#fPl').value);
+$('#fCh').onchange = () => { F.ch = $('#fCh').value; renderAll(); };
+
+let activeTab = 'sales';
+const rendered = {};
+function renderTab(t){
+  if(t==='sales'){ renderSalesTiles(); renderTrend(); renderTreemap(); renderRel(); renderInv(); }
+  else if(t==='track') renderTrack();
+  else if(t==='review') renderReview();
+  else if(t==='market') renderMarket();
+  rendered[t] = true;
+}
+function renderAll(){ renderActiveFilter(); Object.keys(rendered).forEach(k=>rendered[k]=false); renderTab(activeTab); }
+function showTab(t){
+  activeTab = t;
+  $$('nav.tabs [role=tab]').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t?'true':'false'));
+  $$('.view').forEach(v=>v.classList.toggle('on', v.id==='view-'+t));
+  $('#globalFilters').hidden = t==='blueprint' || t==='keep';
+  if(!rendered[t]) renderTab(t);
+  $$('#view-'+t+' .js-plotly-plot').forEach(p=>Plotly.Plots.resize(p));
+  try{ localStorage.setItem('y4a_tab', t); }catch(e){}
+}
+$$('nav.tabs [role=tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+// theme changes: re-render charts with the new tokens
+const rerender = () => { Object.keys(rendered).forEach(k=>rendered[k]=false); renderTab(activeTab); };
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rerender);
+new MutationObserver(rerender).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+
+renderActiveFilter();
+let startTab = 'sales';
+const h = (location.hash||'').slice(1);
+if(['track','sales','review','market','keep','blueprint'].includes(h)) startTab = h;
+else { try{ const s = localStorage.getItem('y4a_tab'); if(s && document.getElementById('view-'+s)) startTab = s; }catch(e){} }
+if(typeof Plotly === 'undefined'){ document.querySelector('.wrap').insertAdjacentHTML('afterbegin','<div class="read" style="margin-top:12px">Không tải được thư viện biểu đồ. Kiểm tra kết nối mạng rồi tải lại trang.</div>'); }
+else showTab(startTab);
+})();
+</script>
