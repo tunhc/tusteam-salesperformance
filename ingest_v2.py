@@ -126,7 +126,8 @@ def hourly_month_rows(path, month, known_skus):
     plus the ad-type / promo-type / click / impression columns it has."""
     d = pd.read_excel(path)
     d["date"] = pd.to_datetime(d["date"]).dt.date
-    d = d[d["date"].map(lambda x: x.strftime("%Y-%m") == month)]
+    if month:
+        d = d[d["date"].map(lambda x: x.strftime("%Y-%m") == month)]
     d = d[d["sku"].astype(str).str.strip().isin(known_skus)].copy()
     d["sku"] = d["sku"].astype(str).str.strip()
     num_cols = [c for c in d.columns if c not in ("date", "department", "sku", "asin", "main_category")]
@@ -151,6 +152,14 @@ def hourly_month_rows(path, month, known_skus):
             "category": r["main_category"], "source_file": src,
         })
     return rows
+
+
+def replace_days_sql(rows):
+    """Replace exactly the days present in the export (other days untouched)."""
+    days = sorted({r["date"] for r in rows})
+    lst = ", ".join(f"'{d}'" for d in days)
+    return (f"begin;\n-- replace {len(days)} day(s): {days[0]} → {days[-1]}; other days are not touched\n"
+            f"delete from sales_daily where date in ({lst});\n\n" + compact_sales_sql(rows) + "\n\ncommit;")
 
 
 def overwrite_month_sql(rows, month):
@@ -767,7 +776,7 @@ def main():
     ap.add_argument("--kpi-tracker", help="SSO_Sales_KPI_Tracker_*.xlsx (Week 1..4 PIC notes)")
     ap.add_argument("--lock-before", default="2026-09-01")
     ap.add_argument("--hourly", help="SSO Data Extraction Hourly export: overwrite one month of sales_daily (see --overwrite-month)")
-    ap.add_argument("--overwrite-month", help="YYYY-MM to replace with the --hourly file, e.g. 2026-09")
+    ap.add_argument("--overwrite-month", help="YYYY-MM to replace with the --hourly file, e.g. 2026-09 (deletes the whole month first)")
     ap.add_argument("--max-part-kb", type=int, default=600, help="max size of each sales history file (SQL Editor limit)")
     ap.add_argument("--known-skus", help="with --hourly only: 01_skus.sql (or a text file, one SKU per line) listing the managed SKUs")
     a = ap.parse_args()
@@ -775,14 +784,19 @@ def main():
 
     if a.hourly:
         # one-month overwrite from the hourly export, no other inputs needed
-        if not (a.overwrite_month and a.known_skus):
-            ap.error("--hourly needs --overwrite-month YYYY-MM and --known-skus")
+        if not a.known_skus:
+            ap.error("--hourly needs --known-skus (and optionally --overwrite-month YYYY-MM)")
         txt = open(a.known_skus, encoding="utf-8").read()
         known = set(re.findall(r"^\('([^']+)',", txt, re.M)) or {l.strip() for l in txt.splitlines() if l.strip()}
         rows = hourly_month_rows(a.hourly, a.overwrite_month, known)
         tot = sum(r["gmv"] for r in rows)
-        write(a.out, f"11_sales_{a.overwrite_month.replace('-', '_')}_overwrite.sql", overwrite_month_sql(rows, a.overwrite_month),
-              header=f"-- {len(rows)} SKU-day rows, {len({r['sku'] for r in rows})} SKUs, GMV {tot:,.2f} · source {os.path.basename(a.hourly)}")
+        info = f"-- {len(rows)} SKU-day rows, {len({r['sku'] for r in rows})} SKUs, GMV {tot:,.2f} · source {rows[0]['source_file'] if rows else a.hourly}"
+        if a.overwrite_month:
+            write(a.out, f"11_sales_{a.overwrite_month.replace('-', '_')}_overwrite.sql", overwrite_month_sql(rows, a.overwrite_month), header=info)
+        elif rows:
+            d0, d1 = min(r["date"] for r in rows), max(r["date"] for r in rows)
+            name = f"12_sales_{d0:%Y_%m_%d}" + (f"_to_{d1:%Y_%m_%d}" if d1 != d0 else "") + ".sql"
+            write(a.out, name, replace_days_sql(rows), header=info)
         if not a.followup:
             return
     if a.market_dir and not a.followup:
