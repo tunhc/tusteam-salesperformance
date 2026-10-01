@@ -147,22 +147,93 @@ function buildChat(){
 // Product Performance: BI charts
 // =====================================================================
 let perfToken = 0;
+
+// =====================================================================
+// Product Performance: period filter (whole tab follows it)
+// =====================================================================
+const PP = {preset:'30d', from:'', to:'', key:'', data:null, loading:null};
+const PP_PRESETS = [['7d', '7 ngày'], ['30d', '30 ngày'], ['90d', '90 ngày'], ['mtd', 'Tháng gần nhất'], ['lm', 'Tháng trước đó'], ['ytd', 'Từ đầu năm'], ['custom', 'Tùy chọn']];
+function ppMax(){ return (window.V2 && V2.state && V2.state.maxDate) || DATA.asOfDate || todayISO(); }
+function ppRange(){
+  const h = H(), mx = ppMax();
+  const first = mx.slice(0, 8) + '01';
+  switch(PP.preset){
+    case '7d': return [addDaysIso(mx, -6), mx];
+    case '90d': return [addDaysIso(mx, -89), mx];
+    case 'mtd': return [first, mx];
+    case 'lm': { const f = h.addMonths(first, -1); return [f, addDaysIso(first, -1)]; }
+    case 'ytd': return [mx.slice(0, 4) + '-01-01', mx];
+    case 'custom': return [PP.from || addDaysIso(mx, -29), PP.to || mx];
+    default: return [addDaysIso(mx, -29), mx];
+  }
+}
+V3.perfLabel = function(){ const [f, t] = ppRange(); return H().dm(f) + ' → ' + H().dm(t); };
+function ppBar(){
+  const bar = document.getElementById('perfPeriodBar'); if(!bar) return;
+  const h = H(); const [f, t] = ppRange(); const mx = ppMax();
+  if(!bar.dataset.built){
+    bar.dataset.built = '1';
+    bar.innerHTML = `<div class="fld"><label>Kỳ phân tích</label><div class="cv-toggle" id="ppPresets">${PP_PRESETS.map(([k, l]) => `<button class="cv-btn" type="button" data-p="${k}">${l}</button>`).join('')}</div></div>
+      <div class="fld"><label>Từ</label><input type="date" id="ppFrom"></div><div class="fld"><label>Đến</label><input type="date" id="ppTo"></div>
+      <span class="result-count" id="ppInfo"></span>`;
+    bar.querySelector('#ppPresets').onclick = e => { const b = e.target.closest('[data-p]'); if(!b) return; PP.preset = b.dataset.p; if(PP.preset === 'custom'){ const [a, z] = ppRange(); PP.from = a; PP.to = z; } renderPerfTab(); };
+    const onDate = () => { PP.preset = 'custom'; PP.from = bar.querySelector('#ppFrom').value; PP.to = bar.querySelector('#ppTo').value; if(PP.from && PP.to && PP.from > PP.to){ const x = PP.from; PP.from = PP.to; PP.to = x; } renderPerfTab(); };
+    bar.querySelector('#ppFrom').onchange = onDate; bar.querySelector('#ppTo').onchange = onDate;
+  }
+  bar.querySelectorAll('#ppPresets .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.p === PP.preset));
+  const fi = bar.querySelector('#ppFrom'), ti = bar.querySelector('#ppTo');
+  fi.value = f; ti.value = t; fi.max = mx; ti.max = mx;
+  const n = Math.round((new Date(t) - new Date(f)) / 864e5) + 1;
+  bar.querySelector('#ppInfo').innerHTML = PP.loading ? 'Đang tải số liệu…' : `${h.dm(f)} → ${h.dm(t)} · ${n} ngày · so với cùng kỳ năm trước · data tới ${h.dm(mx)}`;
+}
+// true while the period's numbers are being fetched (renderPerfTab waits and is called again)
+V3.perfEnsure = function(){
+  const h = H(); const [f, t] = ppRange(); const key = f + '|' + t;
+  if(PP.key === key && PP.data){ ppBar(); return false; }
+  if(PP.loading === key){ ppBar(); return true; }
+  PP.loading = key; PP.key = key; PP.data = null; ppBar();
+  const ly = d => h.addMonths(d, -12);
+  Promise.all([
+    h.rpcAll('sales_by_sku', {p_from:f, p_to:t}), h.rpcAll('sales_by_sku', {p_from:ly(f), p_to:ly(t)}),
+    h.rpcAll('sales_by_sku', {p_from:addDaysIso(t, -6), p_to:t}), h.rpcAll('sales_by_sku', {p_from:addDaysIso(t, -13), p_to:addDaysIso(t, -7)}),
+  ]).then(([cur, lyr, w1, w2]) => {
+    if(PP.loading !== key) return;
+    const m = a => new Map(a.map(r => [r.sku, r]));
+    PP.data = {cur:m(cur), ly:m(lyr), w1:m(w1), w2:m(w2), from:f, to:t};
+  }).catch(e => { console.warn(e); PP.data = {cur:new Map(), ly:new Map(), w1:new Map(), w2:new Map(), from:f, to:t, error:e}; })
+    .finally(() => { if(PP.loading === key){ PP.loading = null; renderPerfTab(); } });
+  return true;
+};
+V3.perfApply = function(rows){
+  const d = PP.data; if(!d) return rows;
+  return rows.map(r => {
+    const c = d.cur.get(r.sku) || {}, a = d.w1.get(r.sku), b = d.w2.get(r.sku), l = d.ly.get(r.sku);
+    const gmv = +c.gmv || 0, ads = +c.ads || 0, promo = +c.promo || 0;
+    const t7 = +(a && a.gmv) || 0, p7 = +(b && b.gmv) || 0;
+    let trendPct = null, trendLabel = 'N/A';
+    if(a || b){
+      if(p7 > 0){ trendPct = +((t7 - p7) / p7 * 100).toFixed(1); trendLabel = trendPct >= 15 ? 'Growing' : trendPct <= -15 ? 'Declining' : 'Stable'; }
+      else if(t7 > 0){ trendPct = Infinity; trendLabel = 'Growing'; }
+      else { trendPct = 0; trendLabel = 'Stable'; }
+    }
+    return Object.assign({}, r, {actualGMV:gmv, actualUnits:+c.units || 0, adsActual:ads, promoActual:promo, mktActual:ads + promo,
+      trailing7Gmv:t7, prior7Gmv:p7, trendPct, trendLabel, lyGMV:+(l && l.gmv) || 0, lyUnits:+(l && l.units) || 0});
+  });
+};
+
 V3.renderPerfCharts = async function(rows){
   const h = H(); const host = document.getElementById('perfV3'); if(!host || typeof Plotly === 'undefined') return;
   if(!host.dataset.built){
     host.dataset.built = '1';
     host.innerHTML = `<div class="tiles" id="pvTiles"></div>
-      <div class="grid2"><div class="card" style="margin:0"><h3 style="margin:0 0 3px">CM3 vs GMV</h3><div class="hint">Mỗi chấm là một SKU (tháng đang chọn, tới ngày có data). Kích thước = MKT fee, màu = CM3 %. Dưới đường 0 = đang lỗ sau marketing.</div><div id="pvCm3" class="plot tall"></div></div>
+      <div class="grid2"><div class="card" style="margin:0"><h3 style="margin:0 0 3px">CM3 vs GMV</h3><div class="hint">Mỗi chấm là một SKU, số liệu của kỳ đang chọn. Kích thước = MKT fee, màu = CM3 %. Dưới đường 0 = đang lỗ sau marketing.</div><div id="pvCm3" class="plot tall"></div></div>
         <div class="card" style="margin:0"><h3 style="margin:0 0 3px">Tăng trưởng GMV so với cùng kỳ năm trước</h3><div class="hint">25 SKU thay đổi GMV lớn nhất (theo $). Vạch giữa là 0%: bên phải tăng, bên trái giảm.</div><div id="pvYoy" class="plot tall"></div></div></div>
       <div class="grid2" style="margin-top:14px"><div class="card" style="margin:0"><h3 style="margin:0 0 3px">%MKT/GMV vs CM3 % · tìm SKU “đốt tiền”</h3><div class="hint">Góc dưới-phải (vùng đỏ nhạt) = chi MKT cao hơn trung vị nhưng CM3 % thấp hơn trung vị.</div><div id="pvBurn" class="plot tall"></div></div>
         <div class="card" style="margin:0"><h3 style="margin:0 0 3px">SKU chi MKT cao, CM3 thấp</h3><div class="hint">Xếp theo MKT fee. Đề xuất xem lại bid/deal hoặc giá.</div><div class="tablewrap" style="max-height:420px"><table id="pvBurnTbl"></table></div></div></div>`;
   }
   const token = ++perfToken;
-  const to = DATA.asOfDate || todayISO(), from = to.slice(0, 8) + '01';
-  let ly = [];
-  try { ly = await h.rpcAll('sales_by_sku', {p_from: h.addMonths(from, -12), p_to: h.addMonths(to, -12)}); } catch(e){}
+  const lyBy = PP.data ? PP.data.ly : new Map();
   if(token !== perfToken) return;
-  const lyBy = new Map(ly.map(r => [r.sku, r]));
   const pts = rows.filter(r => r.actualGMV > 0 || (lyBy.get(r.sku) && +lyBy.get(r.sku).gmv > 0)).map(r => {
     const cm3 = h.isNum(r.cm3Base) ? r.actualUnits * r.cm3Base - (r.cm3Lane === 'SPT' ? 0 : r.adsActual * .985 + r.promoActual) : NaN;
     const lg = +(lyBy.get(r.sku) || {}).gmv || 0;
@@ -170,7 +241,7 @@ V3.renderPerfCharts = async function(rows){
   });
   const tot = pts.reduce((a, p) => ({gmv:a.gmv + p.gmv, mkt:a.mkt + p.mkt, ly:a.ly + p.ly, cm3:a.cm3 + (h.isNum(p.cm3) ? p.cm3 : 0), cg:a.cg + (h.isNum(p.cm3) ? p.gmv : 0)}), {gmv:0, mkt:0, ly:0, cm3:0, cg:0});
   const grow = pts.filter(p => p.ly > 0 && p.d > 0).length, decl = pts.filter(p => p.ly > 0 && p.d < 0).length;
-  document.getElementById('pvTiles').innerHTML = [['GMV MTD', h.f$(tot.gmv), h.deltaHtml(tot.gmv, tot.ly) + '<span>vs LY</span>'], ['MKT fee', h.f$(tot.mkt), '<span>' + h.fP(h.div(tot.mkt, tot.gmv)) + ' GMV</span>'], ['CM3 ước tính', h.f$(tot.cm3), '<span>' + h.fP(h.div(tot.cm3, tot.cg)) + ' GMV có cost</span>'], ['SKU tăng / giảm YoY', grow + ' / ' + decl, '<span>có data năm trước</span>']]
+  document.getElementById('pvTiles').innerHTML = [['GMV ' + V3.perfLabel(), h.f$(tot.gmv), h.deltaHtml(tot.gmv, tot.ly) + '<span>vs LY</span>'], ['MKT fee', h.f$(tot.mkt), '<span>' + h.fP(h.div(tot.mkt, tot.gmv)) + ' GMV</span>'], ['CM3 ước tính', h.f$(tot.cm3), '<span>' + h.fP(h.div(tot.cm3, tot.cg)) + ' GMV có cost</span>'], ['SKU tăng / giảm YoY', grow + ' / ' + decl, '<span>có data năm trước</span>']]
     .map(([k, v, d]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
   // 1) CM3 vs GMV
   const c = pts.filter(p => h.isNum(p.cm3) && p.gmv >= 50); const mxM = Math.max(1, ...c.map(p => p.mkt)); const mxA = Math.min(.5, Math.max(.05, ...c.map(p => Math.abs(p.cm3Pct)).filter(h.isNum)));
