@@ -33,6 +33,7 @@ const SCHEMA = `Database (PostgreSQL, schema public). All money in USD.
 - review_actions(id, week_start, main_pl, owner, text, due_date, status [Open/Done/Cancel], done_by, done_note, done_at, skus text[]); review_action_logs(action_id, pic, note, status, created_at)
 - project_updates(topic, product_group, status, content, update_date, author)
 - market_variation(category, variation, brand, metric [revenue|price], value, period); market_brand_monthly(category, month, brand, revenue); market_asin_weekly(category, asin, brand, title, week_start, price, units); market_variation_monthly(category, attribute, variation, month, value)
+- Market research library (Strategy Plans + market reports, Vietnamese text): market_reports(source, category, kind, title, pic, product_line, plan_date); market_insights(category, source, sheet, section, label, content) — SWOT, conclusions, discount patterns, customer insight, action plans, pricing recommendations; market_tables(category, source, sheet, section, title, columns jsonb [names], rows jsonb [array of arrays]) — competitor/variation/price/NPD/timeline tables. Search with content ILIKE '%keyword%' and filter by category (e.g. 'Balance Boards', 'Soft Kettlebells', 'Tricep Ropes'); expand table rows with jsonb_array_elements(rows).
 Metric definitions: ASP = gmv/units; MKT = ads+promo; %MKT/GMV = (ads+promo)/gmv; TACOS = ads/gmv; ACOS = ads/ads_gmv; CR = units/glance_views; CM3 ≈ units*cm3_unit_base − ads*0.985 − promo (cm3_lane 'SPT': units*cm3_unit_base); CM3% = CM3/gmv for SKUs with cm3_unit_base.
 Helper functions you may call inside SELECT: sales_by_sku(p_from date, p_to date), sales_trend(p_from, p_to, p_grain 'day'|'week'|'month', p_skus text[]).`;
 
@@ -41,6 +42,7 @@ const SYSTEM = `Bạn là trợ lý dữ liệu và chuyên gia Amazon (Vendor C
 - Câu hỏi không cần truy xuất: trả lời như chuyên gia Amazon, dựa trên dữ liệu khi có ích (giá, ads, promo, listing, tồn kho, deal, ranking).
 - "Năm ngoái", "tháng trước"... tính theo ngày hôm nay được cung cấp.
 - Trả lời bằng tiếng Việt, ngắn gọn, dùng gạch đầu dòng hoặc bảng markdown nhỏ khi so sánh. Không bịa số; nếu dữ liệu không có thì nói rõ.
+- Câu hỏi về thị trường, đối thủ, giá đối thủ, chiến lược, action plan: tra market_insights / market_tables trước, trích nguồn (tên file).
 - Khi hỏi "chỉ số nào có vấn đề", so sánh với kỳ trước/cùng kỳ, target, tồn kho, và nêu hành động đề xuất kèm mức ưu tiên.
 
 ${SCHEMA}`;

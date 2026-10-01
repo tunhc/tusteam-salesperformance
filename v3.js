@@ -46,7 +46,17 @@ css.textContent = `
 .proj-quick textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.8px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;resize:vertical}
 .pparse{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.pparse span{background:#F1F3F6;border-radius:8px;padding:4px 9px;font-size:11.8px}.pparse span b{color:var(--navy)}
 .pst{font-size:10.5px;font-weight:800;border-radius:20px;padding:2px 9px;white-space:nowrap}
-.pst.Done{background:var(--green-bg);color:var(--green)}.pst.Issue{background:var(--red-bg);color:var(--red)}.pst.Pending{background:var(--amber-bg);color:var(--amber)}.pst.Planned{background:#EEF1F5;color:var(--muted)}.pst.In-progress{background:#E6EEFB;color:#1F5FBF}`;
+.pst.Done{background:var(--green-bg);color:var(--green)}.pst.Issue{background:var(--red-bg);color:var(--red)}.pst.Pending{background:var(--amber-bg);color:var(--amber)}.pst.Planned{background:#EEF1F5;color:var(--muted)}.pst.In-progress{background:#E6EEFB;color:#1F5FBF}.rs-src{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}.rs-src .s{background:#F4F6F9;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:11.8px;line-height:1.35}.rs-src .s b{color:var(--navy)}
+.rs-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 12px}.rs-bar select,.rs-bar input{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:inherit;font-size:12.5px}.rs-bar input{min-width:220px;flex:1;max-width:340px}
+.rs-grp{margin:2px 0}.rs-grp>summary{cursor:pointer;list-style:none}.rs-grp>summary::before{content:'▸ ';color:var(--muted)}.rs-grp[open]>summary::before{content:'▾ '}
+.rs-sec{margin:12px 0 6px;font-size:12px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.rs-ins{border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin:7px 0;background:#fff}.rs-ins .lb{font-weight:800;color:var(--ink);font-size:12.5px;margin-bottom:3px}.rs-ins .tx{font-size:12.8px;line-height:1.55;white-space:pre-wrap;color:#2B3440}
+.rs-ins .tx.clip{max-height:9.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent)}.rs-more{border:0;background:none;color:var(--orange);font-weight:700;cursor:pointer;padding:2px 0;font-family:inherit;font-size:12px}
+.rs-tbl{border:1px solid var(--line);border-radius:10px;margin:7px 0;background:#fff}.rs-tbl>summary{cursor:pointer;padding:9px 12px;font-weight:700;font-size:12.8px;list-style:none;display:flex;gap:8px;align-items:center}
+.rs-tbl>summary::before{content:'▸';color:var(--muted)}.rs-tbl[open]>summary::before{content:'▾'}.rs-tbl>summary .n{margin-left:auto;font-weight:600;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.rs-tw{overflow:auto;max-height:440px;border-top:1px solid var(--line)}.rs-tw table{border-collapse:collapse;width:100%;font-size:12px}.rs-tw th{position:sticky;top:0;background:#F4F6F9;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:800;color:var(--navy)}
+.rs-tw td{padding:5px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top;max-width:420px}.rs-tw td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.rs-empty{color:var(--muted);padding:10px 2px}
+`;
 document.head.appendChild(css);
 
 // =====================================================================
@@ -372,6 +382,103 @@ function drawProjects(){
 }
 
 // ------------------------------------------------------------------ routing
+
+// =====================================================================
+// Market research library (market_reports / market_insights / market_tables)
+// =====================================================================
+const RS = {cache:new Map(), cat:null, src:'', q:'', view:'ins', open:new Set()};
+const PCT_COL = /%|rate|share|acos|tacos|ctr|\bcr\b|growth|yoy|delta_pct|tỷ lệ|thị phần/i;
+function rsVal(v, col){
+  const h = H();
+  if(v === null || v === undefined || v === '') return {t:'', num:false};
+  if(typeof v === 'number'){
+    if(PCT_COL.test(col) && Math.abs(v) <= 1.5) return {t:(v * 100).toFixed(1) + '%', num:true};
+    const a = Math.abs(v);
+    return {t: a >= 1000 ? v.toLocaleString('en-US', {maximumFractionDigits:0}) : v.toLocaleString('en-US', {maximumFractionDigits:2}), num:true};
+  }
+  if(typeof v === 'boolean') return {t: v ? '✓' : '—', num:false};
+  if(typeof v === 'object') return {t: h.esc(JSON.stringify(v)), num:false};
+  let t = h.esc(String(v));
+  t = t.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener">${u.length > 40 ? u.slice(0, 38) + '…' : u}</a>`);
+  if(/^B0[A-Z0-9]{8}$/.test(String(v))) t = `<a href="https://www.amazon.com/dp/${v}" target="_blank" rel="noopener">${t}</a>`;
+  return {t, num:false};
+}
+async function rsLoad(cat){
+  if(RS.cache.has(cat)) return RS.cache.get(cat);
+  const h = H();
+  const [rp, ins, tbl] = await Promise.all([
+    h.selectAll('market_reports', q => q.eq('category', cat)),
+    h.selectAll('market_insights', q => q.eq('category', cat).order('sort', {ascending:true})),
+    h.selectAll('market_tables', q => q.eq('category', cat).order('sort', {ascending:true})),
+  ]);
+  const d = {rp, ins, tbl};
+  RS.cache.set(cat, d);
+  return d;
+}
+V3.researchCategories = async function(){
+  try { const rp = await H().selectAll('market_reports', q => q); return [...new Set(rp.map(r => r.category))]; } catch(e){ return []; }
+};
+V3.renderResearch = async function(host, cat){
+  const h = H();
+  if(!host) return;
+  if(RS.cat !== cat){ RS.cat = cat; RS.src = ''; RS.q = ''; RS.open = new Set(); RS.openG = null; }
+  let d;
+  try { d = await rsLoad(cat); }
+  catch(e){ host.innerHTML = h.missingSchema(e) ? '<div class="card"><div class="notice">Chưa có thư viện nghiên cứu. Chạy <b>00b_schema_v3.sql</b> và <b>09_market_research.sql</b>.</div></div>' : '<div class="card"><div class="notice">Không tải được nghiên cứu: ' + h.esc(e.message || e) + '</div></div>'; return; }
+  if(!d.rp.length && !d.ins.length && !d.tbl.length){ host.innerHTML = ''; return; }
+  const srcs = d.rp.length ? d.rp : [...new Set([...d.ins, ...d.tbl].map(x => x.source))].map(s2 => ({source:s2}));
+  host.innerHTML = `<div class="card"><h3 style="margin:0 0 3px">Nghiên cứu thị trường — ${h.esc(cat)}</h3>
+    <div class="hint">Toàn bộ phân tích và bảng số liệu trích từ file Strategy Plan / báo cáo market. Cột chi phí & CM3 không được đưa lên.</div>
+    <div class="rs-src">${srcs.map(r => `<div class="s"><b>${h.esc(r.title && !/^STRATEGY PLAN/i.test(r.title) ? r.title : r.source)}</b><br>${[r.kind, r.product_line, r.pic ? 'PIC ' + r.pic : '', r.plan_date ? 'Plan ' + r.plan_date : ''].filter(Boolean).map(h.esc).join(' · ')}</div>`).join('')}</div>
+    <div class="rs-bar"><div class="cv-toggle" id="rsView"><button class="cv-btn" data-v="ins" type="button">Phân tích (${d.ins.length})</button><button class="cv-btn" data-v="tbl" type="button">Bảng số liệu (${d.tbl.length})</button></div>
+      <select id="rsSrc"><option value="">Tất cả file (${srcs.length})</option>${srcs.map(r => `<option value="${h.esc(r.source)}">${h.esc(r.source)}</option>`).join('')}</select>
+      <input id="rsQ" type="search" placeholder="Tìm trong nghiên cứu (brand, SKU, từ khóa…)"></div>
+    <div id="rsBody"></div></div>`;
+  host.querySelector('#rsSrc').value = RS.src;
+  host.querySelector('#rsQ').value = RS.q;
+  host.querySelectorAll('#rsView .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.v === RS.view));
+  host.querySelector('#rsView').onclick = e => { const b = e.target.closest('[data-v]'); if(!b) return; RS.view = b.dataset.v; RS.openG = null; host.querySelectorAll('#rsView .cv-btn').forEach(x => x.classList.toggle('active', x === b)); rsDraw(host, d); };
+  host.querySelector('#rsSrc').onchange = e => { RS.src = e.target.value; RS.openG = null; rsDraw(host, d); };
+  let tm; host.querySelector('#rsQ').oninput = e => { clearTimeout(tm); tm = setTimeout(() => { RS.q = e.target.value.trim(); rsDraw(host, d); }, 200); };
+  rsDraw(host, d);
+};
+function rsDraw(host, d){
+  const h = H(); const body = host.querySelector('#rsBody'); const q = RS.q.toLowerCase();
+  const bySrc = x => !RS.src || x.source === RS.src;
+  const oneSrc = RS.src || new Set([...d.ins, ...d.tbl].map(x => x.source)).size <= 1;
+  const secOf = x => (oneSrc ? '' : x.source.replace(/\.(xlsx|html)$/i, '') + ' · ') + (x.sheet && x.sheet !== 'report' ? x.sheet + ' · ' : '') + (x.section || 'Khác');
+  const items = RS.view === 'ins'
+    ? d.ins.filter(bySrc).filter(x => !q || [x.section, x.label, x.content].join(' ').toLowerCase().includes(q))
+    : d.tbl.filter(bySrc).filter(t => !q || [t.section, t.title, JSON.stringify(t.columns), JSON.stringify(t.rows)].join(' ').toLowerCase().includes(q));
+  if(!items.length){ body.innerHTML = `<div class="rs-empty">${RS.view === 'ins' ? 'Không có đoạn phân tích phù hợp.' : 'Không có bảng phù hợp.'}</div>`; return; }
+  const groups = []; const gi = new Map();
+  items.forEach(x => { const k = secOf(x); if(!gi.has(k)){ gi.set(k, groups.length); groups.push({k, list:[]}); } groups[gi.get(k)].list.push(x); });
+  const openG = k => q ? true : RS.openG ? RS.openG.has(k) : false;
+  if(!RS.openG){ RS.openG = new Set(groups.slice(0, 2).map(g => g.k)); }
+  let n = 0;
+  body.innerHTML = `<div class="hint" style="margin:0 0 4px">${groups.length} mục · bấm tiêu đề để mở/đóng · <a href="#" id="rsAll">mở tất cả</a> · <a href="#" id="rsNone">đóng tất cả</a></div>` + groups.map(g => {
+    const inner = RS.view === 'ins'
+      ? g.list.map(x => { const i = n++; const long = x.content.length > 600;
+          return `<div class="rs-ins">${x.label ? `<div class="lb">${h.esc(x.label)}</div>` : ''}<div class="tx${long ? ' clip' : ''}" id="rsi${i}">${h.esc(x.content)}</div>${long ? `<button class="rs-more" type="button" data-i="${i}">Xem thêm</button>` : ''}</div>`; }).join('')
+      : g.list.map(t => { const rows = Array.isArray(t.rows) ? t.rows : [];
+          return `<details class="rs-tbl" data-id="${t.id}" ${RS.open.has(String(t.id)) || (q && items.length <= 6) ? 'open' : ''}><summary>${h.esc(t.title || t.section || 'Bảng')}<span class="n">${rows.length} dòng · ${(t.columns || []).length} cột</span></summary><div class="rs-tw"></div></details>`; }).join('');
+    return `<details class="rs-grp" data-k="${h.esc(g.k)}" ${openG(g.k) ? 'open' : ''}><summary class="rs-sec">${h.esc(g.k)} <span style="font-weight:600;color:var(--muted);text-transform:none">(${g.list.length})</span></summary>${inner}</details>`;
+  }).join('');
+  body.querySelectorAll('details.rs-grp').forEach(det => det.addEventListener('toggle', () => { if(q) return; det.open ? RS.openG.add(det.dataset.k) : RS.openG.delete(det.dataset.k); }));
+  body.querySelector('#rsAll').onclick = e => { e.preventDefault(); groups.forEach(g => RS.openG.add(g.k)); rsDraw(host, d); };
+  body.querySelector('#rsNone').onclick = e => { e.preventDefault(); RS.openG.clear(); rsDraw(host, d); };
+  body.querySelectorAll('.rs-more').forEach(b => b.onclick = () => { const t = body.querySelector('#rsi' + b.dataset.i); const c = t.classList.toggle('clip'); b.textContent = c ? 'Xem thêm' : 'Thu gọn'; });
+  if(RS.view === 'ins') return;
+  const fill = det => {
+    const t = items.find(x => String(x.id) === det.dataset.id); const w = det.querySelector('.rs-tw'); if(!t || w.dataset.done) return;
+    const cols = t.columns || [];
+    const rows = (t.rows || []).filter(r => !q || JSON.stringify(r).toLowerCase().includes(q) || [t.title, t.section].join(' ').toLowerCase().includes(q));
+    w.innerHTML = `<table><thead><tr>${cols.map(c => `<th>${h.esc(String(c))}</th>`).join('')}</tr></thead><tbody>${rows.map(r => '<tr>' + cols.map((c, k) => { const v = rsVal(r[k], String(c)); return `<td class="${v.num ? 'num' : ''}">${v.t}</td>`; }).join('') + '</tr>').join('')}</tbody></table>`;
+    w.dataset.done = '1';
+  };
+  body.querySelectorAll('details.rs-tbl').forEach(det => { if(det.open) fill(det); det.addEventListener('toggle', () => { if(det.open){ RS.open.add(det.dataset.id); fill(det); } else RS.open.delete(det.dataset.id); }); });
+}
+
 V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); };
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildChat); else buildChat();
 V3.parseProject = parseProject;
