@@ -14,6 +14,7 @@ const H = () => window.V2.h;
 const css = document.createElement('style');
 css.textContent = `
 .chat-fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:250;background:var(--navy);color:#fff;border:0;border-radius:999px;padding:12px 18px;font:700 13px Poppins,Arial,sans-serif;box-shadow:0 10px 26px rgba(0,40,89,.35);cursor:pointer;display:flex;gap:8px;align-items:center}
+[hidden]{display:none !important}
 .chat-fab .dot{width:9px;height:9px;border-radius:50%;background:var(--orange)}
 .chat-panel{position:fixed;right:20px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:251;width:410px;max-width:calc(100vw - 32px);height:600px;max-height:calc(100vh - 120px);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 48px rgba(0,40,89,.28);display:flex;flex-direction:column;overflow:hidden}
 .chat-panel header{background:var(--navy);color:#fff;padding:11px 14px;display:flex;align-items:center;gap:8px;box-shadow:none}

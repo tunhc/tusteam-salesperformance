@@ -184,6 +184,17 @@ V2.afterLoadMonth = async function(){
       x.vel = (x.units7 + (+(b?.units || 0))) / 35; // units/day over the last 5 weeks
       S.recent.set(r.sku, x); Object.assign(r, {sig: x});
     });
+    // DOC fallback: early in a month (e.g. the 1st) the selected month has no
+    // sales yet, so the main script leaves every SKU at N/A. Use the last 7
+    // days of data actually loaded instead.
+    ROWS.forEach(r => {
+      if(r.docBand !== 'N/A' || !r.sig) return;
+      const inv = stockOf(r), vel = r.sig.units7 / 7;
+      r.docVelocity = vel; r.docFromRecent = asOf;
+      if(inv <= 0){ r.docDays = 0; r.docBand = 'OOS'; r.stockoutDate = null; }
+      else if(vel <= 0){ r.docDays = Infinity; r.docBand = 'DOC >90d'; r.stockoutDate = null; }
+      else { r.docDays = inv / vel; r.docBand = r.docDays < 14 ? 'DOC <14d' : r.docDays < 30 ? 'DOC 14–30d' : r.docDays < 90 ? 'DOC 30–90d' : 'DOC >90d'; r.stockoutDate = addDaysIso(asOf, Math.round(r.docDays)); }
+    });
   } catch(e){ if(missingSchema(e)) S.schemaOk = false; console.warn(e); }
   // incoming + demand (optional tables)
   try {
