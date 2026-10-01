@@ -44,7 +44,11 @@ begin
   return r;
 end $$;
 alter function ai_query(text) set statement_timeout = '8s';
+-- On Supabase "postgres" is not a superuser: a new owner needs CREATE on the
+-- schema, so grant it just for the ownership change and take it back.
+grant create on schema public to ai_reader;
 alter function ai_query(text) owner to ai_reader;
+revoke create on schema public from ai_reader;
 revoke all on function ai_query(text) from public;
 do $$ begin
   revoke all on function ai_query(text) from anon, authenticated;
