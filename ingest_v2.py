@@ -115,7 +115,7 @@ def compact_sales_sql(rows):
     return (f"insert into {'sales_daily'} ({', '.join(SALES_COLS)})\n"
             f"select f[1], date '{HIST_EPOCH.isoformat()}' + f[2]::int,\n  {sel},\n"
             f"  ({arr(cats)})[f[{n + 3}]::int], ({arr(srcs)})[f[{n + 4}]::int]\n"
-            f"from regexp_split_to_table($d$\n{data}\n$d$, '\\n') as l(x), string_to_array(x, '|') as f\n"
+            f"from regexp_split_to_table($d$\n{data}\n$d$, '[\\r\\n]+') as l(x), string_to_array(x, '|') as f\n"
             f"where x <> ''\n"
             f"on conflict (sku, date) do update set {', '.join(f'{c} = excluded.{c}' for c in SALES_COLS[2:])};")
 
