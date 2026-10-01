@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Yes4All &middot; Sales Performance Dashboard</title>
+<title>Yes4All &middot; Sales Performance Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
 <style>
 :root{
   /* Yes4All Brand Guidelines */
@@ -176,6 +177,89 @@ tbody tr:hover{background:#FFF3EA}
 .proj-name{font-weight:800;color:var(--navy);width:170px}
 
 @media (max-width:980px){.grid2,.kpis,.gkpis{grid-template-columns:1fr 1fr}.diary-layout{grid-template-columns:1fr}}
+
+/* ===== v2: global search, new tabs ===== */
+nav.tabs{align-items:flex-end;overflow-x:auto;scrollbar-width:thin}
+nav.tabs button{white-space:nowrap;flex:none}
+@media (max-width:760px){.grid2,.kpis,.gkpis{grid-template-columns:minmax(0,1fr)}.issue-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}nav.tabs{flex-wrap:wrap;padding:8px 12px 0}.gsearch{margin-left:0;width:100%}.gsearch input{width:100%;max-width:none}main{padding:14px 12px 50px}header{padding:14px 12px}.filterbar .fld{min-width:0;flex:1 1 140px}.filterbar select,.filterbar input[type=text]{min-width:0;width:100%}}
+.gsearch{margin-left:auto;position:relative;align-self:center;padding-bottom:8px}
+.gsearch input{border:1px solid var(--line);border-radius:20px;padding:8px 14px 8px 32px;width:320px;max-width:60vw;font-family:inherit;font-size:12.5px;background:#F6F7F8 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2366707C' stroke-width='2.4'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px center}
+.gsearch input:focus{outline:2px solid var(--orange);background-color:#fff}
+.gs-drop{position:absolute;right:0;top:calc(100% - 4px);width:460px;max-width:92vw;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);z-index:80;max-height:420px;overflow:auto}
+.gs-item{padding:8px 12px;cursor:pointer;display:flex;gap:10px;align-items:baseline;border-bottom:1px solid #F1F2F4;font-size:12.3px}
+.gs-item:hover,.gs-item.hl{background:#FFF3EA}
+.gs-item b{color:var(--navy);min-width:44px}
+.gs-item .asin{color:var(--muted);font-size:11px;min-width:90px}
+.gs-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+#gSearchChip{align-self:center;flex:none;padding-bottom:8px}
+.gs-chip{white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis;display:inline-flex;align-items:center;gap:8px;background:var(--orange);color:#fff;border-radius:20px;padding:5px 6px 5px 12px;font-weight:700;font-size:11.5px;margin-left:8px}
+.gs-chip button{border:0;background:rgba(255,255,255,.25);color:#fff;border-radius:50%;width:20px;height:20px;cursor:pointer;font-weight:900}
+.v2-note{font-size:11.5px;color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px 8px;box-shadow:var(--shadow);min-width:0}
+.tile .k{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.tile .v{font-size:18px;font-weight:900;color:var(--navy);font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .d{font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px}
+.tile svg{width:100%;height:26px;display:block;margin-top:4px}
+.dl{font-weight:800;border-radius:6px;padding:0 5px;font-size:10.5px}
+.dl.up{color:var(--green);background:var(--green-bg)} .dl.down{color:var(--red);background:var(--red-bg)} .dl.flat{color:var(--muted);background:#EEF1F5}
+.chipbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chipbar .lbl2{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-right:2px}
+.plot{width:100%;min-height:300px}
+.plot.tall{min-height:420px}
+.plot.xl{min-height:520px}
+.grid-7-5{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:14px;margin-bottom:16px}
+.grid-8-4{display:grid;grid-template-columns:minmax(0,8fr) minmax(0,4fr);gap:14px;margin-bottom:16px}
+@media (max-width:1100px){.grid-7-5,.grid-8-4{grid-template-columns:minmax(0,1fr)}}
+.card{margin-bottom:16px;min-width:0}
+.corr{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.corr .box{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#F7F8FA;min-width:110px}
+.corr .box .v{font-size:18px;font-weight:900;color:var(--navy);font-variant-numeric:tabular-nums}
+.corr .box .t{font-size:10.5px;color:var(--muted)}
+.readout{background:#F7F8FA;border-left:3px solid var(--orange);border-radius:8px;padding:9px 12px;font-size:12px}
+tr.sel td{background:#FFF3EA}
+tr.clickable{cursor:pointer}
+tr.sub td{background:#FAFBFC;font-size:11.5px}
+tr.sub td:first-child{padding-left:28px}
+.rec{display:inline-block;font-size:10.5px;font-weight:700;border-radius:6px;padding:1px 7px;margin:1px 2px 1px 0;white-space:nowrap}
+.rec.p1{background:var(--red-bg);color:var(--red)} .rec.p2{background:var(--amber-bg);color:var(--amber)} .rec.p3{background:#EEF1F5;color:var(--muted)} .rec.ok{background:var(--green-bg);color:var(--green)}
+.lockbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;margin-bottom:14px}
+.lockbar .step{padding:9px 13px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:1px}
+.lockbar .step:last-child{border-right:0}
+.lockbar .step .when{font-weight:800;color:var(--navy);font-size:12.5px}
+.lockbar .step.done{background:#F7F8FA}
+.lockbar .step.now{box-shadow:inset 0 -3px 0 var(--orange)}
+.review-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1100px){.review-layout,.lockbar{grid-template-columns:minmax(0,1fr)}}
+.editor-card{position:sticky;top:70px}
+.editor-card textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:inherit;font-size:12.5px;resize:vertical}
+.editor-card select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-family:inherit;font-size:12.5px;width:100%}
+.parsed{display:flex;flex-direction:column;gap:5px;margin:8px 0}
+.parsed .it{display:flex;gap:7px;align-items:flex-start;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:#F7F8FA}
+.parsed .it .meta{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}
+.codeb{font-size:9.5px;font-weight:900;border-radius:5px;padding:1px 6px;color:#fff;white-space:nowrap}
+.codeb.INV{background:#2a78d6}.codeb.LIS{background:#eb6834}.codeb.PRC{background:#1baf7a}.codeb.MKT{background:#eda100}.codeb.Others{background:#e87ba4}
+.board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:900px){.board{grid-template-columns:minmax(0,1fr)}}
+.bcol{background:#F7F8FA;border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0;max-height:560px;overflow:auto}
+.bcol h4{margin:0;font-size:12.5px;display:flex;justify-content:space-between;color:var(--navy)}
+.act{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px}
+.act .foot{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:11px;margin-top:3px}
+.act .foot .btn{margin-left:auto}
+.skutag{font:600 10.5px ui-monospace,Menlo,Consolas,monospace;background:#fff;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.ai-box{background:#F4F7FC;border:1px solid #D6E0F0;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;margin-top:8px;max-height:420px;overflow:auto}
+.v2-modal{position:fixed;inset:0;background:rgba(0,20,45,.45);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+.v2-modal .panel{background:#fff;border-radius:14px;max-width:1100px;width:100%;padding:18px 20px;box-shadow:var(--shadow-lg)}
+.v2-modal .panel .x{float:right;border:0;background:#EEF1F5;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:16px}
+.issue-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.issue{border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;background:#fff;display:flex;flex-direction:column;gap:2px}
+.issue:hover{border-color:var(--orange)}
+.issue.active{box-shadow:0 0 0 2px var(--orange) inset}
+.issue .n{font-size:19px;font-weight:900}
+.issue .t{font-size:11.5px;font-weight:700;color:var(--ink)}
+.issue .s{font-size:10.5px;color:var(--muted)}
+.doc-table td,.doc-table th{white-space:nowrap}
+.src-tag{font-size:9.5px;font-weight:800;border-radius:5px;padding:1px 5px;background:#EEF1F5;color:var(--muted);margin-left:4px}
 </style>
 </head>
 <body>
@@ -199,11 +283,19 @@ tbody tr:hover{background:#FFF3EA}
 </header>
 
 <nav class="tabs">
-  <button class="tab-btn active" data-tab="sales">Sales Performance</button>
+  <button class="tab-btn active" data-tab="sales">Tracking Target</button>
+  <button class="tab-btn" data-tab="sp">Sales Performance</button>
+  <button class="tab-btn" data-tab="wr">Weekly Review</button>
   <button class="tab-btn" data-tab="ads">Ads Performance</button>
   <button class="tab-btn" data-tab="perf">Product Performance</button>
+  <button class="tab-btn" data-tab="mk">Market</button>
   <button class="tab-btn" data-tab="diary">Product Diary</button>
   <button class="tab-btn" data-tab="projects">Projects</button>
+  <div class="gsearch">
+    <input type="text" id="gSearch" placeholder="Tìm nhanh SKU / ASIN / tên sản phẩm…" autocomplete="off" aria-label="Tìm nhanh SKU, ASIN hoặc tên sản phẩm">
+    <div class="gs-drop" id="gSearchDrop" hidden></div>
+  </div>
+  <span id="gSearchChip"></span>
 </nav>
 
 <main>
@@ -227,6 +319,10 @@ tbody tr:hover{background:#FFF3EA}
   </div>
 
   <div class="moc-strip" id="mocStrip"></div>
+  <div class="grid2" style="align-items:start">
+    <div class="card" id="docStatsCard" style="margin:0"></div>
+    <div class="card" id="issueCard" style="margin:0"></div>
+  </div>
 
   <div class="section-title" id="targetSectionTitle">Target &mdash; Aug-26 (full month)</div>
   <div class="kpis" id="kpiTargetRow"></div>
@@ -338,6 +434,7 @@ tbody tr:hover{background:#FFF3EA}
           <th data-k="mktRunratePct">MKT Run-rate</th>
           <th data-k="targetUnits" class="num">Target Units</th>
           <th data-k="actualUnits" class="num">Actual Units</th>
+          <th>Action gợi ý</th>
         </tr></thead>
         <tbody id="skuTbody"></tbody>
       </table>
@@ -428,6 +525,7 @@ tbody tr:hover{background:#FFF3EA}
       </table>
     </div>
   </div>
+  <div id="adsV2"></div>
 </section>
 
 <!-- ======================= TAB: PRODUCT PERFORMANCE ======================= -->
@@ -499,6 +597,11 @@ tbody tr:hover{background:#FFF3EA}
   </div>
 </section>
 
+<!-- ======================= v2 TABS (rendered by v2.js) ======================= -->
+<section id="view-sp" class="view" aria-label="Sales Performance"></section>
+<section id="view-wr" class="view" aria-label="Weekly Review"></section>
+<section id="view-mk" class="view" aria-label="Market"></section>
+
 <!-- ======================= TAB 2: PRODUCT DIARY ======================= -->
 <section id="view-diary" class="view">
   <div class="notice" id="diaryNotice">&#128190; Connected to Supabase &mdash; action plans are saved permanently and shared across sessions/devices.</div>
@@ -564,6 +667,8 @@ tbody tr:hover{background:#FFF3EA}
 
 </main>
 
+<!-- v2 modules: must load before the main script so boot() can call V2 hooks -->
+<script src="v2.js"></script>
 <script>
 // =====================================================================
 // SUPABASE CONFIG — fill these in from your project (Settings -> API),
@@ -676,7 +781,7 @@ async function loadMonth(monthIso){
   const rows = (skus||[]).map(sk=>{
     const t = targetBySku[sk.sku] || {};
     const dailyRows = (salesBySku[sk.sku] || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
-    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0, clicks:d.total_clicks||0, impressions:d.total_impressions||0}));
+    const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0, clicks:d.total_clicks||0, impressions:d.total_impressions||0, glanceViews:d.glance_views||0}));
 
     const actualUnits = +daily.reduce((s,d)=>s+d.units,0).toFixed(2);
     const actualGMV = +daily.reduce((s,d)=>s+d.gmv,0).toFixed(2);
@@ -839,6 +944,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('view-'+btn.dataset.tab).classList.add('active');
+    if(window.V2 && V2.onTab) V2.onTab(btn.dataset.tab);
   };
 });
 
@@ -908,7 +1014,8 @@ function getFiltered(){
     (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!spl || r.subPL===spl) &&
     (!ch || r.channel===ch) && (!pf || r.portfolio===pf) &&
     (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')) &&
-    (!q || r.sku.toLowerCase().includes(q) || (r.productName||'').toLowerCase().includes(q))
+    (!q || r.sku.toLowerCase().includes(q) || (r.productName||'').toLowerCase().includes(q) || (r.asin||'').toLowerCase().includes(q)) &&
+    (!window.V2 || V2.matchGS(r))
   );
 }
 
@@ -1360,11 +1467,11 @@ function renderCharts(rows){
 
   const dailyMap = {};
   rows.forEach(r=> (r.daily||[]).forEach(pt=>{
-    if(!dailyMap[pt.date]) dailyMap[pt.date] = {date:pt.date, gmv:0, mkt:0, ads:0, promo:0, units:0, adsGmv:0, adsUnits:0, impressions:0, clicks:0};
+    if(!dailyMap[pt.date]) dailyMap[pt.date] = {date:pt.date, gmv:0, mkt:0, ads:0, promo:0, units:0, adsGmv:0, adsUnits:0, impressions:0, clicks:0, glanceViews:0};
     const d = dailyMap[pt.date];
     d.gmv += pt.gmv; d.mkt += pt.mkt; d.ads += pt.ads||0; d.promo += pt.promo||0;
     d.units += pt.units||0; d.adsGmv += pt.adsGmv||0; d.adsUnits += pt.adsUnits||0;
-    d.impressions += pt.impressions||0; d.clicks += pt.clicks||0;
+    d.impressions += pt.impressions||0; d.clicks += pt.clicks||0; d.glanceViews += pt.glanceViews||0;
   }));
   lastDailyArr = Object.values(dailyMap).sort((a,b)=>a.date.localeCompare(b.date));
   renderDailyChart();
@@ -1381,7 +1488,7 @@ const DAILY_CHART_HINTS = {
   gmvBreakdown: 'Stacked columns = Organic GMV vs Ads-attributed GMV per day &middot; Line = Total GMV',
   spend: 'Columns = Ads $ vs Promo $ per day &middot; Line = combined Marketing fee (Ads + Promo)',
   units: 'Columns = Total units sold per day &middot; Line = units driven by ads',
-  glance: 'Columns = Glance Views per day (Sponsored Brands + Sponsored Display + Sponsored Products impressions) &middot; Line = Conversion Rate (Units &divide; Ad clicks)',
+  glance: 'Columns = Glance Views per day (Amazon detail-page views) &middot; Line = Conversion Rate (Units &divide; Glance Views). Days without glance-view data fall back to ad impressions and ad clicks.',
 };
 
 function renderDailyChart(){
@@ -1420,9 +1527,10 @@ function renderDailyChart(){
     ];
     scales = { y:{ position:'left', grid:{color:COLOR.line}, title:{display:true,text:'Units',font:{size:10}} } };
   } else if(dailyChartView === 'glance'){
-    const cvr = dailyArr.map(d=> d.clicks ? +(d.units/d.clicks*100).toFixed(2) : 0);
+    const gv = d => d.glanceViews > 0 ? d.glanceViews : d.impressions;
+    const cvr = dailyArr.map(d=> d.glanceViews > 0 ? +(d.units/d.glanceViews*100).toFixed(2) : (d.clicks ? +(d.units/d.clicks*100).toFixed(2) : 0));
     datasets = [
-      {type:'bar', label:'Glance Views', data:dailyArr.map(d=>+d.impressions.toFixed(0)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:2},
+      {type:'bar', label:'Glance Views', data:dailyArr.map(d=>+gv(d).toFixed(0)), backgroundColor:COLOR.grey, yAxisID:'y', borderRadius:4, order:2},
       {type:'line', label:'Conversion Rate %', data:cvr, borderColor:COLOR.navy, backgroundColor:COLOR.navy, yAxisID:'y1', tension:.3, pointRadius:3, pointBackgroundColor:COLOR.navy, order:1},
     ];
     scales = {
@@ -1498,8 +1606,9 @@ function renderTable(rows){
       <td><div class="progress-cell"><span class="badge ${mktPace.cls}">${r.mktRunratePct.toFixed(0)}%</span></div></td>
       <td class="num">${fmtInt(r.targetUnits)}</td>
       <td class="num">${fmtInt(r.actualUnits)}</td>
+      <td style="white-space:normal;min-width:180px">${window.V2 ? V2.actionLabels(r) : ''}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="18" style="text-align:center;padding:24px;color:#66707C">No SKU matches the current filters</td></tr>';
+  }).join('') || '<tr><td colspan="19" style="text-align:center;padding:24px;color:#66707C">No SKU matches the current filters</td></tr>';
 }
 
 document.querySelectorAll('#skuTable thead th').forEach(th=>{
@@ -1518,12 +1627,14 @@ function renderAll(){
   renderActionCodeStrip(rangedRows);
   renderKPIs(rangedRows, filtered);
   renderCharts(rangedRows);
+  if(window.V2 && V2.renderTrackingExtras) V2.renderTrackingExtras(rangedRows);
   let tableRows = applyQuickFilters(rangedRows);
   if(mocBandFilter) tableRows = tableRows.filter(r=>r.docBand===mocBandFilter);
   if(actionCodeFilter){
     const flag = ACTION_FLAGS.find(f=>f.key===actionCodeFilter);
     if(flag) tableRows = tableRows.filter(flag.test);
   }
+  if(window.V2 && V2.applyIssueFilter) tableRows = V2.applyIssueFilter(tableRows);
   renderTable(tableRows);
 }
 
@@ -1660,7 +1771,7 @@ function adsGetFilteredRows(){
   const pic = document.getElementById('adsFPic').value;
   const mpl = document.getElementById('adsFMainPL').value;
   const exSpt = document.getElementById('adsExcludeSpt').checked;
-  return ROWS.filter(r=> (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')));
+  return ROWS.filter(r=> (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!exSpt || !(r.channel||'').toUpperCase().includes('SPT')) && (!window.V2 || V2.matchGS(r)));
 }
 
 function pct1(v){ return (Number.isFinite(v)?v:0).toFixed(1)+'%'; }
@@ -1794,7 +1905,7 @@ function perfGetFilteredRows(){
   const lifecycle = document.getElementById('perfFLifecycle').value;
   const trend = document.getElementById('perfFTrend').value;
   return ROWS.filter(r=>
-    (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!lifecycle || r.lifecycle===lifecycle) && (!trend || r.trendLabel===trend)
+    (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!lifecycle || r.lifecycle===lifecycle) && (!trend || r.trendLabel===trend) && (!window.V2 || V2.matchGS(r))
   );
 }
 
@@ -2158,10 +2269,12 @@ async function boot(){
     }
     const monthSel = document.getElementById('fMonth');
     monthSel.innerHTML = months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
-    const selected = months[months.length-1];
+    const thisMonth = todayISO().slice(0,7) + '-01';
+    const selected = months.includes(thisMonth) ? thisMonth : ([...months].reverse().find(m => m <= thisMonth) || months[months.length-1]);
     monthSel.value = selected;
 
     await loadMonth(selected);
+    if(window.V2 && V2.afterLoadMonth) await V2.afterLoadMonth();
     renderHeaderAsOf();
     setDateRangeBounds(selected);
     setAdsDateBounds(selected);
@@ -2174,6 +2287,7 @@ async function boot(){
 
     monthSel.addEventListener('change', async ()=>{
       await loadMonth(monthSel.value);
+      if(window.V2 && V2.afterLoadMonth) await V2.afterLoadMonth();
       renderHeaderAsOf();
       setDateRangeBounds(monthSel.value);
       setAdsDateBounds(monthSel.value);
@@ -2184,6 +2298,7 @@ async function boot(){
       renderAll();
       renderAdsTab();
       renderPerfTab();
+      if(window.V2 && V2.onMonthChange) V2.onMonthChange();
     });
     document.getElementById('perfFPic').addEventListener('change', renderPerfTab);
     document.getElementById('perfFMainPL').addEventListener('change', renderPerfTab);
@@ -2198,10 +2313,10 @@ async function boot(){
       renderPerfTab();
     });
     document.getElementById('btnExportPerf').addEventListener('click', exportPerfTable);
-    document.getElementById('adsFPic').addEventListener('change', renderAdsTab);
-    document.getElementById('adsFMainPL').addEventListener('change', renderAdsTab);
+    document.getElementById('adsFPic').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
+    document.getElementById('adsFMainPL').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));
-    document.getElementById('adsExcludeSpt').addEventListener('change', renderAdsTab);
+    document.getElementById('adsExcludeSpt').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     document.getElementById('adsBtnReset').addEventListener('click', ()=>{
       document.getElementById('adsFPic').value = '';
       document.getElementById('adsFMainPL').value = '';

@@ -12,8 +12,11 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `supabase_schema.sql` | Table definitions + Row Level Security policies. Run once per Supabase project. |
 | `ingest.py` | Loads new source files (follow-up Excel, target HTML, sales Excel) into Supabase. |
 | `SETUP_DATABASE.md` | Full setup walkthrough — Supabase project, keys, first data load. |
-| `prototype/redesign.html` | Clickable layout proposal for the redesign (Tracking Target, Sales Performance, Weekly Review, Market, Blueprint). Uses generated sample data only. |
-| `supabase_schema_v2_draft.sql` | Draft tables for the redesign (sales history, inventory/forecast, weekly review, market). Not applied yet; needs Supabase Auth first. |
+| `v2.js` | v2 modules loaded by `index.html`: global quick search, Tracking extras (DOC value, issue monitor, action labels), Sales Performance, Weekly Review, Ads recommendations, Market. |
+| `supabase_schema_v2.sql` | v2 tables, history lock, weekly snapshot function, aggregate RPCs. Run once after `supabase_schema.sql`; safe to re-run. |
+| `ingest_v2.py` | Bulk loader: turns the source Excel/HTML files into numbered `.sql` files to paste into the SQL Editor (see below). |
+| `supabase/functions/ai-recommend/` | Edge Function behind the “Hỏi AI” buttons (Claude API). |
+| `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
 
 ## Security — read before touching this repo
 
@@ -27,3 +30,34 @@ This repo is **public**. That's fine for `index.html` — it only contains the S
 ## Updating data
 
 Attach the new Excel/HTML export in a Cowork chat with Claude and ask it to ingest — Claude runs `ingest.py` and hands back a `.sql` file to paste into Supabase's SQL Editor. See `SETUP_DATABASE.md` for details.
+
+
+## v2 setup (one time)
+
+1. **Generate the SQL files** (locally or ask Claude in chat — never commit the output, it contains real figures):
+
+   ```bash
+   python ingest_v2.py --out ./sql_out \
+     --followup "Yes4all_follow_up.xlsx" --tracking-sheet Tracking_0925 \
+     --inventory "USA_Inventory_Y4A-AMZ.xlsx" \
+     --target "SSO_US_Oct_Target_20260922.xlsx" --target-month 2026-10-01 --team "Team Cẩm Tú" \
+     --daily "Yes4All_data_tusteam_2023-2024_daily.xlsx" "Yes4All_data_tusteam_2025_daily.xlsx" "Yes4All_data_tusteam_2026_daily.xlsx" \
+     --market-dir ./Markets --cm3-html "Y4A_CM3_by_Lane_V98_v73_Sep21_2026.html" \
+     --kpi-tracker "SSO_Sales_KPI_Tracker_Sep2026_ver2.0.xlsx"
+   ```
+
+2. **Paste them into Supabase → SQL Editor in this order:** `00_schema_v2.sql`, `01_skus.sql`, `02_targets_*.sql`, `03_inventory_incoming.sql`, `04_demand_forecast.sql`, `05_market.sql`, `06_cm3.sql`, every `10_sales_history_NN.sql`, then `07_weekly_notes.sql` (it snapshots weeks, so it needs the sales rows first). Every file is an upsert: re-running is safe. If the editor rejects a file as too large, regenerate with `--rows-per-part 5000`.
+
+3. **History lock.** Rows in `sales_daily` dated before `data_locks.lock_before` (2026-09-01) are read-only: inserts, updates and deletes on them are skipped silently, so the hourly Power Automate sync can never overwrite final months. The history files unlock only their own session. To move the lock forward after a month closes: `update data_locks set lock_before = '2026-10-01' where table_name = 'sales_daily';`
+
+4. **Weekly snapshot.** `00_schema_v2.sql` schedules `freeze_review_week` every Monday 06:00 Vietnam time with `pg_cron` (enable it under Database → Extensions if the notice says it is missing). The dashboard also freezes an ended week the first time someone opens it after Monday 06:00. Notes saved after the deadline (default Tuesday 12:00) are flagged Late; every save is kept in `weekly_review_versions`.
+
+5. **AI recommendations (optional).** Deploy `supabase/functions/ai-recommend/index.ts` as an Edge Function named `ai-recommend`, keep “Verify JWT” on, and add the secret `ANTHROPIC_API_KEY` (and optionally `AI_DAILY_LIMIT`, default 150 answers per 24 h). Answers are cached per SKU / product line / day in `ai_recommendations`. Without it, the rule-based recommendations still work and the “Hỏi AI” buttons show a setup message.
+
+6. **RRP.** Issue flags such as “Bung giá” compare the 7-day ASP with `skus.rrp`. Keep RRP fresh: `update skus set rrp = … where sku = …;` (or regenerate `01_skus.sql` from a new target file).
+
+### Data notes
+
+- CM3 is an estimate: `units × cm3_unit_base − Ads × 0.985 − Promo` (non-SPT lanes), where `cm3_unit_base` is the V9.8 lane cost stack evaluated without marketing. FOB and other cost inputs are not stored in Supabase.
+- The hourly sales file has no glance-view column, so glance views and CR show “nguồn chưa có” for days loaded only from it.
+- Market tab data comes from the research files in `Markets.zip` (variation × brand tables, Tricep Rope weekly ASIN price/units, Soft Kettlebell brand revenue). Categories show whatever each file contains.
