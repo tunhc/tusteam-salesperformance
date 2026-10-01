@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Yes4All &middot; Sales Performance Hub</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -30,7 +28,7 @@
   --shadow-lg:0 10px 30px rgba(0,40,89,.14);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"Poppins",Arial,sans-serif;font-size:13px;line-height:1.5}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;font-size:13px;line-height:1.5}
 header{background:linear-gradient(120deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;padding:18px 26px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:var(--shadow-lg)}
 .brand{display:flex;align-items:center;gap:12px}
 .brand .mark{width:44px;height:44px;border-radius:11px;background:var(--orange);display:grid;place-items:center;font-weight:900;font-size:15px;color:#fff;letter-spacing:.5px;box-shadow:0 4px 12px rgba(255,112,0,.45)}
@@ -688,7 +686,7 @@ const SUPABASE_URL = 'https://zlksfonvnxqxdumwlysf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpsa3Nmb252bnhxeGR1bXdseXNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODYxOTUsImV4cCI6MjEwMTU2MjE5NX0.3cYQh3YudltZwyeawJPH7Oj8v-Qt48Eqnu2vWARIiio';
 
 function showFatalBanner(msg){
-  document.body.innerHTML = `<div style="max-width:640px;margin:80px auto;padding:28px;font-family:Poppins,Arial,sans-serif;background:#fff;border:1px solid #E4E5E6;border-radius:14px;box-shadow:0 10px 30px rgba(0,40,89,.14)">
+  document.body.innerHTML = `<div style="max-width:640px;margin:80px auto;padding:28px;font-family:Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;background:#fff;border:1px solid #E4E5E6;border-radius:14px;box-shadow:0 10px 30px rgba(0,40,89,.14)">
     <h2 style="color:#002859;margin-top:0">Dashboard not connected</h2>
     <p style="color:#66707C;font-size:13px;line-height:1.7">${msg}</p>
   </div>`;
@@ -902,12 +900,12 @@ const centerTextPlugin = {
     const cx = chartArea.left + chartArea.width/2;
     const cy = chartArea.top + chartArea.height/2 + (opts.offsetY||14);
     ctx.save();
-    ctx.font = '800 20px Poppins, sans-serif';
+    ctx.font = '800 20px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif';
     ctx.fillStyle = opts.color || COLOR.navy;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(opts.text, cx, cy);
     if(opts.sub){
-      ctx.font = '700 10px Poppins, sans-serif';
+      ctx.font = '700 10px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif';
       ctx.fillStyle = opts.subColor || '#66707C';
       ctx.fillText(opts.sub, cx, cy + 16);
     }
@@ -1332,7 +1330,7 @@ function barChart(ctx, labels, target, actual){
     ]},
     options:{
       indexAxis:'y', responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom', labels:{boxWidth:10, font:{size:10.5, family:'Poppins'}}} },
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:10, font:{size:10.5, family:'Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif'}}} },
       scales:{ x:{ grid:{color:COLOR.line} }, y:{ grid:{display:false} } }
     }
   });
@@ -1581,7 +1579,7 @@ function renderDailyChart(){
   charts.daily = new Chart(document.getElementById('chartDaily'), {
     data:{ labels, datasets },
     options:{ responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom', labels:{boxWidth:10,font:{size:10.5,family:'Poppins'}}} },
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:10,font:{size:10.5,family:'Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif'}}} },
       scales
     }
   });

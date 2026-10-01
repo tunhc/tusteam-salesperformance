@@ -132,8 +132,8 @@ const PCFG = {displaylogo:false, responsive:true, modeBarButtonsToRemove:['lasso
 const ax = extra => Object.assign({gridcolor:'#EEF0F3', linecolor:PAL.line, zeroline:false, tickfont:{color:PAL.muted, size:11}, title:{font:{color:PAL.muted, size:11}}}, extra || {});
 function lay(extra){
   return Object.assign({
-    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{family:'Poppins, Arial, sans-serif', size:11.5, color:PAL.ink},
-    margin:{l:58, r:16, t:12, b:44}, hoverlabel:{bgcolor:'#fff', bordercolor:PAL.line, font:{color:PAL.ink, family:'Poppins, Arial', size:11.5}},
+    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{family:'Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif', size:11.5, color:PAL.ink},
+    margin:{l:58, r:16, t:12, b:44}, hoverlabel:{bgcolor:'#fff', bordercolor:PAL.line, font:{color:PAL.ink, family:'Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif', size:11.5}},
     legend:{orientation:'h', y:-0.18, x:0, font:{color:PAL.muted, size:11}}, xaxis:ax(), yaxis:ax(),
   }, extra || {});
 }
@@ -647,7 +647,7 @@ function spTree(){
       line:{width: labels.map(l => l === SP.spl ? 4 : 2), color: labels.map(l => l === SP.spl ? '#FF7000' : '#fff')},
       colorbar:{title:{text:'CM3 %', font:{size:10.5, color:PAL.muted}}, tickformat:'.0%', thickness:10, len:.8, outlinewidth:0, tickfont:{color:PAL.muted}}},
     customdata:[[0,0,0,0,0,0,NaN], ...items.map(([k, e]) => { const p = prev.get(k); return [e.a.gmv, e.a.units, e.a.mktGmv, e.a.acos, e.a.cm3, e.a.cm3Pct, p && p.a.gmv ? e.a.gmv / p.a.gmv - 1 : NaN]; })],
-    texttemplate:'<b>%{label}</b><br>%{customdata[0]:$,.3s}<br>CM3 %{customdata[5]:.1%}', textfont:{family:'Poppins, Arial', size:11.5, color:PAL.ink},
+    texttemplate:'<b>%{label}</b><br>%{customdata[0]:$,.3s}<br>CM3 %{customdata[5]:.1%}', textfont:{family:'Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif', size:11.5, color:PAL.ink},
     hovertemplate:'<b>%{label}</b><br>GMV: %{customdata[0]:$,.0f} (so sánh %{customdata[6]:+.1%})<br>Units: %{customdata[1]:,.0f}<br>%MKT/GMV: %{customdata[2]:.1%}<br>ACOS: %{customdata[3]:.1%}<br>CM3: %{customdata[4]:$,.0f} · %{customdata[5]:.1%}<extra>Bấm để lọc</extra>',
     tiling:{pad:2}, pathbar:{visible:false},
   }], lay({margin:{l:0, r:0, t:0, b:0}}));

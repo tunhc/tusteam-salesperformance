@@ -13,7 +13,7 @@ const H = () => window.V2.h;
 // ------------------------------------------------------------------ CSS
 const css = document.createElement('style');
 css.textContent = `
-.chat-fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:250;background:var(--navy);color:#fff;border:0;border-radius:999px;padding:12px 18px;font:700 13px Poppins,Arial,sans-serif;box-shadow:0 10px 26px rgba(0,40,89,.35);cursor:pointer;display:flex;gap:8px;align-items:center}
+.chat-fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:250;background:var(--navy);color:#fff;border:0;border-radius:999px;padding:12px 18px;font:700 13px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;box-shadow:0 10px 26px rgba(0,40,89,.35);cursor:pointer;display:flex;gap:8px;align-items:center}
 [hidden]{display:none !important}
 .chat-fab .dot{width:9px;height:9px;border-radius:50%;background:var(--orange)}
 .chat-panel{position:fixed;right:20px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:251;width:410px;max-width:calc(100vw - 32px);height:600px;max-height:calc(100vh - 120px);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 48px rgba(0,40,89,.28);display:flex;flex-direction:column;overflow:hidden}
@@ -31,19 +31,19 @@ css.textContent = `
 .chat-suggest{display:flex;flex-wrap:wrap;gap:6px}.chat-suggest button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:inherit;text-align:left}
 .chat-suggest button:hover{border-color:var(--orange)}
 .chat-input{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);background:#fff}
-.chat-input textarea{flex:1;resize:none;height:44px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:12.6px Poppins,Arial,sans-serif}
+.chat-input textarea{flex:1;resize:none;height:44px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:12.6px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif}
 .chat-input button{border:0;background:var(--orange);color:#fff;border-radius:10px;padding:0 14px;font-weight:700;cursor:pointer}
 .chat-gate{padding:18px;display:flex;flex-direction:column;gap:10px;font-size:12.5px}
-.chat-gate input,.chat-gate select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:13px Poppins,Arial,sans-serif;width:100%}
+.chat-gate input,.chat-gate select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:13px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;width:100%}
 .typing{align-self:flex-start;color:var(--muted);font-size:12px;font-style:italic}
 .wf-note{font-size:11.5px;color:var(--muted)}
 .calc-grid{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:14px}
 @media (max-width:1000px){.calc-grid{grid-template-columns:minmax(0,1fr)}}
 .calc-in{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .calc-in .fld{display:flex;flex-direction:column;gap:3px}.calc-in label{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-.calc-in input,.calc-in select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:12.5px Poppins,Arial,sans-serif;width:100%}
+.calc-in input,.calc-in select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:12.5px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;width:100%}
 .cost-tbl td{padding:4px 8px;font-size:12px}.cost-tbl td.n{text-align:right;font-variant-numeric:tabular-nums}
-.proj-quick textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.8px Poppins,Arial,sans-serif;resize:vertical}
+.proj-quick textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.8px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;resize:vertical}
 .pparse{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.pparse span{background:#F1F3F6;border-radius:8px;padding:4px 9px;font-size:11.8px}.pparse span b{color:var(--navy)}
 .pst{font-size:10.5px;font-weight:800;border-radius:20px;padding:2px 9px;white-space:nowrap}
 .pst.Done{background:var(--green-bg);color:var(--green)}.pst.Issue{background:var(--red-bg);color:var(--red)}.pst.Pending{background:var(--amber-bg);color:var(--amber)}.pst.Planned{background:#EEF1F5;color:var(--muted)}.pst.In-progress{background:#E6EEFB;color:#1F5FBF}`;
