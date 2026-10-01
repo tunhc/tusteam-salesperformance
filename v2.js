@@ -138,7 +138,7 @@ function lay(extra){
   }, extra || {});
 }
 const divScale = [[0, PAL.neg], [.5, PAL.mid], [1, PAL.pos]];
-function draw(el, data, layout){ if(typeof Plotly === 'undefined'){ (typeof el === 'string' ? document.getElementById(el) : el).innerHTML = '<div class="notice">Không tải được thư viện biểu đồ (Plotly).</div>'; return; } Plotly.react(el, data, layout, PCFG); }
+function draw(el, data, layout){ if(typeof Plotly === 'undefined'){ (typeof el === 'string' ? document.getElementById(el) : el).innerHTML = '<div class="notice">Không tải được thư viện biểu đồ (Plotly).</div>'; return; } const g = typeof el === 'string' ? document.getElementById(el) : el; if(g && g._fullLayout && !g.querySelector('.main-svg')) Plotly.purge(g); Plotly.react(g, data, layout, PCFG); }
 function chipRow(el, items, isOn, onClick, swatch){
   el.querySelectorAll('.cv-btn').forEach(c => c.remove());
   items.forEach(m => {
@@ -1229,8 +1229,10 @@ async function renderMK(){
   const aw = D.aw.filter(r => r.category === MK.cat), bm = D.bm.filter(r => r.category === MK.cat), vr = D.vr.filter(r => r.category === MK.cat), vm = D.vm.filter(r => r.category === MK.cat);
   const hasQ = aw.length || bm.length || vr.length || vm.length;
   $$('#view-mk .mk-q').forEach(e => e.hidden = !hasQ);
+  const mkCard = (id, on) => { const c = $('#' + id).closest('.card'); if(c) c.hidden = !on; };
+  ['mkMap', 'mkLadder', 'mkPs', 'mkVar'].forEach(id => mkCard(id, !!hasQ));
   if(window.V3 && V3.renderResearch) V3.renderResearch($('#mkResearch'), MK.cat);
-  $('#mkSrc').textContent = hasQ ? 'Biểu đồ từ: ' + [...new Set([...aw, ...bm, ...vr, ...vm].map(r => (r.source || '').split('#')[0]))].join(', ') : 'Category này chỉ có tài liệu nghiên cứu (không có số liệu theo tháng/variation để vẽ biểu đồ).';
+  $('#mkSrc').textContent = hasQ ? 'Biểu đồ từ: ' + [...new Set([...aw, ...bm, ...vr, ...vm].map(r => (r.source || '').split('#')[0]))].join(', ') : 'Category này chỉ có bảng đối thủ (không có số liệu theo tháng/variation để vẽ biểu đồ).';
   if(!hasQ){ if(window.V3 && V3.renderCalc) V3.renderCalc($('#mkCalcHost')); return; }
   // monthly brand revenue: from ASIN weekly (price × units) or the brand monthly table
   let monthly = [];
@@ -1270,7 +1272,7 @@ async function renderMK(){
     draw('mkMap', traces, lay({xaxis:ax({type:'date', tickformat:'%b-%y', rangeslider:{visible:true, thickness:.07, bgcolor:'#F4F6F9', bordercolor:PAL.line}, range: months.length > 13 ? [months[months.length - 13], addDaysIso(lastM, 27)] : undefined}),
       yaxis:ax(hasPrice ? {tickprefix:'$', title:{text:'Giá trung bình', font:{size:11, color:PAL.muted}}} : {tickformat:'.0%', title:{text:'Thị phần', font:{size:11, color:PAL.muted}}}), hovermode:'closest', margin:{l:60, r:110, t:8, b:30}, legend:{orientation:'h', y:1.1, x:0, font:{size:11, color:PAL.muted}},
       annotations: rankLast.filter(r => focus.includes(r.brand)).sort((a, b) => (hasPrice ? b.price - a.price : b.share - a.share)).map((r, i, arr) => ({x:lastM, y: hasPrice ? r.price : r.share, text:`<b>${esc(r.brand)}</b> ${fP(r.share, 0)}`, xanchor:'left', xshift:22, yshift:(arr.length - 1) * 7 - i * 14, showarrow:false, font:{size:10.5, color:PAL.ink}}))}));
-  } else { $('#mkMap').innerHTML = '<div class="v2-note" style="padding:20px">Category này không có dữ liệu theo tháng trong file nghiên cứu.</div>'; }
+  } else { mkCard('mkMap', false); }
   // ladder
   const prices = vr.filter(r => r.metric === 'price'), revs = vr.filter(r => r.metric === 'revenue');
   if(prices.length){
@@ -1287,7 +1289,7 @@ async function renderMK(){
         customdata: ps.map(r => [div(revOf(b, r.variation), vTot.get(r.variation))]), hovertemplate:`<b>${esc(b)}</b> · %{y}<br>Giá: %{x:$.2f}<br>Thị phần trong variation: %{customdata[0]:.0%}<extra></extra>`}; }),
       lay({xaxis:ax({tickprefix:'$', title:{text:'Giá', font:{size:11, color:PAL.muted}}}), yaxis:ax({type:'category', categoryorder:'array', categoryarray: vars, automargin:true, autorange:'reversed'}), hovermode:'closest', margin:{l:10, r:16, t:8, b:54},
         shapes: vars.map(v2 => { const ps = prices.filter(r => r.variation === v2).map(r => +r.value); return {type:'line', xref:'x', yref:'y', x0:Math.min(...ps), x1:Math.max(...ps), y0:v2, y1:v2, line:{color:'#E4E7EC', width:6}, layer:'below'}; })}));
-  } else { $('#mkLadder').innerHTML = '<div class="v2-note" style="padding:20px">Không có bảng giá theo variation cho category này.</div>'; }
+  } else { mkCard('mkLadder', false); }
   // price vs sales
   if(aw.length){
     const lastW = aw.reduce((m, r) => r.week_start > m ? r.week_start : m, '');
@@ -1305,7 +1307,7 @@ async function renderMK(){
       ...(fit ? [{type:'scatter', mode:'lines', name:'Xu hướng', x:curve, y:curve.map(p => Math.exp(fit.a + fit.b * Math.log(p))), line:{color:PAL.ink, width:1.4, dash:'dash'}, hoverinfo:'skip'}] : [])],
       lay({xaxis:ax({type:'log', tickprefix:'$', title:{text:'Giá (log)', font:{size:11, color:PAL.muted}}}), yaxis:ax({type:'log', tickformat:'~s', title:{text:'Units / tuần (log)', font:{size:11, color:PAL.muted}}}), hovermode:'closest', margin:{l:60, r:10, t:8, b:54}}));
     $('#mkEl').innerHTML = fit ? `<b>Độ co giãn ≈ ${fit.b.toFixed(2)}</b>: giá cao hơn 10% thì số bán thấp hơn khoảng ${Math.abs(fit.b * 10).toFixed(0)}% ở mặt bằng category (n = ${pts.length} ASIN). Đây là tương quan giữa các ASIN, chưa tách ảnh hưởng của review, ranking hay ads.` : '';
-  } else { $('#mkPs').innerHTML = '<div class="v2-note" style="padding:20px">Không có dữ liệu giá/units theo ASIN cho category này.</div>'; $('#mkPsHint').textContent = ''; $('#mkEl').innerHTML = ''; }
+  } else { mkCard('mkPs', false); $('#mkPsHint').textContent = ''; $('#mkEl').innerHTML = ''; }
   // variation monthly
   const attrs = [...new Set(vm.map(r => r.attribute))];
   if(attrs.length){
@@ -1315,7 +1317,22 @@ async function renderMK(){
     const vars = [...new Set(rr.map(r => r.variation))];
     draw('mkVar', vars.map((v2, i) => { const s = rr.filter(r => r.variation === v2).sort((a, b) => a.month.localeCompare(b.month)); return {type:'scatter', mode:'lines', stackgroup:'one', name:v2, x:s.map(r => r.month), y:s.map(r => +r.value), line:{width:1, color: i < 5 ? CAT5[i] : PAL.other}, hovertemplate:`${esc(v2)}: %{y:,.0f}<extra></extra>`}; }),
       lay({xaxis:ax({type:'date', tickformat:'%b-%y'}), yaxis:ax({tickformat:'~s', title:{text: 'Market size (' + (modes[0] || 'giá trị') + ')', font:{size:11, color:PAL.muted}}}), hovermode:'x unified', margin:{l:56, r:10, t:8, b:54}}));
-  } else { $('#mkAttr').innerHTML = ''; $('#mkVar').innerHTML = '<div class="v2-note" style="padding:20px">Không có dữ liệu market size theo variation cho category này.</div>'; }
+  } else { $('#mkAttr').innerHTML = '';
+    const revs2 = vr.filter(r => r.metric === 'revenue');
+    if(revs2.length){
+      // no monthly data: market size per variation, stacked by brand, from the brand × variation table
+      const vars = [...new Set(revs2.map(r => r.variation))];
+      const tot = new Map(); revs2.forEach(r => tot.set(r.brand, (tot.get(r.brand) || 0) + +r.value));
+      const brands = [...tot.keys()].sort((a, b) => tot.get(b) - tot.get(a));
+      const y4a = b => /yes4all|y4a/i.test(b);
+      const pal = [PAL.s2, PAL.s3, '#7A8AA0', '#A3ACB8', '#C3CAD4'];
+      let k = 0;
+      draw('mkVar', brands.map(b => ({type:'bar', name:b, x:vars, y:vars.map(v2 => { const r = revs2.find(x => x.brand === b && x.variation === v2); return r ? +r.value : 0; }),
+        marker:{color: y4a(b) ? PAL.s1 : pal[Math.min(k++, pal.length - 1)]}, hovertemplate:`<b>${esc(b)}</b> · %{x}<br>%{y:,.0f}<extra></extra>`})),
+        lay({barmode:'stack', xaxis:ax({type:'category'}), yaxis:ax({tickformat:'~s', title:{text:'Market size (theo file)', font:{size:11, color:PAL.muted}}}), hovermode:'closest', legend:{orientation:'h', y:-0.18}}));
+    } else mkCard('mkVar', false);
+  }
+  { const g = $('#mkLadder').closest('.grid2'); if(g) g.hidden = !hasQ || [...g.querySelectorAll(':scope > .card')].every(c => c.hidden); }
   if(window.V3 && V3.renderCalc) V3.renderCalc($('#mkCalcHost'));
 }
 

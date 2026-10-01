@@ -548,6 +548,7 @@ tr.sub td:first-child{padding-left:28px}
     <span class="result-count" id="perfResultCount"></span>
   </div>
 
+  <div class="filterbar" id="perfPeriodBar"></div>
   <div class="moc-strip" id="perfKpiStrip"></div>
   <div id="perfV3"></div>
 
@@ -1934,7 +1935,8 @@ function perfGetFilteredRows(){
   const mpl = document.getElementById('perfFMainPL').value;
   const lifecycle = document.getElementById('perfFLifecycle').value;
   const trend = document.getElementById('perfFTrend').value;
-  return ROWS.filter(r=>
+  const src = window.V3 && V3.perfApply ? V3.perfApply(ROWS) : ROWS;
+  return src.filter(r=>
     (!pic || r.pic===pic) && (!mpl || r.mainPL===mpl) && (!lifecycle || r.lifecycle===lifecycle) && (!trend || r.trendLabel===trend) && (!window.V2 || V2.matchGS(r))
   );
 }
@@ -2067,6 +2069,7 @@ function renderPerfTable(rows){
 
 function renderPerfTab(){
   if(!ROWS.length) return;
+  if(window.V3 && V3.perfEnsure && V3.perfEnsure()) return; // period data is loading; renders again when ready
   const rows = perfGetFilteredRows();
   document.getElementById('perfResultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
   renderPerfKpiStrip(rows);
@@ -2086,7 +2089,7 @@ function exportPerfTable(){
       'Trend %': Number.isFinite(r.trendPct)?r.trendPct:'', 'Trend': r.trendLabel,
       'DOC (days)': r.docDays===null?'N/A':r.docDays===0?'OOS':!Number.isFinite(r.docDays)?'999+':Math.round(r.docDays),
       'TACOS %': tacos===null?'':+tacos.toFixed(1),
-      'Ads Spend (MTD)': r.adsActual, 'GMV (MTD)': r.actualGMV,
+      'Ads Spend (kỳ)': r.adsActual, 'GMV (kỳ)': r.actualGMV, 'Kỳ': (window.V3 && V3.perfLabel) ? V3.perfLabel() : '',
       'Suggested Action': suggestAction(r).label,
     };
   });
