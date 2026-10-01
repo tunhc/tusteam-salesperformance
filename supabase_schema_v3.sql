@@ -160,3 +160,51 @@ revoke execute on function freeze_review_week(date, boolean, int, time) from pub
 do $$ begin
   grant execute on function freeze_review_week(date, boolean, int, time) to anon, authenticated, service_role;
 exception when undefined_object then null; end $$;
+
+-- ----------------------------------------------------------------------------
+-- 6) Market research library: every table and written analysis from the
+--    Strategy Plan workbooks and HTML market reports (loaded by 09_market_research)
+-- ----------------------------------------------------------------------------
+create table if not exists market_reports (
+  source        text primary key,
+  category      text not null,
+  kind          text,
+  title         text,
+  pic           text,
+  product_line  text,
+  plan_date     text,
+  loaded_at     timestamptz not null default now()
+);
+create table if not exists market_insights (
+  id        bigint generated always as identity primary key,
+  category  text not null,
+  source    text,
+  sheet     text,
+  section   text,
+  label     text,
+  content   text not null,
+  sort      int
+);
+create index if not exists idx_market_insights_cat on market_insights(category, sort);
+create table if not exists market_tables (
+  id        bigint generated always as identity primary key,
+  category  text not null,
+  source    text,
+  sheet     text,
+  section   text,
+  title     text,
+  columns   jsonb not null,
+  rows      jsonb not null,
+  sort      int
+);
+create index if not exists idx_market_tables_cat on market_tables(category, sort);
+do $$
+declare t text;
+begin
+  foreach t in array array['market_reports','market_insights','market_tables'] loop
+    execute format('alter table %I enable row level security', t);
+    execute format('drop policy if exists "public read %1$s" on %1$I', t);
+    execute format('create policy "public read %1$s" on %1$I for select using (true)', t);
+    execute format('grant select on %I to ai_reader', t);
+  end loop;
+end $$;

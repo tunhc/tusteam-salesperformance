@@ -124,6 +124,22 @@ def _row_bytes(r):
     return len(str(r["sku"])) + 6 + sum(len(_cnum(r.get(c))) + 1 for c in SALES_COLS[2:-2]) + 6
 
 
+def market_research_sql(reports, insights, tables):
+    jl = lambda v: lit(json.dumps(v, ensure_ascii=False, default=str)) + "::jsonb"
+    out = ["truncate market_insights, market_tables, market_reports;"]
+    out.append(upsert_sql("market_reports", ["source", "category", "kind", "title", "pic", "product_line", "plan_date"],
+                          [{k: (str(v) if v is not None else None) for k, v in r.items()} for r in reports], ["source"]))
+    cols = ["category", "source", "sheet", "section", "label", "content", "sort"]
+    for i in range(0, len(insights), 40):
+        vals = ",\n".join("(" + ",".join(lit(x.get(c)) for c in cols) + ")" for x in insights[i:i + 40])
+        out.append(f"insert into market_insights ({', '.join(cols)}) values\n{vals};")
+    for i in range(0, len(tables), 10):
+        vals = ",\n".join("(" + ",".join([lit(t["category"]), lit(t["source"]), lit(t["sheet"]), lit(t["section"]), lit(t["title"]),
+                                             jl(t["columns"]), jl(t["rows"]), lit(t["sort"])]) + ")" for t in tables[i:i + 10])
+        out.append(f"insert into market_tables (category, source, sheet, section, title, columns, rows, sort) values\n{vals};")
+    return "\n\n".join(out)
+
+
 def split_by_size(rows, max_bytes, render):
     """Split rows so each rendered part stays under max_bytes (~3 KB reserved for the SQL around the data)."""
     parts, cur, size = [], [], 3000
@@ -747,6 +763,15 @@ def main():
                        ["category", "attribute", "variation", "month", "mode"]) if var_monthly else "",
         ]))
         write_split(a.out, "05_market", body, header=f"-- variation rows {len(variation)}, brand-month {len(brand_monthly)}, asin-week {len(asin_weekly)}, variation-month {len(var_monthly)}")
+
+    if a.market_dir:
+        print("market research library")
+        from market_research import parse_research
+        reports, insights, tables = parse_research(a.market_dir, category_of)
+        schema = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "supabase_schema_v3.sql"), encoding="utf-8").read()
+        ddl = schema[schema.index("-- 6) Market research library"):].split("\n", 1)[1]
+        write_split(a.out, "09_market_research", market_research_sql(reports, insights, tables),
+                    header=f"-- {len(reports)} reports, {len(insights)} insights, {len(tables)} tables · creates its tables if missing\n" + ddl)
 
     if a.kpi_tracker:
         print("weekly notes")

@@ -1205,27 +1205,33 @@ async function renderMK(){
   const v = $('#view-mk');
   if(!MKbuilt){
     v.innerHTML = `<div class="filterbar"><div class="fld"><label>Category</label><div class="cv-toggle" id="mkCats"></div></div><span class="result-count" id="mkSrc"></span></div>
-      <div class="tiles" id="mkTiles"></div>
-      <div class="card"><h3 style="margin:0 0 3px" id="mkMapTitle">Brand map theo thời gian</h3><div class="hint" id="mkMapHint"></div><div id="mkMap" class="plot xl"></div></div>
-      <div class="grid2"><div class="card"><h3 style="margin:0 0 3px">Price ladder theo variation</h3><div class="hint">Mỗi hàng là một variation. Chấm đặt tại giá của brand, kích thước = doanh thu của brand trong variation đó. Vạch xám = khoảng giá thị trường.</div><div id="mkLadder" class="plot tall"></div></div>
+      <div class="tiles mk-q" id="mkTiles"></div>
+      <div class="card mk-q"><h3 style="margin:0 0 3px" id="mkMapTitle">Brand map theo thời gian</h3><div class="hint" id="mkMapHint"></div><div id="mkMap" class="plot xl"></div></div>
+      <div class="grid2 mk-q"><div class="card"><h3 style="margin:0 0 3px">Price ladder theo variation</h3><div class="hint">Mỗi hàng là một variation. Chấm đặt tại giá của brand, kích thước = doanh thu của brand trong variation đó. Vạch xám = khoảng giá thị trường.</div><div id="mkLadder" class="plot tall"></div></div>
         <div class="card"><h3 style="margin:0 0 3px">Giá vs số bán</h3><div class="hint" id="mkPsHint"></div><div id="mkPs" class="plot tall"></div><div class="readout" id="mkEl"></div></div></div>
+      <div id="mkResearch"></div>
       <div id="mkCalcHost"></div>
-      <div class="card"><h3 style="margin:0 0 3px">Market size theo variation</h3><div class="hint">Nguồn: biểu đồ market size by color/length/size trong file nghiên cứu.</div><div class="cv-toggle" id="mkAttr" style="margin:6px 0"></div><div id="mkVar" class="plot tall"></div></div>`;
+      <div class="card mk-q"><h3 style="margin:0 0 3px">Market size theo variation</h3><div class="hint">Nguồn: biểu đồ market size by color/length/size trong file nghiên cứu.</div><div class="cv-toggle" id="mkAttr" style="margin:6px 0"></div><div id="mkVar" class="plot tall"></div></div>`;
     MKbuilt = true;
   }
   if(!MK.data){
     try {
       const [vr, bm, aw, vm] = await Promise.all([selectAll('market_variation'), selectAll('market_brand_monthly'), selectAll('market_asin_weekly'), selectAll('market_variation_monthly')]);
       MK.data = {vr, bm, aw, vm};
+      MK.rcats = window.V3 && V3.researchCategories ? await V3.researchCategories() : [];
     } catch(e){ $('#mkTiles').innerHTML = missingSchema(e) ? schemaHint : '<div class="notice">Không tải được: ' + esc(e.message || e) + '</div>'; return; }
   }
   const D = MK.data;
-  const cats = [...new Set([...D.vr, ...D.bm, ...D.aw, ...D.vm].map(r => r.category))].filter(Boolean).sort();
+  const cats = [...new Set([...D.vr, ...D.bm, ...D.aw, ...D.vm].map(r => r.category).concat(MK.rcats || []))].filter(Boolean).sort();
   if(!cats.length){ $('#mkTiles').innerHTML = '<div class="notice">Chưa có dữ liệu market. Chạy 05_market.sql.</div>'; return; }
   if(!MK.cat || !cats.includes(MK.cat)) MK.cat = cats.includes('Tricep Ropes') ? 'Tricep Ropes' : cats[0];
   chipRow($('#mkCats'), cats.map(c => ({l:c})), c => c.l === MK.cat, c => { MK.cat = c.l; MK.attr = null; renderMK(); });
   const aw = D.aw.filter(r => r.category === MK.cat), bm = D.bm.filter(r => r.category === MK.cat), vr = D.vr.filter(r => r.category === MK.cat), vm = D.vm.filter(r => r.category === MK.cat);
-  $('#mkSrc').textContent = 'Nguồn: ' + [...new Set([...aw, ...bm, ...vr, ...vm].map(r => (r.source || '').split('#')[0]))].join(', ');
+  const hasQ = aw.length || bm.length || vr.length || vm.length;
+  $$('#view-mk .mk-q').forEach(e => e.hidden = !hasQ);
+  if(window.V3 && V3.renderResearch) V3.renderResearch($('#mkResearch'), MK.cat);
+  $('#mkSrc').textContent = hasQ ? 'Biểu đồ từ: ' + [...new Set([...aw, ...bm, ...vr, ...vm].map(r => (r.source || '').split('#')[0]))].join(', ') : 'Category này chỉ có tài liệu nghiên cứu (không có số liệu theo tháng/variation để vẽ biểu đồ).';
+  if(!hasQ){ if(window.V3 && V3.renderCalc) V3.renderCalc($('#mkCalcHost')); return; }
   // monthly brand revenue: from ASIN weekly (price × units) or the brand monthly table
   let monthly = [];
   if(aw.length){
