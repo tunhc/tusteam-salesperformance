@@ -120,6 +120,47 @@ def compact_sales_sql(rows):
             f"on conflict (sku, date) do update set {', '.join(f'{c} = excluded.{c}' for c in SALES_COLS[2:])};")
 
 
+def hourly_month_rows(path, month, known_skus):
+    """Aggregate an "SSO Data Extraction Hourly" export to one row per SKU per
+    day for `month` (YYYY-MM). Same mapping as the ingest-sales Edge Function,
+    plus the ad-type / promo-type / click / impression columns it has."""
+    d = pd.read_excel(path)
+    d["date"] = pd.to_datetime(d["date"]).dt.date
+    d = d[d["date"].map(lambda x: x.strftime("%Y-%m") == month)]
+    d = d[d["sku"].astype(str).str.strip().isin(known_skus)].copy()
+    d["sku"] = d["sku"].astype(str).str.strip()
+    num_cols = [c for c in d.columns if c not in ("date", "department", "sku", "asin", "main_category")]
+    for c in num_cols:
+        d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
+    g = d.groupby(["sku", "date"], as_index=False).agg({**{c: "sum" for c in num_cols}, "main_category": "first"})
+    src = re.sub(r"^[0-9a-f]{8}-", "", os.path.basename(path)).replace("_--_", " -- ").replace("_", " ")
+    rows = []
+    for r in g.to_dict("records"):
+        rows.append({
+            "sku": r["sku"], "date": r["date"],
+            "units": r["ordered_units"], "gmv": r["ordered_gmv"], "ordered_nmv": r["ordered_nmv"],
+            "ads": r["total_ads"], "promo": r["total_promo"],
+            "ads_gmv": r["sb_ordered_nmv"] + r["sd_ordered_nmv"] + r["sp_ordered_nmv"],
+            "ads_units": r["sb_ordered_units"] + r["sd_ordered_units"] + r["sp_ordered_units"],
+            "total_clicks": r["sb_clicks"] + r["sd_clicks"] + r["sp_clicks"],
+            "total_impressions": r["sb_impressions"] + r["sd_impressions"] + r["sp_impressions"],
+            "glance_views": 0, "ordered_revenue": 0,
+            "sp_spend": r["sp_spend"], "sb_spend": r["sb_spend"], "sd_spend": r["sd_spend"], "dsp_spend": 0, "aff_spend": 0,
+            "promo_deal": r["best_deal_spend"] + r["lightning_deal_spend"] + r["vm_promo_spend"],
+            "promo_coupon": r["coupon_spend"], "promo_discount": r["price_discount_spend"],
+            "category": r["main_category"], "source_file": src,
+        })
+    return rows
+
+
+def overwrite_month_sql(rows, month):
+    first = date.fromisoformat(month + "-01")
+    nxt = date(first.year + (first.month == 12), first.month % 12 + 1, 1)
+    return (f"begin;\n-- replace every {month} row (also SKUs missing from the new file)\n"
+            f"delete from sales_daily where date >= '{first}' and date < '{nxt}';\n\n"
+            + compact_sales_sql(rows) + "\n\ncommit;")
+
+
 def _row_bytes(r):
     return len(str(r["sku"])) + 6 + sum(len(_cnum(r.get(c))) + 1 for c in SALES_COLS[2:-2]) + 6
 
@@ -672,20 +713,39 @@ def weekly_notes_sql(tracker_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--followup", required=True)
+    ap.add_argument("--followup")
     ap.add_argument("--tracking-sheet", default="Tracking_0925")
-    ap.add_argument("--inventory", required=True)
-    ap.add_argument("--target", required=True)
-    ap.add_argument("--target-month", required=True, help="first day of the target month, e.g. 2026-10-01")
+    ap.add_argument("--inventory")
+    ap.add_argument("--target")
+    ap.add_argument("--target-month", help="first day of the target month, e.g. 2026-10-01")
     ap.add_argument("--team", default="Team Cẩm Tú")
-    ap.add_argument("--daily", nargs="+", required=True)
+    ap.add_argument("--daily", nargs="+")
     ap.add_argument("--market-dir")
     ap.add_argument("--cm3-html", help="Y4A_CM3_by_Lane_V98_*.html")
     ap.add_argument("--kpi-tracker", help="SSO_Sales_KPI_Tracker_*.xlsx (Week 1..4 PIC notes)")
     ap.add_argument("--lock-before", default="2026-09-01")
+    ap.add_argument("--hourly", help="SSO Data Extraction Hourly export: overwrite one month of sales_daily (see --overwrite-month)")
+    ap.add_argument("--overwrite-month", help="YYYY-MM to replace with the --hourly file, e.g. 2026-09")
     ap.add_argument("--max-part-kb", type=int, default=600, help="max size of each sales history file (SQL Editor limit)")
+    ap.add_argument("--known-skus", help="with --hourly only: 01_skus.sql (or a text file, one SKU per line) listing the managed SKUs")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
+
+    if a.hourly:
+        # one-month overwrite from the hourly export, no other inputs needed
+        if not (a.overwrite_month and a.known_skus):
+            ap.error("--hourly needs --overwrite-month YYYY-MM and --known-skus")
+        txt = open(a.known_skus, encoding="utf-8").read()
+        known = set(re.findall(r"^\('([^']+)',", txt, re.M)) or {l.strip() for l in txt.splitlines() if l.strip()}
+        rows = hourly_month_rows(a.hourly, a.overwrite_month, known)
+        tot = sum(r["gmv"] for r in rows)
+        write(a.out, f"11_sales_{a.overwrite_month.replace('-', '_')}_overwrite.sql", overwrite_month_sql(rows, a.overwrite_month),
+              header=f"-- {len(rows)} SKU-day rows, {len({r['sku'] for r in rows})} SKUs, GMV {tot:,.2f} · source {os.path.basename(a.hourly)}")
+        if not a.followup:
+            return
+    for req in ("followup", "inventory", "target", "target_month", "daily"):
+        if not getattr(a, req):
+            ap.error(f"--{req.replace('_', '-')} is required for a full build")
 
     print("schema")
     shutil.copy(os.path.join(HERE, "supabase_schema_v2.sql"), os.path.join(a.out, "00_schema_v2.sql"))
