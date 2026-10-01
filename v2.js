@@ -332,6 +332,58 @@ V2.actionLabels = function(r){
   return out.join('') || '<span class="v2-note">—</span>';
 };
 
+
+// =====================================================================
+// Tracking Target: Daily Trends (Plotly, day/week, draggable range)
+// =====================================================================
+V2.dailyTrend = function(arr, view, grain, elId){
+  let rows = arr;
+  if(grain === 'week'){
+    const m = new Map();
+    arr.forEach(d => { const k = sundayOf(d.date); const a = m.get(k) || {date:k, gmv:0, mkt:0, ads:0, promo:0, units:0, adsGmv:0, adsUnits:0, impressions:0, clicks:0, glanceViews:0};
+      ['gmv','mkt','ads','promo','units','adsGmv','adsUnits','impressions','clicks','glanceViews'].forEach(q => a[q] += d[q] || 0); m.set(k, a); });
+    rows = [...m.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }
+  const x = rows.map(d => d.date);
+  const gv = d => d.glanceViews > 0 ? d.glanceViews : d.impressions;
+  let traces = [], panels = 2, titles = [];
+  if(view === 'gmvBreakdown'){
+    traces = [{type:'bar', x, y:rows.map(d => d.gmv - d.adsGmv), name:'Organic GMV', marker:{color:'#A3ACB8'}, yaxis:'y', hovertemplate:'Organic %{y:$,.0f}<extra></extra>'},
+      {type:'bar', x, y:rows.map(d => d.adsGmv), name:'Ads GMV', marker:{color:'#E86A10'}, yaxis:'y', hovertemplate:'Ads GMV %{y:$,.0f}<extra></extra>'},
+      {type:'scatter', mode:'lines+markers', x, y:rows.map(d => d.gmv ? d.adsGmv / d.gmv : null), name:'% GMV từ Ads', line:{color:'#2a78d6', width:2}, marker:{size:5}, yaxis:'y2', hovertemplate:'%{y:.1%}<extra>% GMV từ Ads</extra>'}];
+    titles = ['GMV $', '% từ Ads'];
+  } else if(view === 'spend'){
+    traces = [{type:'bar', x, y:rows.map(d => d.ads), name:'Ads $', marker:{color:'#E86A10'}, yaxis:'y', hovertemplate:'Ads %{y:$,.0f}<extra></extra>'},
+      {type:'bar', x, y:rows.map(d => d.promo), name:'Promo $', marker:{color:'#2a78d6'}, yaxis:'y', hovertemplate:'Promo %{y:$,.0f}<extra></extra>'},
+      {type:'scatter', mode:'lines+markers', x, y:rows.map(d => d.gmv ? d.mkt / d.gmv : null), name:'% MKT/GMV', line:{color:'#002859', width:2}, marker:{size:5}, yaxis:'y2', hovertemplate:'%{y:.1%}<extra>% MKT/GMV</extra>'}];
+    titles = ['MKT $', '% MKT/GMV'];
+  } else if(view === 'units'){
+    traces = [{type:'bar', x, y:rows.map(d => d.units - d.adsUnits), name:'Units organic', marker:{color:'#A3ACB8'}, yaxis:'y', hovertemplate:'Organic %{y:,.0f}<extra></extra>'},
+      {type:'bar', x, y:rows.map(d => d.adsUnits), name:'Units từ Ads', marker:{color:'#E86A10'}, yaxis:'y', hovertemplate:'Ads units %{y:,.0f}<extra></extra>'},
+      {type:'scatter', mode:'lines+markers', x, y:rows.map(d => d.units ? d.gmv / d.units : null), name:'ASP', line:{color:'#002859', width:2}, marker:{size:5}, yaxis:'y2', hovertemplate:'ASP %{y:$,.2f}<extra></extra>'}];
+    titles = ['Units', 'ASP $'];
+  } else if(view === 'glance'){
+    traces = [{type:'bar', x, y:rows.map(gv), name:'Glance views', marker:{color:'#A3ACB8'}, yaxis:'y', hovertemplate:'GV %{y:,.0f}<extra></extra>'},
+      {type:'scatter', mode:'lines+markers', x, y:rows.map(d => d.glanceViews > 0 ? d.units / d.glanceViews : (d.clicks ? d.units / d.clicks : null)), name:'Conversion rate', line:{color:'#1baf7a', width:2}, marker:{size:5}, yaxis:'y2', hovertemplate:'%{y:.2%}<extra>CR</extra>'}];
+    titles = ['Glance views', 'CR'];
+  } else {
+    traces = [{type:'bar', x, y:rows.map(d => d.gmv), name:'GMV', marker:{color:'#A3ACB8'}, yaxis:'y', hovertemplate:'GMV %{y:$,.0f}<extra></extra>'},
+      {type:'bar', x, y:rows.map(d => d.mkt), name:'Marketing fee $', marker:{color:'#E86A10'}, yaxis:'y2', hovertemplate:'MKT %{y:$,.0f}<extra></extra>'},
+      {type:'scatter', mode:'lines+markers', x, y:rows.map(d => d.gmv ? d.mkt / d.gmv : null), name:'% MKT/GMV', line:{color:'#002859', width:2}, marker:{size:5}, yaxis:'y3', hovertemplate:'%{y:.1%}<extra>% MKT/GMV</extra>'}];
+    titles = ['GMV $', 'MKT $', '% MKT/GMV']; panels = 3;
+  }
+  const pct = t => /%|CR/.test(t), money = t => /\$/.test(t);
+  const doms = panels === 3 ? [[.56, 1], [.30, .50], [0, .24]] : [[.42, 1], [0, .34]];
+  const L = lay({barmode:'stack', bargap:.25, hovermode:'x unified', margin:{l:62, r:16, t:6, b:40}, legend:{orientation:'h', y:1.08, x:0, font:{size:11, color:PAL.muted}},
+    grid:{rows:panels, columns:1, subplots: panels === 3 ? [['xy'],['xy2'],['xy3']] : [['xy'],['xy2']], roworder:'top to bottom'}});
+  const lastAxis = 'y' + (panels === 1 ? '' : panels);
+  const show = grain === 'week' ? 8 : 14;
+  L.xaxis = ax({anchor: lastAxis, type:'date', tickformat: grain === 'week' ? '%d/%m' : '%d/%m', rangeslider:{visible:true, thickness:.07, bgcolor:'#F4F6F9', bordercolor:PAL.line},
+    range: x.length > show ? [addDaysIso(x[x.length - show], grain === 'week' ? -3 : -1), addDaysIso(x[x.length - 1], grain === 'week' ? 4 : 1)] : undefined});
+  titles.forEach((t, i) => { L['yaxis' + (i ? i + 1 : '')] = ax({domain: doms[i], title:{text:t, font:{size:10.5, color:PAL.muted}}, tickformat: pct(t) ? '.0%' : '~s', tickprefix: money(t) && !pct(t) ? '$' : '', rangemode:'tozero'}); });
+  draw(elId, traces, L);
+};
+
 // =====================================================================
 // Rule-based recommendations (daily; used by Weekly Review, SKU detail, Ads)
 // c = current window, p = previous window, t = target for the window (optional)
@@ -899,7 +951,7 @@ async function renderWR(){
   try { WR.data = await loadWeek(WR.ws); }
   catch(e){ $('#wrStatus').textContent = ''; $('#wrTable').innerHTML = missingSchema(e) ? '<tr><td>' + schemaHint + '</td></tr>' : '<tr><td>Không tải được: ' + esc(e.message || e) + '</td></tr>'; return; }
   try { WR.reviews = await selectAll('weekly_reviews', q => q.gte('week_start', addDaysIso(WR.weeks[WR.weeks.length - 1], -56))); } catch(e){ WR.reviews = []; }
-  try { WR.actions = await selectAll('review_actions', q => q.order('due_date', {ascending:true})); } catch(e){ WR.actions = []; }
+  await reloadActions();
   $('#wrStatus').innerHTML = WR.data.frozen ? `<span class="badge green">Đã khóa ${new Date(WR.data.frozen.frozen_at).toLocaleString('vi-VN')}</span>` : `<span class="badge amber">Chưa khóa · số liệu live tới ${dm(WR.data.liveTo)}</span>`;
   $('#wrFreeze').disabled = !!WR.data.frozen || new Date() < new Date(addDaysIso(WR.ws, 7) + 'T00:00:00');
   wrLock(); wrTable(); wrEditor(); wrHub(); WRdirty = false;
@@ -976,7 +1028,7 @@ function wrEditor(){
       if(acts.length){ const {error: e2} = await sb.from('review_actions').insert(acts.map(a => ({review_id: data.id, week_start: WR.ws, main_pl: e.pl, owner: $('#edOw').value, text: a.text, due_date: a.due, due_from_text: a.dated, skus: a.skus, status: keepDone.has(a.text) ? 'Done' : 'Open'}))); if(e2) throw e2; }
       toast(data.is_late ? 'Đã lưu · gắn nhãn Late (sau hạn)' : 'Đã lưu diễn giải');
       WR.reviews = await selectAll('weekly_reviews', q => q.gte('week_start', addDaysIso(WR.weeks[WR.weeks.length - 1], -56)));
-      WR.actions = await selectAll('review_actions', q => q.order('due_date', {ascending:true}));
+      await reloadActions();
       V2.state.notes = WR.reviews; wrTable(); wrEditor(); wrHub();
     } catch(err){ toast('Không lưu được: ' + (err.message || err)); btn.disabled = false; btn.textContent = 'Lưu diễn giải'; }
   };
@@ -1003,9 +1055,70 @@ function wrHub(){
   issues.forEach(i => i.codes.forEach(c => { const k = i.pl + '|' + c; if(!rec.has(k)) rec.set(k, {pl:i.pl, c, weeks:new Set(), last:'', lastWs:''}); const r = rec.get(k); r.weeks.add(i.ws); if(i.ws >= r.lastWs){ r.lastWs = i.ws; r.last = i.text; } }));
   const rr = [...rec.values()].filter(r => r.weeks.size >= 2).sort((a, b) => b.weeks.size - a.weeks.size);
   $('#wrRecur').innerHTML = '<thead><tr><th>Group</th><th>Mã</th><th class="num">Số tuần</th><th>Ghi chú gần nhất</th></tr></thead><tbody>' + (rr.length ? rr.map(r => `<tr><td>${esc(r.pl)}</td><td><span class="codeb ${r.c}">${r.c}</span></td><td class="num">${r.weeks.size}</td><td style="white-space:normal;min-width:220px">${esc(r.last)}</td></tr>`).join('') : '<tr><td colspan="4" class="v2-note">Chưa có vấn đề lặp lại.</td></tr>') + '</tbody>';
-  const col = (title, list, cls) => `<div class="bcol"><h4><span>${title}</span><span class="badge ${cls}">${list.length}</span></h4>${list.slice(0, 30).map(a => `<div class="act"><div>${esc(a.text)}</div><div class="foot"><span>${esc(a.main_pl)}</span><span>· ${esc(a.owner || '')}</span><span>· hạn ${dm(a.due_date)}</span>${(a.skus || []).map(s => `<span class="skutag">${esc(s)}</span>`).join('')}<button class="btn small" type="button" data-id="${a.id}" data-st="${a.status === 'Done' ? 'Open' : 'Done'}">${a.status === 'Done' ? 'Mở lại' : 'Xong'}</button></div></div>`).join('') || '<span class="v2-note">Trống</span>'}</div>`;
-  $('#wrBoard').innerHTML = col('Quá hạn', overdue, 'red') + col('Đang mở', open.filter(a => a.due_date >= today), 'amber') + col('Hoàn thành', WR.actions.filter(a => a.status === 'Done'), 'green');
-  $$('#wrBoard [data-id]').forEach(b => b.onclick = async () => { const {error} = await sb.from('review_actions').update({status: b.dataset.st, done_at: b.dataset.st === 'Done' ? new Date().toISOString() : null}).eq('id', +b.dataset.id); if(error){ toast('Không cập nhật được: ' + error.message); return; } const a = WR.actions.find(x => String(x.id) === b.dataset.id); if(a) a.status = b.dataset.st; wrHub(); });
+  renderBoard(today, open, overdue);
+}
+
+// Action tracker ---------------------------------------------------------
+const PIC_LIST = ['Anh Trình', 'Thư Lâm', 'Như Bùi', 'Nhi Diệp', 'Khang Trương'];
+V2.PIC_LIST = PIC_LIST;
+const fdt = iso => { if(!iso) return ''; const d = new Date(iso); return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); };
+function picOptions(sel){ const names = [...new Set([...PIC_LIST, ...ROWS.map(r => r.pic).filter(p => p && p !== 'Unassigned')])]; return names.map(n => `<option ${n === sel ? 'selected' : ''}>${esc(n)}</option>`).join(''); }
+function renderBoard(today, open, overdue){
+  const logsBy = new Map(); (WR.logs || []).forEach(l => { const a = logsBy.get(l.action_id) || []; a.push(l); logsBy.set(l.action_id, a); });
+  const card = a => { const logs = (logsBy.get(a.id) || []).sort((x, y) => y.created_at.localeCompare(x.created_at)); const done = a.status === 'Done';
+    return `<div class="act" data-card="${a.id}"><div>${esc(a.text)}</div>
+      <div class="foot"><span>${esc(a.main_pl)}</span><span>· ${esc(a.owner || '')}</span><span>· hạn ${dm(a.due_date)}</span>${(a.skus || []).map(x => `<span class="skutag">${esc(x)}</span>`).join('')}${a.review_id ? '' : '<span class="badge gray">tạo tay</span>'}</div>
+      ${done ? `<div style="margin-top:4px;font-size:11.5px;color:var(--green);font-weight:700">✓ ${esc(a.done_by || '')} · ${fdt(a.done_at)}${a.done_note ? ` <span style="color:var(--ink);font-weight:500">— ${esc(a.done_note)}</span>` : ''}</div>` : ''}
+      ${logs.length ? `<div style="margin-top:4px;border-left:2px solid var(--line);padding-left:7px;font-size:11.3px;color:var(--muted)">${logs.slice(0, 3).map(l => `<div><b>${esc(l.pic || '')}</b> ${fdt(l.created_at)}: ${esc(l.note || l.status || '')}</div>`).join('')}${logs.length > 3 ? `<div>+${logs.length - 3} cập nhật cũ hơn</div>` : ''}</div>` : ''}
+      <div class="foot" style="margin-top:5px">${done ? `<button class="btn small" type="button" data-act="reopen">Mở lại</button>` : `<button class="btn small" type="button" data-act="log">Cập nhật</button><button class="btn small primary" type="button" data-act="done">Xong</button>`}</div>
+      <div class="actform" hidden></div></div>`; };
+  const col = (title, list, cls) => `<div class="bcol"><h4><span>${title}</span><span class="badge ${cls}">${list.length}</span></h4>${list.slice(0, 40).map(card).join('') || '<span class="v2-note">Trống</span>'}${list.length > 40 ? `<span class="v2-note">+${list.length - 40} action khác</span>` : ''}</div>`;
+  const doneList = WR.actions.filter(a => a.status === 'Done').sort((a, b) => String(b.done_at || '').localeCompare(String(a.done_at || '')));
+  const mpls = [...new Set(ROWS.map(r => r.mainPL).filter(Boolean))].sort();
+  $('#wrBoard').innerHTML = `<div style="grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary small" type="button" id="newActBtn">＋ Tạo action mới</button><span class="v2-note">Bấm “Cập nhật” để ghi tiến độ, “Xong” để đóng action kèm tên PIC và thời gian.</span></div>
+    <div id="newActForm" class="entry-form" style="grid-column:1/-1;margin:0" hidden>
+      <div class="row"><div class="fld" style="flex:1;min-width:160px"><label for="naPl">Product group</label><select id="naPl">${mpls.map(m => `<option>${esc(m)}</option>`).join('')}</select></div>
+        <div class="fld" style="width:170px"><label for="naOwner">Owner</label><select id="naOwner">${picOptions('')}</select></div>
+        <div class="fld" style="width:150px"><label for="naDue">Deadline</label><input type="date" id="naDue" value="${addDaysIso(today, 7)}"></div>
+        <div class="fld" style="width:160px"><label for="naSku">SKU (cách nhau dấu phẩy)</label><input type="text" id="naSku" placeholder="D5XI, DXD3"></div></div>
+      <div class="row"><div class="fld" style="flex:1"><label for="naText">Nội dung action</label><textarea id="naText" placeholder="VD: Kiện case block zipcode cho 5SU6"></textarea></div></div>
+      <button class="btn primary" type="button" id="naSave">Lưu action</button> <button class="btn" type="button" id="naCancel">Hủy</button></div>` +
+    col('Quá hạn', overdue, 'red') + col('Đang mở', open.filter(a => a.due_date >= today), 'amber') + col('Hoàn thành', doneList, 'green');
+  $('#newActBtn').onclick = () => { $('#newActForm').hidden = !$('#newActForm').hidden; };
+  $('#naCancel').onclick = () => { $('#newActForm').hidden = true; };
+  $('#naSave').onclick = async () => {
+    const text = $('#naText').value.trim(); if(!text){ toast('Nhập nội dung action'); return; }
+    const skus = $('#naSku').value.split(/[,\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
+    const row = {week_start: WR.ws, main_pl: $('#naPl').value, owner: $('#naOwner').value, text, due_date: $('#naDue').value || addDaysIso(today, 7), due_from_text: true, skus, status: 'Open', created_by: $('#naOwner').value};
+    const {error} = await sb.from('review_actions').insert(row);
+    if(error){ toast('Không lưu được: ' + error.message); return; }
+    toast('Đã tạo action'); await reloadActions(); wrHub();
+  };
+  $$('#wrBoard [data-card]').forEach(cardEl => {
+    const id = +cardEl.dataset.card, a = WR.actions.find(x => x.id === id), form = cardEl.querySelector('.actform');
+    cardEl.querySelectorAll('[data-act]').forEach(btn => btn.onclick = async () => {
+      const kind = btn.dataset.act;
+      if(kind === 'reopen'){ const {error} = await sb.from('review_actions').update({status:'Open', done_at:null, done_by:null, done_note:null}).eq('id', id); if(error){ toast(error.message); return; }
+        await sb.from('review_action_logs').insert({action_id:id, pic:a.done_by || a.owner, status:'Open', note:'Mở lại action'}); await reloadActions(); wrHub(); return; }
+      form.hidden = false;
+      form.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><select class="ap" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:11.5px">${picOptions(a.owner)}</select>
+        <textarea class="an" placeholder="${kind === 'done' ? 'Kết quả / ghi chú khi hoàn thành' : 'Cập nhật tiến độ'}" style="flex:1;min-width:160px;min-height:44px;border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:11.5px;font-family:inherit"></textarea></div>
+        <div style="display:flex;gap:6px;margin-top:5px"><button class="btn small primary" type="button" data-ok>${kind === 'done' ? 'Xác nhận hoàn thành' : 'Lưu cập nhật'}</button><button class="btn small" type="button" data-x>Hủy</button></div>`;
+      form.querySelector('[data-x]').onclick = () => { form.hidden = true; };
+      form.querySelector('[data-ok]').onclick = async () => {
+        const pic = form.querySelector('.ap').value, note = form.querySelector('.an').value.trim();
+        if(kind === 'log' && !note){ toast('Nhập nội dung cập nhật'); return; }
+        if(kind === 'done'){ const {error} = await sb.from('review_actions').update({status:'Done', done_at:new Date().toISOString(), done_by:pic, done_note:note || null}).eq('id', id); if(error){ toast(error.message); return; } }
+        const {error: e2} = await sb.from('review_action_logs').insert({action_id:id, pic, note: note || (kind === 'done' ? 'Hoàn thành' : ''), status: kind === 'done' ? 'Done' : 'Open'});
+        if(e2){ toast(e2.message); return; }
+        toast(kind === 'done' ? 'Đã đánh dấu hoàn thành' : 'Đã lưu cập nhật'); await reloadActions(); wrHub();
+      };
+    });
+  });
+}
+async function reloadActions(){
+  try { WR.actions = await selectAll('review_actions', q => q.order('due_date', {ascending:true})); } catch(e){ WR.actions = []; }
+  try { WR.logs = await selectAll('review_action_logs', q => q.order('created_at', {ascending:false})); } catch(e){ WR.logs = []; }
 }
 
 // =====================================================================
@@ -1085,6 +1198,7 @@ async function renderMK(){
       <div class="card"><h3 style="margin:0 0 3px" id="mkMapTitle">Brand map theo thời gian</h3><div class="hint" id="mkMapHint"></div><div id="mkMap" class="plot xl"></div></div>
       <div class="grid2"><div class="card"><h3 style="margin:0 0 3px">Price ladder theo variation</h3><div class="hint">Mỗi hàng là một variation. Chấm đặt tại giá của brand, kích thước = doanh thu của brand trong variation đó. Vạch xám = khoảng giá thị trường.</div><div id="mkLadder" class="plot tall"></div></div>
         <div class="card"><h3 style="margin:0 0 3px">Giá vs số bán</h3><div class="hint" id="mkPsHint"></div><div id="mkPs" class="plot tall"></div><div class="readout" id="mkEl"></div></div></div>
+      <div id="mkCalcHost"></div>
       <div class="card"><h3 style="margin:0 0 3px">Market size theo variation</h3><div class="hint">Nguồn: biểu đồ market size by color/length/size trong file nghiên cứu.</div><div class="cv-toggle" id="mkAttr" style="margin:6px 0"></div><div id="mkVar" class="plot tall"></div></div>`;
     MKbuilt = true;
   }
@@ -1185,6 +1299,7 @@ async function renderMK(){
     draw('mkVar', vars.map((v2, i) => { const s = rr.filter(r => r.variation === v2).sort((a, b) => a.month.localeCompare(b.month)); return {type:'scatter', mode:'lines', stackgroup:'one', name:v2, x:s.map(r => r.month), y:s.map(r => +r.value), line:{width:1, color: i < 5 ? CAT5[i] : PAL.other}, hovertemplate:`${esc(v2)}: %{y:,.0f}<extra></extra>`}; }),
       lay({xaxis:ax({type:'date', tickformat:'%b-%y'}), yaxis:ax({tickformat:'~s', title:{text: 'Market size (' + (modes[0] || 'giá trị') + ')', font:{size:11, color:PAL.muted}}}), hovermode:'x unified', margin:{l:56, r:10, t:8, b:54}}));
   } else { $('#mkAttr').innerHTML = ''; $('#mkVar').innerHTML = '<div class="v2-note" style="padding:20px">Không có dữ liệu market size theo variation cho category này.</div>'; }
+  if(window.V3 && V3.renderCalc) V3.renderCalc($('#mkCalcHost'));
 }
 
 // =====================================================================
@@ -1198,8 +1313,10 @@ V2.onTab = function(tab){
   else if(tab === 'wr'){ if(WRdirty || !WRbuilt) renderWR(); }
   else if(tab === 'ads'){ if(ADSdirty) renderAdsV2(); }
   else if(tab === 'mk'){ renderMK(); }
+  if(window.V3 && V3.onTab) V3.onTab(tab);
   setTimeout(() => $$('#view-' + tab + ' .js-plotly-plot').forEach(p => { try { Plotly.Plots.resize(p); } catch(_){ } }), 60);
 };
+V2.h = { $, $$, esc, div, isNum, f$, f$2, fN, fP, dm, mLabel, sundayOf, addMonths, daysIn, rpcAll, selectAll, missingSchema, draw, lay, ax, PAL, CAT5, divScale, deltaHtml, toast, skuInfo, stockOf, matchGS, derive, emptyAgg, addInto, withCm3, recsFor, pearson, ols, strength };
 V2.onMonthChange = function(){ SPdirty = true; WRdirty = true; ADSdirty = true; V2.onTab(V2.activeTab); };
 V2.onAdsFilter = function(){ ADSdirty = true; if(V2.activeTab === 'ads') renderAdsV2(); };
 })();

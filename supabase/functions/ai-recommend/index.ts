@@ -10,6 +10,7 @@
 // paste this file. Keep "Verify JWT" ON (the dashboard sends the anon key).
 // Secrets (Edge Functions → Secrets):
 //   ANTHROPIC_API_KEY   your Claude API key (never put it in index.html)
+//   ANTHROPIC_WORKSPACE_ID  only for API keys not scoped to a workspace
 //   AI_DAILY_LIMIT      optional, max new answers per day (default 150)
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 import Anthropic from "npm:@anthropic-ai/sdk";
@@ -66,7 +67,8 @@ Deno.serve(async (req) => {
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return json({ error: "ANTHROPIC_API_KEY chưa được cấu hình trong Edge Function secrets." }, 500);
-  const client = new Anthropic({ apiKey });
+  const workspace = Deno.env.get("ANTHROPIC_WORKSPACE_ID");
+  const client = new Anthropic({ apiKey, defaultHeaders: workspace ? { "anthropic-workspace-id": workspace } : undefined });
 
   const userText = `${question || "Dựa trên dữ liệu dưới đây, bạn khuyến nghị hành động gì để đẩy số bán, và cần kiểm tra gì?"}
 

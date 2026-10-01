@@ -11,6 +11,7 @@ Builds numbered SQL files you paste into Supabase → SQL Editor, in order:
   03_inventory_incoming.sql   salable snapshot + weekly incoming (Y4A + AMZ)
   04_demand_forecast.sql      6-month demand (units, GMV) by SKU
   06_cm3.sql                  CM3 per unit before marketing (optional --cm3-html)
+  08_cm3_cost_stack.sql       CM3 calculator inputs per SKU (optional --cm3-html; needs schema v3)
   07_weekly_notes.sql         PIC notes from the Excel KPI tracker Week tabs (optional --kpi-tracker)
   05_market.sql               market research extracts (variation × brand,
                               brand monthly, ASIN weekly price/units)
@@ -451,6 +452,22 @@ def cm3_unit_base(p, lane):
     return round(pre_tu - true_up, 4)
 
 
+def cm3_stack_sql(html_path, sku_rows):
+    html = open(html_path, encoding="utf-8").read()
+    payload = json.loads(re.search(r'<script id="DATA" type="application/json">(.*?)</script>', html, re.S).group(1))
+    products = {str(p["s"]).strip(): p for p in payload["products"]}
+    src = f"{payload.get('v')} · {payload.get('canon')} · built {payload.get('built')}"
+    rows = []
+    for r in sku_rows:
+        p = products.get(r["sku"])
+        if not p or not p.get("ok"):
+            continue
+        rows.append({"sku": r["sku"], "lane": lane_of(r.get("channel"), p.get("cur")), "fob": num(p.get("fob")), "duty": num(p.get("duty")),
+                     "weight_lb": num(p.get("wt")), "cbm": num(p.get("cbm")), "asp_canon": num(p.get("gmv")), "rev_di": num(p.get("rdi")),
+                     "rev_ds": num(p.get("rds")), "rev_spt": num(p.get("sptp")), "source": src})
+    return upsert_sql("cm3_cost_stack", ["sku", "lane", "fob", "duty", "weight_lb", "cbm", "asp_canon", "rev_di", "rev_ds", "rev_spt", "source"], rows, ["sku"])
+
+
 def build_cm3(html_path, sku_rows):
     html = open(html_path, encoding="utf-8").read()
     m = re.search(r'<script id="DATA" type="application/json">(.*?)</script>', html, re.S)
@@ -597,6 +614,7 @@ def main():
 
     if a.cm3_html:
         rows = build_cm3(a.cm3_html, skus)
+        write(a.out, "08_cm3_cost_stack.sql", cm3_stack_sql(a.cm3_html, skus), header="-- CM3 calculator inputs (V9.8). Readable only through the cm3_inputs() RPC.")
         write(a.out, "06_cm3.sql", "\n".join(
             f"update skus set cm3_unit_base = {lit(r['cm3_unit_base'])}, cm3_lane = {lit(r['cm3_lane'])}, cm3_source = {lit(r['cm3_source'])} where sku = {lit(r['sku'])};"
             for r in rows), header=f"-- CM3 base per unit for {len(rows)} SKUs")

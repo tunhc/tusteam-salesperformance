@@ -7,3 +7,4 @@
 __pycache__/
 sql_out/
 [0-9][0-9]_*.sql
+*.whl

@@ -289,7 +289,6 @@ tr.sub td:first-child{padding-left:28px}
   <button class="tab-btn" data-tab="ads">Ads Performance</button>
   <button class="tab-btn" data-tab="perf">Product Performance</button>
   <button class="tab-btn" data-tab="mk">Market</button>
-  <button class="tab-btn" data-tab="diary">Product Diary</button>
   <button class="tab-btn" data-tab="projects">Projects</button>
   <div class="gsearch">
     <input type="text" id="gSearch" placeholder="Tìm nhanh SKU / ASIN / tên sản phẩm…" autocomplete="off" aria-label="Tìm nhanh SKU, ASIN hoặc tên sản phẩm">
@@ -388,9 +387,11 @@ tr.sub td:first-child{padding-left:28px}
         <button class="cv-btn" data-view="units">Units Sold</button>
         <button class="cv-btn" data-view="glance">Glance View &amp; Conversion Rate</button>
       </div>
+      <div class="cv-toggle" id="dailyGrainToggle"><button class="cv-btn active" data-grain="day" type="button">Ngày</button><button class="cv-btn" data-grain="week" type="button">Tuần</button></div>
     </div>
     <div class="hint" id="dailyChartHint">Columns = GMV per day &middot; Line = total Marketing fee (Ads + Promo) per day &middot; Scroll horizontally on long months</div>
-    <div class="chart-scroll"><div class="chart-scroll-inner" id="chartDailyInner"><canvas id="chartDaily"></canvas></div></div>
+    <div id="dailyPlot" class="plot tall"></div>
+    <div class="chart-scroll" id="dailyChartLegacy" hidden><div class="chart-scroll-inner" id="chartDailyInner"><canvas id="chartDaily"></canvas></div></div>
   </div>
 
   <div class="card">
@@ -549,6 +550,7 @@ tr.sub td:first-child{padding-left:28px}
   </div>
 
   <div class="moc-strip" id="perfKpiStrip"></div>
+  <div id="perfV3"></div>
 
   <div class="card">
     <h3 style="margin:0 0 4px">Top Movers — GMV, trailing 7 days vs prior 7 days</h3>
@@ -574,7 +576,8 @@ tr.sub td:first-child{padding-left:28px}
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <h3 style="margin:0">Product Performance Detail</h3>
-      <button class="btn small" id="btnExportPerf" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button>
+      <div style="display:flex;gap:12px;align-items:center"><label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:#66707C;cursor:pointer"><input type="checkbox" id="perfHideNoData" checked> Ẩn SKU không có data</label>
+      <button class="btn small" id="btnExportPerf" title="Export the table below (current filters/sort) to Excel">&#128190; Export to Excel</button></div>
     </div>
     <div class="hint">Click a column header to sort. Reflects the filters above, plus the Product Health bucket selected up top (if any). Trend = trailing 7-day vs prior 7-day GMV. Suggested Action is a rule-based flag (stock risk first, then trend, then ads efficiency) — a starting point, not a final call.</div>
     <div class="tablewrap">
@@ -636,6 +639,8 @@ tr.sub td:first-child{padding-left:28px}
 
 <!-- ======================= TAB 3: PROJECTS ======================= -->
 <section id="view-projects" class="view">
+  <div id="projV3"></div>
+  <div id="projOld" hidden>
   <div class="notice" id="projNotice">&#128190; Connected to Supabase &mdash; the full project update history is saved permanently and shared across sessions/devices.</div>
   <div class="entry-form">
     <div class="row">
@@ -663,12 +668,14 @@ tr.sub td:first-child{padding-left:28px}
       </table>
     </div>
   </div>
+  </div>
 </section>
 
 </main>
 
 <!-- v2 modules: must load before the main script so boot() can call V2 hooks -->
 <script src="v2.js"></script>
+<script src="v3.js"></script>
 <script>
 // =====================================================================
 // SUPABASE CONFIG — fill these in from your project (Settings -> API),
@@ -1364,7 +1371,7 @@ function renderPicProgressTable(byPic){
     const adsColor = zoneColor(g.adsSpentPct, false);
     const promoColor = zoneColor(g.promoSpentPct, false);
     return `<tr>
-      <td><b>${g.name}</b></td>
+      <td><a href="#" class="pic-link" data-pic="${String(g.name).replace(/"/g,'&quot;')}" title="Lọc toàn tab theo ${String(g.name).replace(/"/g,'&quot;')}" style="color:var(--navy);font-weight:800;text-decoration:none;border-bottom:1px dashed var(--navy)">${g.name}</a>${document.getElementById('fPic').value===g.name?' <span class="badge amber">đang lọc</span>':''}</td>
       <td class="num">${fmtMoney(g.targetGMV)}</td>
       <td class="num" style="color:${progColor};font-weight:700">${fmtMoney2(g.actualGMV)}</td>
       <td class="num" style="color:${progColor};font-weight:700">${g.gmvProgressPct.toFixed(0)}%</td>
@@ -1389,6 +1396,18 @@ document.querySelectorAll('#picProgressTable thead th').forEach(th=>{
     if(picSortKey===k) picSortDir *= -1; else { picSortKey=k; picSortDir=-1; }
     renderAll();
   });
+});
+
+// Click a PIC name: filter the whole Tracking tab to that PIC (click again to clear)
+document.getElementById('picProgressTbody').addEventListener('click', (e)=>{
+  const a = e.target.closest('.pic-link');
+  if(!a) return;
+  e.preventDefault();
+  const sel = document.getElementById('fPic');
+  sel.value = sel.value === a.dataset.pic ? '' : a.dataset.pic;
+  updateDependentSelects();
+  renderAll();
+  if(sel.value) document.getElementById('plProgressTable').scrollIntoView({behavior:'smooth', block:'start'});
 });
 
 // Product Line Progress summary table (replaces the old GMV/MKT bar-chart
@@ -1491,7 +1510,14 @@ const DAILY_CHART_HINTS = {
   glance: 'Columns = Glance Views per day (Amazon detail-page views) &middot; Line = Conversion Rate (Units &divide; Glance Views). Days without glance-view data fall back to ad impressions and ad clicks.',
 };
 
+let dailyGrain = 'day';
 function renderDailyChart(){
+  if(window.V2 && V2.dailyTrend && typeof Plotly !== 'undefined'){
+    document.getElementById('dailyChartHint').innerHTML = DAILY_CHART_HINTS[dailyChartView] + ' &middot; Kéo thanh trượt dưới chart để chọn khoảng ngày';
+    V2.dailyTrend(lastDailyArr, dailyChartView, dailyGrain, 'dailyPlot');
+    return;
+  }
+  document.getElementById('dailyChartLegacy').hidden = false;
   if(charts.daily) charts.daily.destroy();
   const dailyArr = lastDailyArr;
   const labels = dailyArr.map(d=>d.date);
@@ -1560,6 +1586,11 @@ function renderDailyChart(){
   });
 }
 
+document.getElementById('dailyGrainToggle').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.cv-btn'); if(!btn) return;
+  document.querySelectorAll('#dailyGrainToggle .cv-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); dailyGrain = btn.dataset.grain; renderDailyChart();
+});
 document.getElementById('dailyChartToggle').addEventListener('click', (e)=>{
   const btn = e.target.closest('.cv-btn');
   if(!btn) return;
@@ -2041,8 +2072,10 @@ function renderPerfTab(){
   document.getElementById('perfResultCount').textContent = rows.length + ' / ' + ROWS.length + ' SKU';
   renderPerfKpiStrip(rows);
   renderPerfMovers(rows);
-  const tableRows = perfHealthFilter ? rows.filter(PERF_HEALTH_TESTS[perfHealthFilter]) : rows;
+  let tableRows = perfHealthFilter ? rows.filter(PERF_HEALTH_TESTS[perfHealthFilter]) : rows;
+  if(document.getElementById('perfHideNoData').checked) tableRows = tableRows.filter(r => r.actualGMV > 0 || r.adsActual > 0 || r.trendLabel !== 'N/A');
   renderPerfTable(tableRows);
+  if(window.V3 && V3.renderPerfCharts) V3.renderPerfCharts(rows);
 }
 
 function exportPerfTable(){
@@ -2313,6 +2346,7 @@ async function boot(){
       renderPerfTab();
     });
     document.getElementById('btnExportPerf').addEventListener('click', exportPerfTable);
+    document.getElementById('perfHideNoData').addEventListener('change', renderPerfTab);
     document.getElementById('adsFPic').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     document.getElementById('adsFMainPL').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));

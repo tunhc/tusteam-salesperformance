@@ -1,6 +1,6 @@
 # Yes4All Sales Performance Dashboard
 
-Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by PIC/Product Line, inventory health, Product Diary (action log), and Projects tracking. Reads and writes a Supabase (Postgres) backend directly from the browser.
+Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by PIC/Product Line, inventory health, weekly review + action tracker, market research, an AI chat box, and Projects tracking. Reads and writes a Supabase (Postgres) backend directly from the browser.
 
 **Live site:** `https://tunhc.github.io/tusteam-salesperformance/` (enable in repo Settings → Pages → source: `main` / root, if not already on).
 
@@ -13,14 +13,17 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `ingest.py` | Loads new source files (follow-up Excel, target HTML, sales Excel) into Supabase. |
 | `SETUP_DATABASE.md` | Full setup walkthrough — Supabase project, keys, first data load. |
 | `v2.js` | v2 modules loaded by `index.html`: global quick search, Tracking extras (DOC value, issue monitor, action labels), Sales Performance, Weekly Review, Ads recommendations, Market. |
+| `v3.js` | v3 modules: AI chat box (bottom-right), Product Performance BI charts, CM3 price calculator (Market tab), Projects quick entry. |
 | `supabase_schema_v2.sql` | v2 tables, history lock, weekly snapshot function, aggregate RPCs. Run once after `supabase_schema.sql`; safe to re-run. |
+| `supabase_schema_v3.sql` | v3 tables: chat sessions/messages, read-only `ai_query` for the chat, action logs, `project_updates`, `cm3_cost_stack`. Run after v2; safe to re-run. |
 | `ingest_v2.py` | Bulk loader: turns the source Excel/HTML files into numbered `.sql` files to paste into the SQL Editor (see below). |
 | `supabase/functions/ai-recommend/` | Edge Function behind the “Hỏi AI” buttons (Claude API). |
+| `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
 | `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
 
 ## Security — read before touching this repo
 
-This repo is **public**. That's fine for `index.html` — it only contains the Supabase **anon** key, which is meant to be public and is restricted by Row Level Security (read-only on sales data, read+write only on the Diary/Projects tabs).
+This repo is **public**. That's fine for `index.html` — it only contains the Supabase **anon** key, which is meant to be public and is restricted by Row Level Security (read-only on sales data, read+write only on notes, actions, projects and chat logs).
 
 **Never commit any of the following:**
 - The Supabase `service_role` key (bypasses all security — only used locally/by Claude when running `ingest.py`, never in this repo).
@@ -46,18 +49,21 @@ Attach the new Excel/HTML export in a Cowork chat with Claude and ask it to inge
      --kpi-tracker "SSO_Sales_KPI_Tracker_Sep2026_ver2.0.xlsx"
    ```
 
-2. **Paste them into Supabase → SQL Editor in this order:** `00_schema_v2.sql`, `01_skus.sql`, `02_targets_*.sql`, `03_inventory_incoming.sql`, `04_demand_forecast.sql`, `05_market.sql`, `06_cm3.sql`, every `10_sales_history_NN.sql`, then `07_weekly_notes.sql` (it snapshots weeks, so it needs the sales rows first). Every file is an upsert: re-running is safe. If the editor rejects a file as too large, regenerate with `--rows-per-part 5000`.
+2. **Paste them into Supabase → SQL Editor in this order:** `00_schema_v2.sql`, `00b_schema_v3.sql` (= `supabase_schema_v3.sql`), `01_skus.sql`, `02_targets_*.sql`, `03_inventory_incoming.sql`, `04_demand_forecast.sql`, `05_market.sql`, `06_cm3.sql`, `08_cm3_cost_stack.sql`, every `10_sales_history_NN.sql`, then `07_weekly_notes.sql` (it snapshots weeks, so it needs the sales rows first). Every file is an upsert: re-running is safe. If the editor rejects a file as too large, regenerate with `--rows-per-part 5000`.
 
 3. **History lock.** Rows in `sales_daily` dated before `data_locks.lock_before` (2026-09-01) are read-only: inserts, updates and deletes on them are skipped silently, so the hourly Power Automate sync can never overwrite final months. The history files unlock only their own session. To move the lock forward after a month closes: `update data_locks set lock_before = '2026-10-01' where table_name = 'sales_daily';`
 
 4. **Weekly snapshot.** `00_schema_v2.sql` schedules `freeze_review_week` every Monday 06:00 Vietnam time with `pg_cron` (enable it under Database → Extensions if the notice says it is missing). The dashboard also freezes an ended week the first time someone opens it after Monday 06:00. Notes saved after the deadline (default Tuesday 12:00) are flagged Late; every save is kept in `weekly_review_versions`.
 
-5. **AI recommendations (optional).** Deploy `supabase/functions/ai-recommend/index.ts` as an Edge Function named `ai-recommend`, keep “Verify JWT” on, and add the secret `ANTHROPIC_API_KEY` (and optionally `AI_DAILY_LIMIT`, default 150 answers per 24 h). Answers are cached per SKU / product line / day in `ai_recommendations`. Without it, the rule-based recommendations still work and the “Hỏi AI” buttons show a setup message.
+5. **AI recommendations (optional).** Deploy `supabase/functions/ai-recommend/index.ts` as an Edge Function named `ai-recommend`, keep “Verify JWT” on, and add the secret `ANTHROPIC_API_KEY` (and optionally `AI_DAILY_LIMIT`, default 150 answers per 24 h). If your key is not scoped to a workspace (the API answers “must include the anthropic-workspace-id header”), also add `ANTHROPIC_WORKSPACE_ID` (Claude Console → Settings → Workspaces). Answers are cached per SKU / product line / day in `ai_recommendations`. Without it, the rule-based recommendations still work and the “Hỏi AI” buttons show a setup message.
 
-6. **RRP.** Issue flags such as “Bung giá” compare the 7-day ASP with `skus.rrp`. Keep RRP fresh: `update skus set rrp = … where sku = …;` (or regenerate `01_skus.sql` from a new target file).
+6. **AI chat box.** Deploy `supabase/functions/ai-chat/index.ts` as an Edge Function named `ai-chat` (Verify JWT on, same secrets as above; `AI_DAILY_LIMIT` there defaults to 300 questions per 24 h). Users enter name + team before chatting; every question and answer is stored in `chat_sessions` / `chat_messages` (not readable with the anon key). Data questions run through `ai_query()`, which accepts a single SELECT, runs as the SELECT-only role `ai_reader`, returns at most 300 rows and times out after 8 s.
+
+7. **RRP.** Issue flags such as “Bung giá” compare the 7-day ASP with `skus.rrp`. Keep RRP fresh: `update skus set rrp = … where sku = …;` (or regenerate `01_skus.sql` from a new target file).
 
 ### Data notes
 
-- CM3 is an estimate: `units × cm3_unit_base − Ads × 0.985 − Promo` (non-SPT lanes), where `cm3_unit_base` is the V9.8 lane cost stack evaluated without marketing. FOB and other cost inputs are not stored in Supabase.
+- CM3 is an estimate: `units × cm3_unit_base − Ads × 0.985 − Promo` (non-SPT lanes), where `cm3_unit_base` is the V9.8 lane cost stack evaluated without marketing. `08_cm3_cost_stack.sql` stores the per-SKU cost inputs (FOB, duty, freight, fees) used by the Market tab's price calculator. The table has no RLS policy; the dashboard reads one SKU at a time through `cm3_inputs()`, which anyone with the anon key can call. If cost data must stay internal, turn on Supabase Auth and revoke `cm3_inputs` from `anon`.
 - The hourly sales file has no glance-view column, so glance views and CR show “nguồn chưa có” for days loaded only from it.
+- The Product Diary tab was removed; its old tables are untouched. Projects now use `project_updates` (old `project_log` rows are copied over once by the v3 schema).
 - Market tab data comes from the research files in `Markets.zip` (variation × brand tables, Tricep Rope weekly ASIN price/units, Soft Kettlebell brand revenue). Categories show whatever each file contains.
