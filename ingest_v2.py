@@ -79,6 +79,69 @@ def upsert_sql(table, cols, rows, conflict, update=None, batch=1000):
     return "\n\n".join(out)
 
 
+# The Supabase SQL Editor rejects large scripts, so sales history is written
+# compactly: one text line per row inside a dollar-quoted literal, split on
+# "|" in SQL. Zero is written as an empty field, the date as days since
+# HIST_EPOCH, category/source_file as 1-based indexes into arrays.
+HIST_EPOCH = date(2023, 1, 1)
+
+
+def _cnum(v):
+    f = num(v)
+    if f == 0:
+        return ""
+    return str(int(f)) if f == int(f) else repr(round(f, 6))
+
+
+def compact_sales_sql(rows):
+    cats = sorted({r.get("category") or "" for r in rows})
+    srcs = sorted({r.get("source_file") or "" for r in rows})
+    ci = {c: i + 1 for i, c in enumerate(cats)}
+    si = {c: i + 1 for i, c in enumerate(srcs)}
+    nums = SALES_COLS[2:-2]
+    lines = []
+    for r in rows:
+        d = r["date"]
+        d = d.date() if hasattr(d, "date") and callable(d.date) else d
+        if isinstance(d, str):
+            d = date.fromisoformat(d[:10])
+        lines.append("|".join([str(r["sku"]), str((d - HIST_EPOCH).days)] + [_cnum(r.get(c)) for c in nums] +
+                              [str(ci[r.get("category") or ""]), str(si[r.get("source_file") or ""])]))
+    arr = lambda xs: "array[" + ",".join(lit(x or None) for x in xs) + "]::text[]"
+    sel = ",\n  ".join([f"coalesce(nullif(f[{i + 3}], '')::numeric, 0)" for i in range(len(nums))])
+    n = len(nums)
+    data = "\n".join(lines)
+    assert "$d$" not in data
+    return (f"insert into {'sales_daily'} ({', '.join(SALES_COLS)})\n"
+            f"select f[1], date '{HIST_EPOCH.isoformat()}' + f[2]::int,\n  {sel},\n"
+            f"  ({arr(cats)})[f[{n + 3}]::int], ({arr(srcs)})[f[{n + 4}]::int]\n"
+            f"from regexp_split_to_table($d$\n{data}\n$d$, '\\n') as l(x), string_to_array(x, '|') as f\n"
+            f"where x <> ''\n"
+            f"on conflict (sku, date) do update set {', '.join(f'{c} = excluded.{c}' for c in SALES_COLS[2:])};")
+
+
+def _row_bytes(r):
+    return len(str(r["sku"])) + 6 + sum(len(_cnum(r.get(c))) + 1 for c in SALES_COLS[2:-2]) + 6
+
+
+def split_by_size(rows, max_bytes, render):
+    """Split rows so each rendered part stays under max_bytes (~3 KB reserved for the SQL around the data)."""
+    parts, cur, size = [], [], 3000
+    for r in rows:
+        b = _row_bytes(r)
+        if cur and size + b > max_bytes:
+            parts.append(cur); cur, size = [], 3000
+        cur.append(r); size += b
+    if cur:
+        parts.append(cur)
+    out = []
+    for c in parts:
+        body = render(c)
+        assert len(body.encode()) <= max_bytes, "part larger than expected"
+        out.append((c, body))
+    return out
+
+
 def num(v, default=0.0):
     try:
         if v is None or (isinstance(v, str) and not v.strip()):
@@ -104,6 +167,22 @@ def write(out_dir, name, body, header=""):
         fh.write(f"-- {name} · generated {datetime.now():%Y-%m-%d %H:%M} by ingest_v2.py\n{header}\n{body}\n")
     print(f"  wrote {name:34s} {os.path.getsize(path)/1e6:6.2f} MB", flush=True)
     return path
+
+
+def write_split(out_dir, stem, body, header="", max_bytes=600_000):
+    """Write body as stem.sql, or stem_1.sql, stem_2.sql … split between
+    statements when it is too large for the Supabase SQL Editor."""
+    if len(body.encode()) <= max_bytes:
+        return [write(out_dir, f"{stem}.sql", body, header)]
+    stmts = [x for x in re.split(r"\n\n(?=insert into |truncate |delete from |update |select )", body) if x.strip()]
+    parts, cur = [], ""
+    for st in stmts:
+        if cur and len((cur + st).encode()) > max_bytes:
+            parts.append(cur); cur = ""
+        cur += ("\n\n" if cur else "") + st
+    parts.append(cur)
+    return [write(out_dir, f"{stem}_{i + 1}.sql", b, header + f"\n-- part {i + 1}/{len(parts)}, run in order")
+            for i, b in enumerate(parts)]
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +667,7 @@ def main():
     ap.add_argument("--cm3-html", help="Y4A_CM3_by_Lane_V98_*.html")
     ap.add_argument("--kpi-tracker", help="SSO_Sales_KPI_Tracker_*.xlsx (Week 1..4 PIC notes)")
     ap.add_argument("--lock-before", default="2026-09-01")
-    ap.add_argument("--rows-per-part", type=int, default=15000)
+    ap.add_argument("--max-part-kb", type=int, default=600, help="max size of each sales history file (SQL Editor limit)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
@@ -667,7 +746,7 @@ def main():
             upsert_sql("market_variation_monthly", ["category", "attribute", "variation", "month", "value", "mode", "source"], var_monthly,
                        ["category", "attribute", "variation", "month", "mode"]) if var_monthly else "",
         ]))
-        write(a.out, "05_market.sql", body, header=f"-- variation rows {len(variation)}, brand-month {len(brand_monthly)}, asin-week {len(asin_weekly)}, variation-month {len(var_monthly)}")
+        write_split(a.out, "05_market", body, header=f"-- variation rows {len(variation)}, brand-month {len(brand_monthly)}, asin-week {len(asin_weekly)}, variation-month {len(var_monthly)}")
 
     if a.kpi_tracker:
         print("weekly notes")
@@ -677,15 +756,14 @@ def main():
     print("sales history")
     hist = daily[daily["date"] < pd.Timestamp(a.lock_before).date()].sort_values(["date", "sku"])
     recs = hist.to_dict("records")
-    n = a.rows_per_part
-    parts = math.ceil(len(recs) / n)
-    for p in range(parts):
-        chunk = recs[p * n:(p + 1) * n]
+    parts = split_by_size(recs, a.max_part_kb * 1000, compact_sales_sql)
+    for p, (chunk, body) in enumerate(parts):
         header = ("-- unlock locked history for this session only (see trg_sales_daily_lock)\n"
                   "select set_config('app.unlock_history', 'on', false);\n"
                   f"-- rows {len(chunk)} · {chunk[0]['date']} → {chunk[-1]['date']}")
-        write(a.out, f"10_sales_history_{p + 1:02d}.sql", upsert_sql("sales_daily", SALES_COLS, chunk, ["sku", "date"], batch=1000) +
+        write(a.out, f"10_sales_history_{p + 1:02d}.sql", body +
               "\n\nselect set_config('app.unlock_history', 'off', false);", header=header)
+    parts = len(parts)
     print(f"done: {len(skus)} SKUs, {len(trows)} target rows, {len(recs)} sales rows in {parts} parts")
 
 

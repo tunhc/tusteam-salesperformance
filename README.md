@@ -49,7 +49,7 @@ Attach the new Excel/HTML export in a Cowork chat with Claude and ask it to inge
      --kpi-tracker "SSO_Sales_KPI_Tracker_Sep2026_ver2.0.xlsx"
    ```
 
-2. **Paste them into Supabase → SQL Editor in this order:** `00_schema_v2.sql`, `00b_schema_v3.sql` (= `supabase_schema_v3.sql`), `01_skus.sql`, `02_targets_*.sql`, `03_inventory_incoming.sql`, `04_demand_forecast.sql`, `05_market.sql`, `06_cm3.sql`, `08_cm3_cost_stack.sql`, every `10_sales_history_NN.sql`, then `07_weekly_notes.sql` (it snapshots weeks, so it needs the sales rows first). Every file is an upsert: re-running is safe. If the editor rejects a file as too large, regenerate with `--rows-per-part 5000`.
+2. **Paste them into Supabase → SQL Editor in this order:** `00_schema_v2.sql`, `00b_schema_v3.sql` (= `supabase_schema_v3.sql`), `01_skus.sql`, `02_targets_*.sql`, `03_inventory_incoming.sql`, `04_demand_forecast.sql`, `05_market*.sql`, `06_cm3.sql`, `08_cm3_cost_stack.sql`, every `10_sales_history_NN.sql`, then `07_weekly_notes.sql` (it snapshots weeks, so it needs the sales rows first). Every file is an upsert: re-running is safe. Every file is kept under 600 KB because the SQL Editor rejects large scripts (“Query is too large”); sales history is written in a compact one-line-per-row format for the same reason. Lower `--max-part-kb` if the editor still complains.
 
 3. **History lock.** Rows in `sales_daily` dated before `data_locks.lock_before` (2026-09-01) are read-only: inserts, updates and deletes on them are skipped silently, so the hourly Power Automate sync can never overwrite final months. The history files unlock only their own session. To move the lock forward after a month closes: `update data_locks set lock_before = '2026-10-01' where table_name = 'sales_daily';`
 
