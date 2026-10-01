@@ -4,3 +4,7 @@
 *.xls
 *.csv
 .env
+__pycache__/
+sql_out/
+[0-9][0-9]_*.sql
+*.whl
