@@ -55,7 +55,7 @@ css.textContent = `
 .rs-tbl{border:1px solid var(--line);border-radius:10px;margin:7px 0;background:#fff}.rs-tbl>summary{cursor:pointer;padding:9px 12px;font-weight:700;font-size:12.8px;list-style:none;display:flex;gap:8px;align-items:center}
 .rs-tbl>summary::before{content:'▸';color:var(--muted)}.rs-tbl[open]>summary::before{content:'▾'}.rs-tbl>summary .n{margin-left:auto;font-weight:600;color:var(--muted);font-size:11.5px;white-space:nowrap}
 .rs-tw{overflow:auto;max-height:440px;border-top:1px solid var(--line)}.rs-tw table{border-collapse:collapse;width:100%;font-size:12px}.rs-tw th{position:sticky;top:0;background:#F4F6F9;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:800;color:var(--navy)}
-.rs-tw td{padding:5px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top;max-width:420px}.rs-tw td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.rs-empty{color:var(--muted);padding:10px 2px}
+.rs-tw td{padding:5px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top;white-space:normal;min-width:56px;max-width:340px;overflow-wrap:anywhere}.rs-tw td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.rs-empty{color:var(--muted);padding:10px 2px}
 `;
 document.head.appendChild(css);
 
@@ -457,7 +457,7 @@ function drawProjects(){
 // =====================================================================
 // Market research library (market_reports / market_insights / market_tables)
 // =====================================================================
-const RS = {cache:new Map(), cat:null, src:'', q:'', view:'ins', open:new Set()};
+const RS = {cache:new Map(), cat:null, src:'', q:'', view:'tbl', open:new Set()};
 const PCT_COL = /%|rate|share|acos|tacos|ctr|\bcr\b|growth|yoy|delta_pct|tỷ lệ|thị phần/i;
 function rsVal(v, col){
   const h = H();
@@ -479,7 +479,7 @@ async function rsLoad(cat){
   const h = H();
   const [rp, ins, tbl] = await Promise.all([
     h.selectAll('market_reports', q => q.eq('category', cat)),
-    h.selectAll('market_insights', q => q.eq('category', cat).order('sort', {ascending:true})),
+    Promise.resolve([]),
     h.selectAll('market_tables', q => q.eq('category', cat).order('sort', {ascending:true})),
   ]);
   const d = {rp, ins, tbl};
@@ -496,20 +496,20 @@ V3.renderResearch = async function(host, cat){
   let d;
   try { d = await rsLoad(cat); }
   catch(e){ host.innerHTML = h.missingSchema(e) ? '<div class="card"><div class="notice">Chưa có thư viện nghiên cứu. Chạy <b>00b_schema_v3.sql</b> và <b>09_market_research.sql</b>.</div></div>' : '<div class="card"><div class="notice">Không tải được nghiên cứu: ' + h.esc(e.message || e) + '</div></div>'; return; }
-  if(!d.rp.length && !d.ins.length && !d.tbl.length){ host.innerHTML = ''; return; }
+  
   const srcs = d.rp.length ? d.rp : [...new Set([...d.ins, ...d.tbl].map(x => x.source))].map(s2 => ({source:s2}));
-  host.innerHTML = `<div class="card"><h3 style="margin:0 0 3px">Nghiên cứu thị trường — ${h.esc(cat)}</h3>
-    <div class="hint">Toàn bộ phân tích và bảng số liệu trích từ file Strategy Plan / báo cáo market. Cột chi phí & CM3 không được đưa lên.</div>
+  if(!d.tbl.length){ host.innerHTML = ''; return; }
+  if(!RS.openG){ RS.openG = new Set(); d.tbl.slice(0, 3).forEach(t => RS.open.add(String(t.id))); }
+  host.innerHTML = `<div class="card"><h3 style="margin:0 0 3px">Dữ liệu thị trường & đối thủ — ${h.esc(cat)}</h3>
+    <div class="hint">Bảng market size, giá theo brand/variation, danh sách đối thủ (ASIN, giá, rating), keyword, buy box — trích từ file nghiên cứu.</div>
     <div class="rs-src">${srcs.map(r => `<div class="s"><b>${h.esc(r.title && !/^STRATEGY PLAN/i.test(r.title) ? r.title : r.source)}</b><br>${[r.kind, r.product_line, r.pic ? 'PIC ' + r.pic : '', r.plan_date ? 'Plan ' + r.plan_date : ''].filter(Boolean).map(h.esc).join(' · ')}</div>`).join('')}</div>
-    <div class="rs-bar"><div class="cv-toggle" id="rsView"><button class="cv-btn" data-v="ins" type="button">Phân tích (${d.ins.length})</button><button class="cv-btn" data-v="tbl" type="button">Bảng số liệu (${d.tbl.length})</button></div>
+    <div class="rs-bar"><span class="result-count" style="margin:0">${d.tbl.length} bảng</span>
       <select id="rsSrc"><option value="">Tất cả file (${srcs.length})</option>${srcs.map(r => `<option value="${h.esc(r.source)}">${h.esc(r.source)}</option>`).join('')}</select>
       <input id="rsQ" type="search" placeholder="Tìm trong nghiên cứu (brand, SKU, từ khóa…)"></div>
     <div id="rsBody"></div></div>`;
   host.querySelector('#rsSrc').value = RS.src;
   host.querySelector('#rsQ').value = RS.q;
-  host.querySelectorAll('#rsView .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.v === RS.view));
-  host.querySelector('#rsView').onclick = e => { const b = e.target.closest('[data-v]'); if(!b) return; RS.view = b.dataset.v; RS.openG = null; host.querySelectorAll('#rsView .cv-btn').forEach(x => x.classList.toggle('active', x === b)); rsDraw(host, d); };
-  host.querySelector('#rsSrc').onchange = e => { RS.src = e.target.value; RS.openG = null; rsDraw(host, d); };
+  host.querySelector('#rsSrc').onchange = e => { RS.src = e.target.value; rsDraw(host, d); };
   let tm; host.querySelector('#rsQ').oninput = e => { clearTimeout(tm); tm = setTimeout(() => { RS.q = e.target.value.trim(); rsDraw(host, d); }, 200); };
   rsDraw(host, d);
 };
@@ -525,7 +525,7 @@ function rsDraw(host, d){
   const groups = []; const gi = new Map();
   items.forEach(x => { const k = secOf(x); if(!gi.has(k)){ gi.set(k, groups.length); groups.push({k, list:[]}); } groups[gi.get(k)].list.push(x); });
   const openG = k => q ? true : RS.openG ? RS.openG.has(k) : false;
-  if(!RS.openG){ RS.openG = new Set(groups.slice(0, 2).map(g => g.k)); }
+  if(!RS.openG || !RS.openG.size) RS.openG = new Set(groups.map(g => g.k));
   let n = 0;
   body.innerHTML = `<div class="hint" style="margin:0 0 4px">${groups.length} mục · bấm tiêu đề để mở/đóng · <a href="#" id="rsAll">mở tất cả</a> · <a href="#" id="rsNone">đóng tất cả</a></div>` + groups.map(g => {
     const inner = RS.view === 'ins'

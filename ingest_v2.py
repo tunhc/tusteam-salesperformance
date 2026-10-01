@@ -525,6 +525,22 @@ def parse_market(market_dir):
                     if mo and v is not None:
                         var_monthly.append({"category": cat, "attribute": attr, "variation": var, "month": mo, "value": v,
                                             "mode": str(d.get("mode") or ""), "source": src + "#" + m.group(1)})
+    # brand × variation tables and per-line brand monthly data in the HTML reports
+    import market_research as mr
+    html_tables = []
+    for path in sorted(glob.glob(os.path.join(market_dir, "*.html"))):
+        raw = open(path, encoding="utf-8", errors="ignore").read()
+        brand_monthly.extend(mr.json_brand_monthly(raw, os.path.basename(path)))
+        html_tables.extend(mr.html_research(path, category_of(os.path.basename(path)))[2])
+    for v in mr.variation_from_tables(html_tables):
+        key = (v["category"], v["variation"], v["brand"], v["metric"])
+        if key not in seen_var:
+            seen_var.add(key)
+            variation.append(v)
+    bm = {}
+    for r in brand_monthly:
+        bm[(r["category"], r["month"], r["brand"])] = r
+    brand_monthly = list(bm.values())
     # dedupe var_monthly (charts can repeat)
     uniq = {}
     for r in var_monthly:
@@ -710,6 +726,32 @@ def weekly_notes_sql(tracker_path):
 
 
 # ---------------------------------------------------------------------------
+def write_market(out, market_dir):
+    print("market")
+    variation, brand_monthly, asin_weekly, var_monthly = parse_market(market_dir)
+    body = "\n\n".join(filter(None, [
+        "truncate market_variation, market_brand_monthly, market_asin_weekly, market_variation_monthly;",
+        upsert_sql("market_variation", ["category", "attribute", "variation", "brand", "metric", "value", "period", "source"], variation,
+                   ["category", "variation", "brand", "metric"]) if variation else "",
+        upsert_sql("market_brand_monthly", ["category", "month", "brand", "revenue", "units", "avg_price", "source"], brand_monthly,
+                   ["category", "month", "brand"]) if brand_monthly else "",
+        upsert_sql("market_asin_weekly", ["category", "asin", "brand", "title", "week_start", "price", "units", "source"], asin_weekly,
+                   ["asin", "week_start"]) if asin_weekly else "",
+        upsert_sql("market_variation_monthly", ["category", "attribute", "variation", "month", "value", "mode", "source"], var_monthly,
+                   ["category", "attribute", "variation", "month", "mode"]) if var_monthly else "",
+    ]))
+    write_split(out, "05_market", body, header=f"-- variation rows {len(variation)}, brand-month {len(brand_monthly)}, asin-week {len(asin_weekly)}, variation-month {len(var_monthly)}")
+
+    print("market research library")
+    from market_research import market_library
+    reports, tables = market_library(market_dir, category_of)
+    insights = []  # the Market tab shows market & competitor data only
+    schema = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "supabase_schema_v3.sql"), encoding="utf-8").read()
+    ddl = schema[schema.index("-- 6) Market research library"):].split("\n", 1)[1]
+    write_split(out, "09_market_research", market_research_sql(reports, insights, tables),
+                header=f"-- {len(reports)} reports, {len(tables)} market/competitor tables · creates its tables if missing\n" + ddl)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -743,6 +785,9 @@ def main():
               header=f"-- {len(rows)} SKU-day rows, {len({r['sku'] for r in rows})} SKUs, GMV {tot:,.2f} · source {os.path.basename(a.hourly)}")
         if not a.followup:
             return
+    if a.market_dir and not a.followup:
+        write_market(a.out, a.market_dir)  # market files only
+        return
     for req in ("followup", "inventory", "target", "target_month", "daily"):
         if not getattr(a, req):
             ap.error(f"--{req.replace('_', '-')} is required for a full build")
@@ -809,29 +854,7 @@ def main():
     write(a.out, "04_demand_forecast.sql", upsert_sql("demand_forecast_monthly", ["sku", "month", "units", "gmv", "source"], frows, ["sku", "month"]))
 
     if a.market_dir:
-        print("market")
-        variation, brand_monthly, asin_weekly, var_monthly = parse_market(a.market_dir)
-        body = "\n\n".join(filter(None, [
-            "truncate market_variation, market_brand_monthly, market_asin_weekly, market_variation_monthly;",
-            upsert_sql("market_variation", ["category", "attribute", "variation", "brand", "metric", "value", "period", "source"], variation,
-                       ["category", "variation", "brand", "metric"]) if variation else "",
-            upsert_sql("market_brand_monthly", ["category", "month", "brand", "revenue", "units", "avg_price", "source"], brand_monthly,
-                       ["category", "month", "brand"]) if brand_monthly else "",
-            upsert_sql("market_asin_weekly", ["category", "asin", "brand", "title", "week_start", "price", "units", "source"], asin_weekly,
-                       ["asin", "week_start"]) if asin_weekly else "",
-            upsert_sql("market_variation_monthly", ["category", "attribute", "variation", "month", "value", "mode", "source"], var_monthly,
-                       ["category", "attribute", "variation", "month", "mode"]) if var_monthly else "",
-        ]))
-        write_split(a.out, "05_market", body, header=f"-- variation rows {len(variation)}, brand-month {len(brand_monthly)}, asin-week {len(asin_weekly)}, variation-month {len(var_monthly)}")
-
-    if a.market_dir:
-        print("market research library")
-        from market_research import parse_research
-        reports, insights, tables = parse_research(a.market_dir, category_of)
-        schema = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "supabase_schema_v3.sql"), encoding="utf-8").read()
-        ddl = schema[schema.index("-- 6) Market research library"):].split("\n", 1)[1]
-        write_split(a.out, "09_market_research", market_research_sql(reports, insights, tables),
-                    header=f"-- {len(reports)} reports, {len(insights)} insights, {len(tables)} tables · creates its tables if missing\n" + ddl)
+        write_market(a.out, a.market_dir)
 
     if a.kpi_tracker:
         print("weekly notes")

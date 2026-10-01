@@ -514,3 +514,114 @@ def _drop_cost_columns(t):
     t["columns"] = [t["columns"][i] for i in keep]
     t["rows"] = [[r[i] if i < len(r) else None for i in keep] for r in t["rows"]]
     return t
+
+
+# ---------------------------------------------------------------------------
+# Market / competitor focus: what the Market tab shows
+# ---------------------------------------------------------------------------
+KEEP_RX = re.compile(r"brand|đối thủ|competitor|market|thị trường|keyword|buy box|variation|channel|top brands|category mapping|parent asin", re.I)
+DROP_RX = re.compile(r"by sku|theo sku|npd|action plan|inventory|stock|tồn kho|đề xuất giá|kpi|content|yoy|monthly performance|performance by|"
+                     r"ghi chú|phương pháp|customer insight|timeline|real sale|doanh số theo sku|dead stock|review needed|chiến lược", re.I)
+
+
+def is_market_table(t):
+    title = " ".join(str(x) for x in (t.get("title"), t.get("section")) if x)
+    cols = " ".join(str(c) for c in t["columns"])
+    if t.get("sheet") not in (None, "report", "1.Market"):
+        return False  # 2.Yes4All / 3.Action plan sheets are about our own SKUs
+    if DROP_RX.search(title) and not re.search(r"đối thủ|competitor", title, re.I):
+        return False
+    return bool(KEEP_RX.search(title) or KEEP_RX.search(cols))
+
+
+def balance_board_lines(raw):
+    """Product-line names in the Balance Board report (each becomes a category)."""
+    m = re.search(r'<script[^>]*id="report-data"[^>]*>(.*?)</script>', raw, re.S)
+    if not m:
+        return []
+    import json
+    try:
+        return [p.get("name") for p in json.loads(m.group(1)).get("product_lines", []) if p.get("name")]
+    except ValueError:
+        return []
+
+
+def market_library(market_dir, category_of):
+    """Market/competitor tables only, for the Market tab and the AI chat."""
+    import glob
+    reports, _insights, tables = parse_research(market_dir, category_of)
+    lines = {}
+    for path in glob.glob(os.path.join(market_dir, "*.html")):
+        for n in balance_board_lines(open(path, encoding="utf-8", errors="ignore").read()):
+            lines[n] = os.path.basename(path)
+    out = []
+    for t in tables:
+        if not is_market_table(t):
+            continue
+        if t["source"] in lines.values() and t.get("section") in lines:
+            t["category"] = t["section"]  # Balance Board: one category per product line
+        out.append(t)
+    for n, src in lines.items():
+        reports.append({"category": n, "source": f"{src}#{n}", "kind": "Market report (html)", "title": f"Balance Board — {n}",
+                        "pic": None, "product_line": n, "plan_date": None})
+    for k, x in enumerate(out):
+        x["sort"] = k
+    return reports, out
+
+
+def json_brand_monthly(raw, src):
+    """Balance Board report: monthly price & units per competitor brand, per product line."""
+    m = re.search(r'<script[^>]*id="report-data"[^>]*>(.*?)</script>', raw, re.S)
+    if not m:
+        return []
+    import json
+    d = json.loads(m.group(1))
+    rows = []
+    for p in d.get("product_lines", []):
+        cm = p.get("corr_market") or {}
+        months = cm.get("months") or []
+        series = [(b.get("brand"), b.get("price") or [], b.get("units") or []) for b in cm.get("brands", [])]
+        y = cm.get("yes4all") or {}
+        if y:
+            series.append(("Yes4All", y.get("price") or [], y.get("units") or []))
+        for brand, pr, un in series:
+            for i, mo in enumerate(months):
+                pv = pr[i] if i < len(pr) else None
+                uv = un[i] if i < len(un) else None
+                if not uv and not pv:
+                    continue
+                mo_d = str(mo)[:7] + "-01"
+                rev = round(pv * uv, 2) if pv and uv else None
+                rows.append({"category": p.get("name"), "month": mo_d, "brand": brand, "revenue": rev if rev is not None else 0,
+                             "units": uv, "avg_price": pv, "source": f"{src}#{p.get('name')}"})
+    return rows
+
+
+def variation_from_tables(tables, period="Apr-Jun 2026"):
+    """Brand × variation tables in the HTML reports ("Market Size by Brand & Color", "Price by Brand & Size")."""
+    out = []
+    skip = re.compile(r"asin|link|total|share|rating|rank|discount|pattern|note|channel|market size \(|^col\d|avg_|units|price", re.I)
+    for t in tables:
+        cols = [str(c) for c in t["columns"]]
+        if not cols or not re.match(r"^\s*brand", cols[0], re.I) or t.get("sheet") not in (None, "report"):
+            continue
+        title = f"{t.get('title') or ''} {cols[0]}"
+        if not re.search(r"market size|units|price|asp|giá|doanh thu|revenue", title, re.I):
+            continue  # cannot tell whether the cells are sizes or prices
+        metric = "price" if re.search(r"price|asp|giá", title, re.I) else "revenue"
+        var_idx = [(k, c) for k, c in enumerate(cols) if k > 0 and not skip.search(c)]
+        if len(var_idx) < 2:
+            continue
+        for r in t["rows"]:
+            name = r[0]
+            if not isinstance(name, str) or not name.strip() or re.match(r"^(total|min|median|max|y4a vs)", name.strip(), re.I):
+                continue
+            for k, var in var_idx:
+                v = r[k] if k < len(r) else None
+                if isinstance(v, str):
+                    v = _num(v)
+                if not isinstance(v, (int, float)) or v <= 0:
+                    continue
+                out.append({"category": t["category"], "attribute": "variation", "variation": var, "brand": name.strip(),
+                            "metric": metric, "value": round(float(v), 2), "period": period, "source": t["source"]})
+    return out
