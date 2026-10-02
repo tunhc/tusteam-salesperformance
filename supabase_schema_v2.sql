@@ -288,16 +288,24 @@ create table if not exists market_variation_monthly (
 -- ----------------------------------------------------------------------------
 -- 7) Aggregate RPCs (keep the browser from paging through 150k+ daily rows)
 -- ----------------------------------------------------------------------------
+-- gv_units = units on days that have glance views (the hourly export has none),
+-- so CR = gv_units / glance_views is not diluted by days without GV.
+-- Return types changed (gv_units added), so drop first.
+drop function if exists sales_by_sku(date, date);
+drop function if exists sales_trend(date, date, text, text[]);
+drop function if exists sales_trend_by_sku(date, date, text, text[]);
+
 create or replace function sales_by_sku(p_from date, p_to date)
 returns table (sku text, days int, units numeric, gmv numeric, ads numeric, promo numeric, ads_gmv numeric, ads_units numeric,
                clicks numeric, impressions numeric, glance_views numeric, ordered_revenue numeric,
                sp_spend numeric, sb_spend numeric, sd_spend numeric, dsp_spend numeric,
-               promo_deal numeric, promo_coupon numeric, promo_discount numeric)
+               promo_deal numeric, promo_coupon numeric, promo_discount numeric, gv_units numeric)
 language sql stable as $$
   select sku, count(*)::int, sum(units), sum(gmv), sum(ads), sum(promo), sum(ads_gmv), sum(ads_units),
          sum(total_clicks), sum(total_impressions), sum(glance_views), sum(ordered_revenue),
          sum(sp_spend), sum(sb_spend), sum(sd_spend), sum(dsp_spend),
-         sum(promo_deal), sum(promo_coupon), sum(promo_discount)
+         sum(promo_deal), sum(promo_coupon), sum(promo_discount),
+         coalesce(sum(units) filter (where glance_views > 0), 0)
   from sales_daily where date between p_from and p_to group by sku
 $$;
 
@@ -305,14 +313,15 @@ $$;
 create or replace function sales_trend(p_from date, p_to date, p_grain text default 'month', p_skus text[] default null)
 returns table (period date, units numeric, gmv numeric, ads numeric, promo numeric, ads_gmv numeric, ads_units numeric,
                clicks numeric, impressions numeric, glance_views numeric, ordered_revenue numeric,
-               sp_spend numeric, sb_spend numeric, sd_spend numeric, dsp_spend numeric)
+               sp_spend numeric, sb_spend numeric, sd_spend numeric, dsp_spend numeric, gv_units numeric)
 language sql stable as $$
   select case p_grain when 'day' then date
                       when 'week' then date - extract(dow from date)::int
                       else date_trunc('month', date)::date end as period,
          sum(units), sum(gmv), sum(ads), sum(promo), sum(ads_gmv), sum(ads_units),
          sum(total_clicks), sum(total_impressions), sum(glance_views), sum(ordered_revenue),
-         sum(sp_spend), sum(sb_spend), sum(sd_spend), sum(dsp_spend)
+         sum(sp_spend), sum(sb_spend), sum(sd_spend), sum(dsp_spend),
+         coalesce(sum(units) filter (where glance_views > 0), 0)
   from sales_daily
   where date between p_from and p_to and (p_skus is null or sku = any(p_skus))
   group by 1 order by 1
@@ -321,13 +330,14 @@ $$;
 -- per SKU per period, for SKU drill-downs and PL-level ads diagnostics
 create or replace function sales_trend_by_sku(p_from date, p_to date, p_grain text default 'week', p_skus text[] default null)
 returns table (period date, sku text, units numeric, gmv numeric, ads numeric, promo numeric, ads_gmv numeric,
-               ads_units numeric, clicks numeric, impressions numeric, glance_views numeric)
+               ads_units numeric, clicks numeric, impressions numeric, glance_views numeric, gv_units numeric)
 language sql stable as $$
   select case p_grain when 'day' then date
                       when 'week' then date - extract(dow from date)::int
                       else date_trunc('month', date)::date end,
          sku, sum(units), sum(gmv), sum(ads), sum(promo), sum(ads_gmv), sum(ads_units),
-         sum(total_clicks), sum(total_impressions), sum(glance_views)
+         sum(total_clicks), sum(total_impressions), sum(glance_views),
+         coalesce(sum(units) filter (where glance_views > 0), 0)
   from sales_daily
   where date between p_from and p_to and (p_skus is null or sku = any(p_skus))
   group by 1, 2 order by 1, 2
