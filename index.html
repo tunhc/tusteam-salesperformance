@@ -448,6 +448,7 @@ tr.sub td:first-child{padding-left:28px}
   <div class="filterbar">
     <div class="fld"><label>PIC</label><select id="adsFPic"><option value="">All</option></select></div>
     <div class="fld"><label>Product Line</label><select id="adsFMainPL"><option value="">All</option></select></div>
+    <div class="fld"><label>Tháng</label><select id="adsFMonth"></select></div>
     <div class="fld"><label>Actual from</label><input type="date" id="adsFDateFrom"></div>
     <div class="fld"><label>Actual to</label><input type="date" id="adsFDateTo"></div>
     <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="adsExcludeSpt"> Exclude SPT channel</label></div>
@@ -518,6 +519,8 @@ tr.sub td:first-child{padding-left:28px}
           <th class="num">Total Clicks</th>
           <th class="num">Total Impressions</th>
           <th class="num">Total Ordered Units</th>
+          <th class="num">CTR</th>
+          <th class="num">CR Ads</th>
           <th class="num">ACOS</th>
           <th class="num">TACOS</th>
         </tr></thead>
@@ -1052,10 +1055,14 @@ function setDateRangeBounds(monthIso){
 function setAdsDateBounds(monthIso){
   const nextMonth = addMonthsIso(monthIso, 1);
   const lastDay = new Date(new Date(nextMonth+'T00:00:00') - 86400000).toISOString().slice(0,10);
+  // only days that actually have data can be picked
+  const lastData = DATA.asOfDate && DATA.asOfDate >= monthIso && DATA.asOfDate <= lastDay ? DATA.asOfDate : lastDay;
   ['adsFDateFrom','adsFDateTo'].forEach(id=>{
     const el = document.getElementById(id);
-    el.min = monthIso; el.max = lastDay; el.value = '';
+    el.min = monthIso; el.max = lastData; el.value = '';
   });
+  const ms = document.getElementById('fMonth'), am = document.getElementById('adsFMonth');
+  if(am && ms){ am.innerHTML = ms.innerHTML; am.value = monthIso; }
 }
 
 function refreshAdsPicSelect(){
@@ -1732,9 +1739,9 @@ function adsDailyBreakdown(rows, fromVal, toVal){
     (r.daily||[]).forEach(d=>{
       if(fromVal && d.date<fromVal) return;
       if(toVal && d.date>toVal) return;
-      const g = byDate[d.date] = byDate[d.date] || {date:d.date, spend:0, clicks:0, impressions:0, units:0, adsGmv:0, gmv:0};
+      const g = byDate[d.date] = byDate[d.date] || {date:d.date, spend:0, clicks:0, impressions:0, units:0, adsGmv:0, adsUnits:0, gmv:0};
       g.spend += d.ads; g.clicks += d.clicks||0; g.impressions += d.impressions||0;
-      g.units += d.units; g.adsGmv += d.adsGmv; g.gmv += d.gmv;
+      g.units += d.units; g.adsGmv += d.adsGmv; g.adsUnits += d.adsUnits||0; g.gmv += d.gmv;
     });
   });
   return Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date)).map(g=>({
@@ -1744,6 +1751,8 @@ function adsDailyBreakdown(rows, fromVal, toVal){
     clicks: +g.clicks.toFixed(0),
     impressions: +g.impressions.toFixed(0),
     units: +g.units.toFixed(0),
+    ctr: g.impressions ? g.clicks/g.impressions*100 : null,
+    acr: g.clicks ? g.adsUnits/g.clicks*100 : null,
     acos: g.adsGmv ? +(g.spend/g.adsGmv*100).toFixed(1) : null,
     tacos: g.gmv ? +(g.spend/g.gmv*100).toFixed(1) : null,
   }));
@@ -1758,9 +1767,11 @@ function renderAdsDailyTable(rows, fromVal, toVal){
     <td class="num">${fmtInt(d.clicks)}</td>
     <td class="num">${fmtInt(d.impressions)}</td>
     <td class="num">${fmtInt(d.units)}</td>
+    <td class="num">${d.ctr===null?'—':d.ctr.toFixed(2)+'%'}</td>
+    <td class="num">${d.acr===null?'—':d.acr.toFixed(1)+'%'}</td>
     <td class="num">${d.acos===null?'—':d.acos.toFixed(1)+'%'}</td>
     <td class="num">${d.tacos===null?'—':d.tacos.toFixed(1)+'%'}</td>
-  </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:#66707C">No data in this range</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:20px;color:#66707C">No data in this range</td></tr>';
 }
 
 function adsKPIFor(rows){
@@ -1810,8 +1821,13 @@ function pct0(v){ return (Number.isFinite(v)?v:0).toFixed(0)+'%'; }
 
 function renderAdsTimeStrip(){
   const timegone = DATA.daysElapsed, dayLeft = Math.max(0, DATA.daysInMonth-DATA.daysElapsed);
+  const monthIso = document.getElementById('fMonth').value;
+  const f = document.getElementById('adsFDateFrom').value || monthIso, t = document.getElementById('adsFDateTo').value || DATA.asOfDate || '';
+  const dmy = d => d ? d.slice(8,10) + '/' + d.slice(5,7) : '—';
   document.getElementById('adsTimeStrip').innerHTML =
-    '<span class="lbl">' + monthLabel(document.getElementById('fMonth').value) + '</span>' +
+    '<span class="lbl">' + monthLabel(monthIso) + '</span>' +
+    `<span class="moc-chip" style="background:#E7F5EE;color:${COLOR.green}">Actual: <span class="n" style="margin:0 3px">${dmy(f)} → ${dmy(t)}</span> (data tới ${dmy(DATA.asOfDate)})</span>` +
+    (timegone > 0 && timegone < 5 ? `<span class="moc-chip" style="background:#FBF3DF;color:#B8860B">Tháng này mới có ${timegone} ngày data — chọn tháng trước ở ô Tháng để xem cả tháng</span>` : '') +
     `<span class="moc-chip" style="background:#E9EEF5;color:${COLOR.navy}"><span class="n">${timegone}</span> Timegone</span>` +
     `<span class="moc-chip" style="background:#FBF3DF;color:#B8860B"><span class="n">${dayLeft}</span> Day Left</span>` +
     `<span class="moc-chip" style="background:#EEF1F5;color:#66707C"><span class="n">${DATA.daysInMonth}</span> Days in month</span>`;
@@ -2352,6 +2368,7 @@ async function boot(){
     document.getElementById('adsFPic').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     document.getElementById('adsFMainPL').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     ['adsFDateFrom','adsFDateTo'].forEach(id=>document.getElementById(id).addEventListener('change', renderAdsTab));
+    document.getElementById('adsFMonth').addEventListener('change', e=>{ monthSel.value = e.target.value; monthSel.dispatchEvent(new Event('change')); });
     document.getElementById('adsExcludeSpt').addEventListener('change', ()=>{ renderAdsTab(); if(window.V2) V2.onAdsFilter(); });
     document.getElementById('adsBtnReset').addEventListener('click', ()=>{
       document.getElementById('adsFPic').value = '';

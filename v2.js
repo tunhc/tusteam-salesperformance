@@ -83,12 +83,13 @@ const missingSchema = err => /does not exist|Could not find|schema cache|42P01|4
 const schemaHint = '<div class="notice">Cần chạy <b>00_schema_v2.sql</b> và các file dữ liệu trong Supabase SQL Editor để mở tính năng này.</div>';
 
 // metric catalog --------------------------------------------------------
-const SUM_KEYS = ['units','gmv','ads','promo','ads_gmv','ads_units','clicks','impressions','glance_views','cm3','cm3_gmv','cm3_units','cm3_base','cm3_mkt','sp_spend','sb_spend','sd_spend','dsp_spend','promo_deal','promo_coupon','promo_discount'];
+const SUM_KEYS = ['gv_units','units','gmv','ads','promo','ads_gmv','ads_units','clicks','impressions','glance_views','cm3','cm3_gmv','cm3_units','cm3_base','cm3_mkt','sp_spend','sb_spend','sd_spend','dsp_spend','promo_deal','promo_coupon','promo_discount'];
 function emptyAgg(){ const a = {}; SUM_KEYS.forEach(k => a[k] = 0); return a; }
-function addInto(a, r){ SUM_KEYS.forEach(k => { a[k] += +r[k] || 0; }); return a; }
+let GV_RPC = false; // the database RPCs return gv_units (units on days with glance views)
+function addInto(a, r){ if(r && 'gv_units' in r) GV_RPC = true; SUM_KEYS.forEach(k => { a[k] += +r[k] || 0; }); return a; }
 function derive(a){
   a.mkt = a.ads + a.promo; a.asp = div(a.gmv, a.units); a.mktGmv = div(a.mkt, a.gmv); a.tacos = div(a.ads, a.gmv);
-  a.promoGmv = div(a.promo, a.gmv); a.acos = div(a.ads, a.ads_gmv); a.cr = div(a.units, a.glance_views); a.ctr = div(a.clicks, a.impressions);
+  a.promoGmv = div(a.promo, a.gmv); a.acos = div(a.ads, a.ads_gmv); a.cr = div(GV_RPC ? a.gv_units : a.units, a.glance_views); a.ctr = div(a.clicks, a.impressions); a.acr = div(a.ads_units, a.clicks);
   a.adShare = div(a.ads_units, a.units); a.cm3Pct = div(a.cm3, a.cm3_gmv); a.cm3Unit = div(a.cm3, a.units); a.mktUnit = div(a.mkt, a.units);
   return a;
 }
@@ -96,7 +97,7 @@ const M = {
   gmv:{l:'GMV', f:f$}, units:{l:'Units', f:fN}, asp:{l:'ASP', f:f$2}, mkt:{l:'MKT $', f:f$, inv:1}, ads:{l:'Ads $', f:f$, inv:1},
   promo:{l:'Promo $', f:f$, inv:1}, ads_units:{l:'Ads units', f:fN}, glance_views:{l:'Glance views', f:fN}, cm3:{l:'CM3 $ (ước tính)', f:f$},
   mktGmv:{l:'%MKT/GMV', f:fP, inv:1, rate:1}, tacos:{l:'TACOS', f:fP, inv:1, rate:1}, promoGmv:{l:'%Promo/GMV', f:fP, inv:1, rate:1},
-  acos:{l:'ACOS', f:fP, inv:1, rate:1}, cr:{l:'CR (units/GV)', f:v=>fP(v,2), rate:1}, ctr:{l:'CTR', f:v=>fP(v,2), rate:1},
+  acos:{l:'ACOS', f:fP, inv:1, rate:1}, cr:{l:'CR (units/GV)', f:v=>fP(v,2), rate:1}, ctr:{l:'CTR (click/impr.)', f:v=>fP(v,2), rate:1}, acr:{l:'CR Ads (units/click)', f:v=>fP(v,2), rate:1},
   adShare:{l:'% Ads units', f:fP, rate:1}, cm3Pct:{l:'CM3 %', f:fP, rate:1}, cm3Unit:{l:'CM3 / unit', f:f$2}, mktUnit:{l:'MKT / unit', f:f$2, inv:1},
   gmvYoy:{l:'GMV YoY %', f:fP, rate:1}, clicks:{l:'Clicks', f:fN}, impressions:{l:'Impressions', f:fN},
 };
@@ -154,6 +155,7 @@ function chipRow(el, items, isOn, onClick, swatch){
 V2.state = { maxDate: null, lockBefore: null, schemaOk: true, incoming: new Map(), demand: new Map(), recent: new Map(), notes: [] };
 V2.afterLoadMonth = async function(){
   const S = V2.state;
+  try { const r = await sb.from('sales_daily').select('date').gt('glance_views', 0).order('date', {ascending:false}).limit(1); S.gvMax = (r.data && r.data[0] && r.data[0].date) || null; } catch(e){ S.gvMax = null; }
   // extra SKU fields not mapped by loadMonth
   try {
     const skus = await selectAll('skus', q => q);
@@ -179,7 +181,8 @@ V2.afterLoadMonth = async function(){
     ROWS.forEach(r => {
       const a = m7.get(r.sku), p = mp.get(r.sku), b = m28.get(r.sku);
       const x = { units7: +(a?.units || 0), gmv7: +(a?.gmv || 0), ads7: +(a?.ads || 0), gv7: +(a?.glance_views || 0), gvPrev7: +(p?.glance_views || 0),
-        gmvPrev7: +(p?.gmv || 0), adsPrev7: +(p?.ads || 0), units28: +(b?.units || 0) + +(a?.units || 0) * 0, gmv28: +(b?.gmv || 0), unitsPrev7: +(p?.units || 0) };
+        gmvPrev7: +(p?.gmv || 0), adsPrev7: +(p?.ads || 0), clicks7: +(a?.clicks || 0), impr7: +(a?.impressions || 0), adsUnits7: +(a?.ads_units || 0), adsGmv7: +(a?.ads_gmv || 0), gvUnits7: +(a?.gv_units ?? a?.units ?? 0),
+        clicksPrev7: +(p?.clicks || 0), imprPrev7: +(p?.impressions || 0), adsUnitsPrev7: +(p?.ads_units || 0), gvUnitsPrev7: +(p?.gv_units ?? p?.units ?? 0), units28: +(b?.units || 0) + +(a?.units || 0) * 0, gmv28: +(b?.gmv || 0), unitsPrev7: +(p?.units || 0) };
       x.asp7 = div(x.gmv7, x.units7); x.asp28 = div(+(b?.gmv || 0), +(b?.units || 0));
       x.vel = (x.units7 + (+(b?.units || 0))) / 35; // units/day over the last 5 weeks
       S.recent.set(r.sku, x); Object.assign(r, {sig: x});
@@ -405,7 +408,9 @@ function recsFor(k, c, p, t){
   const cover = weeklyUnits ? stock / weeklyUnits : Infinity; // in windows (≈ weeks for a weekly window)
   const pc = (a, b) => b ? a / b - 1 : NaN;
   const gvW = p ? pc(c.glance_views, p.glance_views) : NaN, adsW = p ? pc(c.ads, p.ads) : NaN, gmvW = p ? pc(c.gmv, p.gmv) : NaN;
-  const crC = div(c.units, c.glance_views), crP = p ? div(p.units, p.glance_views) : NaN;
+  const crC = isNum(c.cr) ? c.cr : div(c.units, c.glance_views), crP = p ? (isNum(p.cr) ? p.cr : div(p.units, p.glance_views)) : NaN;
+  const ctrC = div(c.clicks, c.impressions), ctrP = p ? div(p.clicks, p.impressions) : NaN;
+  const acrC = div(c.ads_units, c.clicks), acrP = p ? div(p.ads_units, p.clicks) : NaN;
   const aspC = div(c.gmv, c.units), aspP = p ? div(p.gmv, p.units) : NaN;
   const acos = div(c.ads, c.ads_gmv), tacos = div(c.ads, c.gmv);
   if(stock <= 0 && c.ads > 5) add(1, `Hết hàng nhưng vẫn tiêu ads ${f$(c.ads)} → tạm dừng/giảm campaign`);
@@ -414,6 +419,8 @@ function recsFor(k, c, p, t){
   else if(isNum(gvW) && p.glance_views >= 150 && gvW < -.25 && isNum(adsW) && adsW < -.25) add(1, `Glance view ${fP(gvW,0)} cùng Ads ${fP(adsW,0)} → check campaign (budget, trạng thái, bid)`);
   else if(isNum(gvW) && p.glance_views >= 150 && gvW < -.25) add(2, `Glance view ${fP(gvW,0)} (${fN(p.glance_views)}→${fN(c.glance_views)}) dù ads không giảm → check ranking/keyword, listing (suppressed, buy box, badge)`);
   if(isNum(crC) && isNum(crP) && c.glance_views >= 150 && crC < crP * .75) add(2, `CR giảm ${fP(crP,1)} → ${fP(crC,1)} → check giá, buy box, review, deal đối thủ`);
+  if(isNum(ctrC) && isNum(ctrP) && c.impressions >= 2000 && p.impressions >= 2000 && ctrC < ctrP * .75) add(2, `CTR ads giảm ${fP(ctrP,2)} → ${fP(ctrC,2)} (${fN(p.impressions)}→${fN(c.impressions)} impr.) → check main image, giá hiển thị, badge/coupon, vị trí ads`);
+  if(isNum(acrC) && isNum(acrP) && c.clicks >= 60 && p.clicks >= 60 && acrC < acrP * .7) add(2, `CR ads giảm ${fP(acrP,1)} → ${fP(acrC,1)} (units/click) → check giá, buy box, review, search term kém`);
   if(k && k.rrp > 0 && isNum(aspC) && c.units >= 3 && aspC > k.rrp * 1.05) add(2, `Bung giá: ASP ${f$2(aspC)} cao hơn RRP ${f$2(k.rrp)} (${fP(aspC / k.rrp - 1, 0)})`);
   else if(isNum(aspC) && isNum(aspP) && c.units >= 3 && p.units >= 3 && Math.abs(aspC / aspP - 1) > .10) add(3, `Giá thay đổi ${fP(aspC / aspP - 1, 0)} so với kỳ trước (${f$2(aspP)} → ${f$2(aspC)})`);
   if(isNum(acos) && acos > .40 && c.ads > 50) add(2, `ACOS ${fP(acos,0)} trên ${f$(c.ads)} ads → hạ bid, thêm negative keyword, cắt search term lỗ`);
@@ -427,6 +434,7 @@ const recChip = r => `<span class="rec ${r.p === 1 ? 'p1' : r.p === 2 ? 'p2' : r
 
 // AI call through the ai-recommend Edge Function --------------------------
 async function askAI(scope, key, context, outEl, force){
+  { const t = JSON.stringify(context); let h = 0; for(let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; key = key + ' · data ' + (V2.state.maxDate || '') + ' #' + (h >>> 0).toString(36); }
   outEl.hidden = false; outEl.textContent = 'Đang hỏi AI…';
   try {
     const {data, error} = await sb.functions.invoke('ai-recommend', {body: {scope, scope_key: key, as_of: V2.state.maxDate || todayISO(), context, force: !!force}});
@@ -560,13 +568,22 @@ async function renderSP(refetch = true){
   if(GS.sku && SP.openedFor !== GS.sku){ SP.openedFor = GS.sku; openSkuDetail(GS.sku); }
   if(!GS.sku) SP.openedFor = null;
 }
+// Glance views exist only in the daily exports (up to V2.state.gvMax); the
+// hourly export has none. Tiles say so instead of showing 0 / a fake drop.
+function gvTile(k, c, p, to, cmpLabel, spark){
+  const gvMax = V2.state.gvMax, sp = spark ? `<div class="spk" data-k="${k}"></div>` : '';
+  const lbl = `<div class="k">${M[k].l}</div>`;
+  if(!(c.glance_views > 0)) return `<div class="tile">${lbl}<div class="v">—</div><div class="d"><span title="File daily có glance view${gvMax ? ' tới ' + dm(gvMax) : ''}; các ngày sau đó nạp từ file hourly (không có cột glance view)">kỳ này chỉ có file hourly (không có GV)${gvMax ? ' · GV có tới ' + dm(gvMax) : ''}</span></div>${sp}</div>`;
+  const partial = gvMax && to > gvMax;
+  if(k === 'glance_views' && partial) return `<div class="tile">${lbl}<div class="v">${M[k].f(c[k])}</div><div class="d"><span>chỉ tính tới ${dm(gvMax)} (sau đó file hourly không có GV)</span></div>${sp}</div>`;
+  return `<div class="tile">${lbl}<div class="v">${M[k].f(c[k])}</div><div class="d">${deltaHtml(c[k], p[k], M[k].inv, M[k].rate)}<span>${cmpLabel}${partial ? ' · tính trên ngày có GV (tới ' + dm(gvMax) + ')' : ''}</span></div>${sp}</div>`;
+}
 async function spTiles(scope){
   const c = aggFor(scope, SP.cur), p = aggFor(scope, SP.prev);
-  const keys = ['gmv','units','asp','mkt','mktGmv','ads','tacos','acos','promo','promoGmv','ads_units','glance_views','cr','cm3','cm3Pct'];
+  const keys = ['gmv','units','asp','mkt','mktGmv','ads','tacos','acos','ctr','acr','promo','promoGmv','ads_units','glance_views','cr','cm3','cm3Pct'];
   const cmp = SP.compare === 'yoy' ? 'vs LY' : 'vs kỳ trước';
-  const noGv = !(c.glance_views > 0);
-  $('#spTiles').innerHTML = keys.map(k => (noGv && (k === 'glance_views' || k === 'cr'))
-    ? `<div class="tile"><div class="k">${M[k].l}</div><div class="v">—</div><div class="d"><span title="File hourly của tháng hiện tại không có cột Glance_views; số sẽ có khi nạp file daily">nguồn chưa có glance view</span></div><div class="spk" data-k="${k}"></div></div>`
+  $('#spTiles').innerHTML = keys.map(k => (k === 'glance_views' || k === 'cr')
+    ? gvTile(k, c, p, SP.to, cmp, true)
     : `<div class="tile"><div class="k">${M[k].l}</div><div class="v">${M[k].f(c[k])}</div><div class="d">${deltaHtml(c[k], p[k], M[k].inv, M[k].rate)}<span>${cmp}</span></div><div class="spk" data-k="${k}"></div></div>`).join('');
   // sparklines: last 12 months for the same scope
   try {
@@ -826,16 +843,15 @@ async function openSkuDetail(sku){
     c = derive(addInto(emptyAgg(), withCm3(sku, cur.reduce((a, r) => addInto(a, r), emptyAgg()))));
     p = derive(addInto(emptyAgg(), withCm3(sku, ly.reduce((a, r) => addInto(a, r), emptyAgg()))));
   } catch(e){ wrap.querySelector('#sdTrend').innerHTML = '<div class="notice">Không tải được: ' + esc(e.message || e) + '</div>'; }
-  const noGv = !(c.glance_views > 0);
-  wrap.querySelector('#sdTiles').innerHTML = ['gmv','units','asp','ads','acos','tacos','promo','glance_views','cr','cm3Pct'].map(key => (noGv && (key === 'glance_views' || key === 'cr'))
-    ? `<div class="tile"><div class="k">${M[key].l}</div><div class="v">—</div><div class="d"><span>nguồn chưa có glance view</span></div></div>`
+  wrap.querySelector('#sdTiles').innerHTML = ['gmv','units','asp','ads','acos','tacos','ctr','acr','promo','glance_views','cr','cm3Pct'].map(key => (key === 'glance_views' || key === 'cr')
+    ? gvTile(key, c, p, to, 'vs LY', false)
     : `<div class="tile"><div class="k">${M[key].l}</div><div class="v">${M[key].f(c[key])}</div><div class="d">${deltaHtml(c[key], p[key], M[key].inv, M[key].rate)}<span>vs LY</span></div></div>`).join('');
   const x = cur.map(r => r.period), A = cur.map(r => derive(addInto(emptyAgg(), r)));
   const lyBy = new Map(ly.map(r => [g === 'week' ? sundayOf(addDaysIso(r.period, 364)) : addDaysIso(r.period, 364), +r.gmv || 0]));
   draw(wrap.querySelector('#sdTrend'), [
     {type:'bar', x, y:A.map(a => a.gmv), name:'GMV', marker:{color:'#2a78d6'}, xaxis:'x', yaxis:'y', hovertemplate:'GMV %{y:$,.0f}<extra></extra>'},
     {type:'scatter', mode:'lines', x, y:x.map(d => lyBy.get(d) ?? null), name:'GMV năm trước', line:{color:'#8A94A3', dash:'dot', width:1.5}, xaxis:'x', yaxis:'y', hovertemplate:'LY %{y:$,.0f}<extra></extra>'},
-    {type:'bar', x, y:A.map(a => a.glance_views), name:'Glance views', marker:{color:'#A3ACB8'}, xaxis:'x', yaxis:'y2', hovertemplate:'GV %{y:,.0f}<extra></extra>'},
+    {type:'bar', x, y:A.map(a => a.glance_views > 0 ? a.glance_views : null), name:'Glance views', marker:{color:'#A3ACB8'}, xaxis:'x', yaxis:'y2', hovertemplate:'GV %{y:,.0f}<extra></extra>'},
     {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.tacos), name:'TACOS', line:{color:CAT5[1], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y3', hovertemplate:'TACOS %{y:.1%}<extra></extra>'},
     {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.cr), name:'CR', line:{color:CAT5[2], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y3', hovertemplate:'CR %{y:.2%}<extra></extra>'},
   ], lay({grid:{rows:3, columns:1, subplots:[['xy'],['xy2'],['xy3']], roworder:'top to bottom'}, xaxis:ax({anchor:'y3', type:'date', tickformat:'%d/%m'}),
@@ -843,15 +859,15 @@ async function openSkuDetail(sku){
     hovermode:'x unified', margin:{l:58, r:12, t:6, b:52}, legend:{orientation:'h', y:-.12, x:0, font:{size:10.5, color:PAL.muted}}}));
   // recommendations: last 7 days vs previous 7 days from the loaded signals
   const s = k.sig || {};
-  const cw = {units:s.units7 || 0, gmv:s.gmv7 || 0, ads:s.ads7 || 0, glance_views:s.gv7 || 0, ads_gmv:NaN, promo:0};
-  const pw = {units:s.unitsPrev7 || 0, gmv:s.gmvPrev7 || 0, ads:s.adsPrev7 || 0, glance_views:s.gvPrev7 || 0};
+  const cw = {units:s.units7 || 0, gmv:s.gmv7 || 0, ads:s.ads7 || 0, glance_views:s.gv7 || 0, ads_gmv:s.adsGmv7 || NaN, promo:0, clicks:s.clicks7 || 0, impressions:s.impr7 || 0, ads_units:s.adsUnits7 || 0, cr:div(s.gvUnits7, s.gv7), ctr:div(s.clicks7, s.impr7), acr:div(s.adsUnits7, s.clicks7)};
+  const pw = {units:s.unitsPrev7 || 0, gmv:s.gmvPrev7 || 0, ads:s.adsPrev7 || 0, glance_views:s.gvPrev7 || 0, clicks:s.clicksPrev7 || 0, impressions:s.imprPrev7 || 0, ads_units:s.adsUnitsPrev7 || 0, cr:div(s.gvUnitsPrev7, s.gvPrev7), ctr:div(s.clicksPrev7, s.imprPrev7), acr:div(s.adsUnitsPrev7, s.clicksPrev7)};
   const recs = recsFor(k, cw, pw, null);
   wrap.querySelector('#sdRecs').innerHTML = recs.length ? '<ul style="margin:0;padding-left:18px">' + recs.map(r => `<li style="margin-bottom:4px"><span class="rec ${r.p === 1 ? 'p1' : r.p === 2 ? 'p2' : r.p === 4 ? 'ok' : 'p3'}">${r.p === 1 ? 'Cao' : r.p === 2 ? 'TB' : r.p === 4 ? 'Tốt' : 'Thấp'}</span> ${esc(r.text)}</li>`).join('') + '</ul>' : '<span class="v2-note">Không có tín hiệu bất thường trong 7 ngày gần nhất.</span>';
   const inc = (V2.state.incoming.get(sku) || []).sort((a, b) => a.week.localeCompare(b.week));
   wrap.querySelector('#sdInv').innerHTML = `Tồn Y4A <b>${fmtInt(k.salableY4A)}</b> · AMZ <b>${fmtInt(k.salableAMZ)}</b> · tốc độ ~${fN((s.vel || 0) * 7)} units/tuần<br>` + (inc.length ? 'Incoming: ' + inc.map(x => `${dm(x.week)}: <b>${fmtInt(x.qty)}</b>`).join(' · ') : 'Không có incoming trong file tồn kho.') + (k.rrp ? `<br>RRP ${f$2(k.rrp)} · ASP 7 ngày ${f$2(s.asp7)}` : '');
-  wrap.querySelector('#sdAsk').onclick = () => askAI('sku', sku, {sku, product: k.productName, pic: k.pic, main_pl: k.mainPL, old_pl: k.subPL, channel: k.channel, rrp: k.rrp, period: {from, to}, current: pick(c), last_year: pick(p), last_7d: cw, prev_7d: pw, stock: {y4a: k.salableY4A, amz: k.salableAMZ, incoming: inc}, rule_recommendations: recs.map(r => r.text)}, wrap.querySelector('#sdAI'));
+  wrap.querySelector('#sdAsk').onclick = () => askAI('sku', sku, {sku, product: k.productName, pic: k.pic, main_pl: k.mainPL, old_pl: k.subPL, channel: k.channel, rrp: k.rrp, period: {from, to}, current: pick(c), last_year: pick(p), last_7d: cw, prev_7d: pw, data_latest_date: V2.state.maxDate, metric_notes: 'ctr = clicks/impressions; acr = ads_units/clicks; cr = units/glance_views chỉ trên ngày có glance view', stock: {y4a: k.salableY4A, amz: k.salableAMZ, incoming: inc}, rule_recommendations: recs.map(r => r.text)}, wrap.querySelector('#sdAI'));
 }
-const pick = a => { const o = {}; ['gmv','units','asp','ads','promo','ads_gmv','ads_units','glance_views','clicks','impressions','acos','tacos','cr','ctr','mktGmv','cm3Pct'].forEach(k => { if(isNum(a[k])) o[k] = +(+a[k]).toFixed(4); }); return o; };
+const pick = a => { const o = {}; ['gmv','units','asp','ads','promo','ads_gmv','ads_units','glance_views','clicks','impressions','acos','tacos','cr','ctr','acr','mktGmv','cm3Pct'].forEach(k => { if(isNum(a[k])) o[k] = +(+a[k]).toFixed(4); }); return o; };
 V2.openSkuDetail = openSkuDetail;
 
 // =====================================================================
@@ -1143,7 +1159,7 @@ function adsBuild(){
   host.innerHTML = `<div class="section-title">Ads trend & khuyến nghị theo product line</div>
   <div class="card"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">Ads theo tuần</h3>
     <div class="cv-toggle" id="adWeeks"><button class="cv-btn" data-w="8" type="button">8 tuần</button><button class="cv-btn" data-w="12" type="button">12 tuần</button><button class="cv-btn" data-w="26" type="button">26 tuần</button><button class="cv-btn" data-w="52" type="button">52 tuần</button></div></div>
-    <div class="hint">Theo bộ lọc PIC / Product Line ở trên và ô tìm kiếm chung. Panel 1: chi tiêu theo loại campaign. Panel 2: ACOS (Ads ÷ Ads GMV) và TACOS (Ads ÷ tổng GMV). Panel 3: glance views và CR.</div>
+    <div class="hint">Theo bộ lọc PIC / Product Line ở trên và ô tìm kiếm chung. Panel 1: chi tiêu theo loại campaign. Panel 2: ACOS (Ads ÷ Ads GMV) và TACOS (Ads ÷ tổng GMV). Panel 3: CTR (click ÷ impression) và CR Ads (ads units ÷ click) — có cả trong file hourly. Panel 4–5: glance views và CR (units ÷ GV), chỉ có ở các ngày nạp từ file daily.</div>
     <div id="adTrend" class="plot xl"></div></div>
   <div class="card"><h3 style="margin:0 0 3px">Khuyến nghị theo product line</h3><div class="hint" id="adRecHint"></div><div id="adRecs"></div></div>`;
   $('#adWeeks').onclick = e => { const b = e.target.closest('[data-w]'); if(!b) return; AD.weeks = +b.dataset.w; renderAdsV2(); };
@@ -1165,20 +1181,23 @@ async function renderAdsV2(){
     ...[['sp_spend','SP'],['sb_spend','SB'],['sd_spend','SD'],['dsp_spend','DSP']].map(([k, l], i) => ({type:'bar', x, y:A.map(a => a[k]), name:l, marker:{color:CAT5[i], line:{color:'#fff', width:1}}, xaxis:'x', yaxis:'y', hovertemplate:`${l}: %{y:$,.0f}<extra></extra>`})),
     {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.acos), name:'ACOS', line:{color:CAT5[0], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y2', hovertemplate:'ACOS %{y:.1%}<extra></extra>'},
     {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.tacos), name:'TACOS', line:{color:CAT5[1], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y2', hovertemplate:'TACOS %{y:.1%}<extra></extra>'},
-    {type:'bar', x, y:A.map(a => a.glance_views), name:'Glance views', marker:{color:'#A3ACB8'}, xaxis:'x', yaxis:'y3', hovertemplate:'GV %{y:,.0f}<extra></extra>'},
-    {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.cr), name:'CR', line:{color:CAT5[2], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y4', hovertemplate:'CR %{y:.2%}<extra></extra>'},
-  ], lay({barmode:'stack', grid:{rows:4, columns:1, subplots:[['xy'],['xy2'],['xy3'],['xy4']], roworder:'top to bottom'}, xaxis:ax({anchor:'y4', type:'date', tickformat:'%d/%m'}),
-    yaxis:ax({domain:[.62, 1], tickprefix:'$', tickformat:'~s', title:{text:'Ads $', font:{size:10.5, color:PAL.muted}}}), yaxis2:ax({domain:[.40, .57], tickformat:'.0%', title:{text:'ACOS/TACOS', font:{size:10.5, color:PAL.muted}}, rangemode:'tozero'}),
-    yaxis3:ax({domain:[.19, .35], tickformat:'~s', title:{text:'GV', font:{size:10.5, color:PAL.muted}}}), yaxis4:ax({domain:[0, .14], tickformat:'.1%', title:{text:'CR', font:{size:10.5, color:PAL.muted}}, rangemode:'tozero'}),
+    {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.ctr), name:'CTR (click/impr.)', line:{color:CAT5[3], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y3', hovertemplate:'CTR %{y:.2%}<extra></extra>'},
+    {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.acr), name:'CR Ads (units/click)', line:{color:CAT5[4], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y3', hovertemplate:'CR Ads %{y:.2%}<extra></extra>'},
+    {type:'bar', x, y:A.map(a => a.glance_views > 0 ? a.glance_views : null), name:'Glance views', marker:{color:'#A3ACB8'}, xaxis:'x', yaxis:'y4', hovertemplate:'GV %{y:,.0f}<extra></extra>'},
+    {type:'scatter', mode:'lines+markers', x, y:A.map(a => a.glance_views > 0 ? a.cr : null), name:'CR (units/GV)', line:{color:CAT5[2], width:2}, marker:{size:5}, xaxis:'x', yaxis:'y5', hovertemplate:'CR %{y:.2%}<extra></extra>'},
+  ], lay({barmode:'stack', grid:{rows:5, columns:1, subplots:[['xy'],['xy2'],['xy3'],['xy4'],['xy5']], roworder:'top to bottom'}, xaxis:ax({anchor:'y5', type:'date', tickformat:'%d/%m'}),
+    yaxis:ax({domain:[.68, 1], tickprefix:'$', tickformat:'~s', title:{text:'Ads $', font:{size:10.5, color:PAL.muted}}}), yaxis2:ax({domain:[.50, .63], tickformat:'.0%', title:{text:'ACOS/TACOS', font:{size:10.5, color:PAL.muted}}, rangemode:'tozero'}),
+    yaxis3:ax({domain:[.32, .45], tickformat:'.1%', title:{text:'CTR · CR Ads', font:{size:10.5, color:PAL.muted}}, rangemode:'tozero'}),
+    yaxis4:ax({domain:[.16, .27], tickformat:'~s', title:{text:'GV', font:{size:10.5, color:PAL.muted}}}), yaxis5:ax({domain:[0, .11], tickformat:'.1%', title:{text:'CR', font:{size:10.5, color:PAL.muted}}, rangemode:'tozero'}),
     hovermode:'x unified', margin:{l:62, r:12, t:6, b:52}, legend:{orientation:'h', y:-.08, x:0, font:{size:11, color:PAL.muted}},
     shapes: partial ? [{type:'rect', xref:'x', yref:'paper', x0:addDaysIso(x[x.length - 1], -3), x1:addDaysIso(x[x.length - 1], 3), y0:0, y1:1, fillcolor:'rgba(255,112,0,.06)', line:{width:0}}] : []}));
-  // recommendations: last full week vs previous week, per SKU, grouped by Main PL
-  const ws = lastFullSun, pws = addDaysIso(ws, -7);
-  let bys;
-  try { bys = await rpcAll('sales_trend_by_sku', {p_from: pws, p_to: addDaysIso(ws, 6), p_grain: 'week', p_skus: skus}); } catch(e){ $('#adRecs').innerHTML = '<div class="notice">' + esc(e.message || e) + '</div>'; return; }
-  const cur = new Map(), prev = new Map();
-  bys.forEach(r => (r.period === ws ? cur : prev).set(r.sku, r));
-  $('#adRecHint').innerHTML = `So sánh tuần ${dm(ws)}–${dm(addDaysIso(ws, 6))} với tuần trước (${dm(pws)}–${dm(addDaysIso(pws, 6))}). Rule ưu tiên: hết hàng vẫn chạy ads → glance view giảm cùng ads (check campaign) → glance view giảm dù ads giữ (ranking/listing) → CR giảm → ACOS cao → dưới target mà ads thấp. Dữ liệu cập nhật mỗi ngày.`;
+  // recommendations: the latest 7 days of loaded data vs the 7 days before, per SKU, grouped by Main PL
+  const ws = addDaysIso(mx, -6), pws = addDaysIso(mx, -13);
+  let curA, prevA;
+  try { [curA, prevA] = await Promise.all([rpcAll('sales_by_sku', {p_from: ws, p_to: mx}), rpcAll('sales_by_sku', {p_from: pws, p_to: addDaysIso(mx, -7)})]); }
+  catch(e){ $('#adRecs').innerHTML = '<div class="notice">' + esc(e.message || e) + '</div>'; return; }
+  const cur = new Map(curA.map(r => [r.sku, r])), prev = new Map(prevA.map(r => [r.sku, r]));
+  $('#adRecHint').innerHTML = `Dữ liệu mới nhất: 7 ngày ${dm(ws)}–${dm(mx)} so với 7 ngày trước (${dm(pws)}–${dm(addDaysIso(mx, -7))}). Có CTR (click ÷ impression) và CR Ads (ads units ÷ click) từ dữ liệu ads; glance view chỉ dùng khi kỳ có file daily. Rule ưu tiên: hết hàng vẫn chạy ads → glance view/CTR giảm cùng ads (check campaign) → CR giảm → ACOS cao.`;
   const byPl = new Map();
   rows.forEach(k => { const c = cur.get(k.sku), p = prev.get(k.sku); if(!c && !p) return;
     const cc = derive(addInto(emptyAgg(), c || {})), pp = derive(addInto(emptyAgg(), p || {}));
@@ -1192,7 +1211,7 @@ async function renderAdsV2(){
       <summary style="cursor:pointer;font-weight:800;color:var(--navy)">${esc(e.pl)} <span class="v2-note" style="font-weight:600">· GMV ${f$(e.c.gmv)} ${deltaHtml(e.c.gmv, e.p.gmv)} · Ads ${f$(e.c.ads)} · ACOS ${fP(e.c.acos, 0)} · TACOS ${fP(e.c.tacos)} · GV ${deltaHtml(e.c.glance_views, e.p.glance_views)} · ${e.items.length} khuyến nghị</span></summary>
       <ul style="margin:6px 0 4px;padding-left:18px;font-size:12.3px">${e.items.sort((a, b) => a.r.p - b.r.p || b.impact - a.impact).map(i => `<li style="margin-bottom:3px"><span class="rec ${i.r.p === 1 ? 'p1' : i.r.p === 2 ? 'p2' : 'p3'}">${i.r.p === 1 ? 'Cao' : i.r.p === 2 ? 'TB' : 'Thấp'}</span> <b>${esc(i.sku)}</b> <span class="v2-note">(${esc(short(i.name))})</span>: ${esc(i.r.text)}</li>`).join('') || '<li class="v2-note">Không có tín hiệu bất thường.</li>'}</ul>
       <button class="btn small" type="button" data-ai="${esc(e.pl)}">Hỏi AI cho ${esc(e.pl)}</button><div class="ai-box" hidden></div></details>`).join('') || '<span class="v2-note">Không có dữ liệu trong bộ lọc.</span>';
-  $$('#adRecs [data-ai]').forEach(b => b.onclick = () => { const e = pls.find(x => x.pl === b.dataset.ai); askAI('main_pl', 'ads · ' + e.pl + ' · ' + ws, {focus: 'Amazon Ads của product line', week: ws, main_pl: e.pl, totals: {current_week: pick(e.c), previous_week: pick(e.p)}, findings: e.items.map(i => ({sku: i.sku, name: i.name, finding: i.r.text}))}, b.nextElementSibling); });
+  $$('#adRecs [data-ai]').forEach(b => b.onclick = () => { const e = pls.find(x => x.pl === b.dataset.ai); askAI('main_pl', 'ads · ' + e.pl + ' · ' + ws + '→' + mx, {focus: 'Amazon Ads của product line', period: {current: ws + ' → ' + mx, previous: pws + ' → ' + addDaysIso(mx, -7), data_latest_date: mx}, metric_notes: 'ctr = clicks/impressions; acr = ads_units/clicks (CR ads); cr = units/glance_views chỉ có khi kỳ có glance view (file daily)', main_pl: e.pl, totals: {current_7d: pick(e.c), previous_7d: pick(e.p)}, findings: e.items.map(i => ({sku: i.sku, name: i.name, finding: i.r.text}))}, b.nextElementSibling); });
   ADSdirty = false;
 }
 
