@@ -19,6 +19,7 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `market_research.py` | Extracts every table and written analysis from the Strategy Plan workbooks and HTML market reports (used by `ingest_v2.py --market-dir`). Cost/CM3 columns are dropped. |
 | `ingest_v2.py` | Bulk loader: turns the source Excel/HTML files into numbered `.sql` files to paste into the SQL Editor (see below). |
 | `supabase/functions/ai-recommend/` | Edge Function behind the “Hỏi AI” buttons (Claude API). |
+| `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
 | `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
 
@@ -69,3 +70,16 @@ Attach the new Excel/HTML export in a Cowork chat with Claude and ask it to inge
 - The Product Diary tab was removed; its old tables are untouched. Projects now use `project_updates` (old `project_log` rows are copied over once by the v3 schema).
 - Market tab: charts come from `market_variation` / `market_brand_monthly` / `market_asin_weekly` / `market_variation_monthly`; the research library below them (all SWOT, conclusions, action plans and data tables per category) comes from `market_reports` / `market_insights` / `market_tables`. Re-running `09_market_research.sql` replaces the library.
 - Market tab data comes from the research files in `Markets.zip` (variation × brand tables, Tricep Rope weekly ASIN price/units, Soft Kettlebell brand revenue). Categories show whatever each file contains.
+
+## Automatic hourly load (no manual upload)
+
+1. Run `supabase_auto_ingest.sql` in the SQL Editor (creates `ingest_runs` and `replace_sales_days`).
+2. Deploy `supabase/functions/pull-hourly/` (both files) as Edge Function `pull-hourly` with **Verify JWT off**.
+3. Edge Function secrets: `PULL_SECRET` (any long random string), `HOURLY_FILE_URL` (the Excel sharing link).
+   The link must download without a Microsoft login ("Anyone with the link", view only). If company policy blocks that,
+   register an Azure app with Microsoft Graph application permission `Files.Read.All` (admin consent) and add
+   `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` instead.
+4. Enable the `pg_net` extension, then run the schedule block at the end of `supabase_auto_ingest.sql` (every hour at :07).
+5. Check: `select * from ingest_runs order by ran_at desc limit 20;` — `ok` = loaded, `skipped` = file unchanged, `error` = message says why.
+
+Each run replaces exactly the days present in the file (one transaction); days before `data_locks.lock_before` are never touched.
