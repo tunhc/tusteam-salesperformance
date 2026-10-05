@@ -1,15 +1,24 @@
 // Supabase Edge Function: pull-hourly
 //
-// Loads the "SSO Data Extraction Hourly" Excel, aggregates it to one row per
-// SKU per day and replaces those days in sales_daily (replace_sales_days, one
-// transaction). Other days are left untouched.
+// Loads a sales export (Excel), aggregates it per SKU per day (and per hour when
+// the export has a time of day) and replaces exactly the days present in the file:
+//   sales_daily  via replace_sales_days (one transaction, other days untouched)
+//   sales_hourly via replace_sales_hours (live race on the Tracking tab)
+// Exports understood (see hourly.ts): "SSO Data Extraction Hourly",
+// "usa_amz_sso_hourly -- usa" (hourly, Power Automate every hour) and the
+// tusteam daily export ("Yes4All_data_tusteam_<year>_daily", Power Automate daily).
+//
+// Data the hourly flow never overwrites:
+//   - days before data_locks.lock_before (final monthly data; the lock trigger also skips them)
+//   - days already loaded from a daily export (source_file containing "daily"): the
+//     daily file is the final number with glance views / ordered revenue / DSP.
 //
 // Two ways to get the file:
-//   1. POST the .xlsx bytes as the request body (Power Automate: SharePoint
-//      "Get file content" → HTTP action, Body = File Content). Optional headers:
-//        x-file-name   name stored in sales_daily.source_file
+//   1. POST the .xlsx as the request body (Power Automate: SharePoint "Get file content"
+//      → HTTP, Body = body('Get_file_content_using_path')?['$content']). Optional headers:
+//        x-file-name   name stored in sales_daily.source_file (and the ingest_runs log)
 //        x-dry-run: 1  parse and return per-day totals, write nothing
-//        x-force: 1    load even if the file is unchanged since the last load
+//        x-force: 1    load even if the file is unchanged since its last load
 //   2. Empty body: download HOURLY_FILE_URL (pg_cron, see supabase_auto_ingest.sql).
 //
 // Deploy with "Verify JWT" OFF; every request must send x-pull-secret = PULL_SECRET.
@@ -21,7 +30,7 @@
 // Optional: HOURLY_SHEET (default: the first sheet with a "sku" column).
 // The workbook is read with the streaming reader in xlsx.ts (SheetJS ran out of memory).
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { downloadUrls, graphShareId, makeAggregator, normKey, perDay, pickDateKey, USED_KEYS, type Row } from "./hourly.ts";
+import { downloadUrls, graphShareId, layoutOf, type Layout, makeAggregator, normKey, perDay, type Row, wantedColumns } from "./hourly.ts";
 import { readSheetRows } from "./xlsx.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -109,54 +118,81 @@ Deno.serve(async (req) => {
       try { force ||= !!JSON.parse(new TextDecoder().decode(raw))?.force; } catch { /* empty body */ }
       bytes = await download(link);
     }
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
     const hash = [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 32);
     if (!force && !dryRun) {
-      const { data: last } = await db.from("ingest_runs").select("file_hash").eq("status", "ok").order("ran_at", { ascending: false }).limit(1);
+      const { data: last } = await db.from("ingest_runs").select("file_hash").eq("source", source).eq("status", "ok").order("ran_at", { ascending: false }).limit(1);
       if (last?.[0]?.file_hash === hash) {
         await db.from("ingest_runs").insert({ source, status: "skipped", file_hash: hash, message: "file không đổi" });
         return json({ ok: true, skipped: "file không đổi" });
       }
     }
 
-    const { data: skus, error: skuErr } = await db.from("skus").select("sku");
+    const [{ data: skus, error: skuErr }, { data: lock }] = await Promise.all([
+      db.from("skus").select("sku"),
+      db.from("data_locks").select("lock_before").eq("table_name", "sales_daily").maybeSingle(),
+    ]);
     if (skuErr) throw new Error(skuErr.message);
     const managed = (skus ?? []).map((s: { sku: string }) => s.sku);
+    const lockBefore: string = lock?.lock_before ?? "0000-01-01";
 
-    // Stream the sheet: only the columns the aggregator reads are kept per row.
-    let agg: ReturnType<typeof makeAggregator> | null = null, cols: [number, string][] = [], columns: string[] = [], dateKey = "";
+    // Stream the sheet: only the columns the aggregator reads are parsed.
+    let agg: ReturnType<typeof makeAggregator> | null = null, L: Layout | null = null, cols: (readonly [number, string])[] = [];
     const found = await readSheetRows(bytes, (header) => {
       const keys = header.map(normKey);
       if (!keys.includes("sku")) return false;
-      if (!keys.includes("ordered_units") || !(keys.includes("ordered_gmv") || keys.includes("ordered_nmv"))) {
-        throw new Error(`Sheet thiếu cột ordered_units / ordered_gmv / ordered_nmv (có: ${keys.join(", ")})`);
-      }
-      dateKey = pickDateKey(keys) ?? "";
-      if (!dateKey) throw new Error(`Sheet không có cột ngày (có: ${keys.join(", ")})`);
-      columns = keys;
-      cols = keys.map((k, i) => [i, k] as [number, string]).filter(([, k]) => USED_KEYS.has(k) || k === dateKey);
-      agg = makeAggregator(managed, source, keys.includes("ordered_gmv"), dateKey,
-        { ads: keys.includes("total_ads"), promo: keys.includes("total_promo") });
+      const lay = layoutOf(keys);
+      if ("missing" in lay) throw new Error(`File thiếu cột: ${lay.missing.join(", ")} (có: ${keys.join(", ")})`);
+      L = lay;
+      cols = wantedColumns(lay);
+      agg = makeAggregator(managed, source, lay);
       return cols.map(([i]) => i);
     }, (cells) => {
       const r: Row = {};
       for (const [i, k] of cols) r[k] = cells[i] ?? null;
       agg!.add(r);
     }, Deno.env.get("HOURLY_SHEET") || undefined);
-    if (!found || !agg) throw new Error("Không tìm thấy sheet nào có cột sku");
-    const { out, rowsIn, skipped, why, sample, gmvColumn } = (agg as ReturnType<typeof makeAggregator>).finish();
-    const sheetName = found.sheet;
-    const info = { sheet: sheetName, dateColumn: dateKey, gmvColumn, rowsIn, skipped, skippedWhy: why, skuDays: out.length, days: perDay(out) };
-    if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns, sampleSkipped: sample, ...info });
-    if (!out.length) {
-      await logError(`Không có dòng nào nạp được (${rowsIn} dòng; thiếu sku ${why.noSku}, không đọc được ngày ${why.noDate}, SKU không quản lý ${why.unmanagedSku}). ` +
-        `Cột ngày: ${dateKey}. Dòng mẫu: ${JSON.stringify(sample)}. Cột: ${columns.join(", ")}`);
-      return json({ ok: false, columns, sampleSkipped: sample, ...info }, 422);
+    if (!found || !agg || !L) throw new Error("Không tìm thấy sheet nào có cột sku");
+    const layout = L as Layout;
+    const res = (agg as ReturnType<typeof makeAggregator>).finish();
+
+    // Days this run must not touch: locked history, and (hourly files only) days the daily export already gave.
+    let out = res.out.filter((r) => r.date >= lockBefore);
+    const lockedDays = [...new Set(res.out.filter((r) => r.date < lockBefore).map((r) => r.date))].sort();
+    let dailyDays: string[] = [];
+    if (layout.kind === "hourly" && out.length) {
+      const fileDays = [...new Set(out.map((r) => r.date))];
+      const { data: kept, error } = await db.from("sales_daily").select("date").in("date", fileDays).ilike("source_file", "%daily%").limit(10000);
+      if (error) throw new Error(error.message);
+      dailyDays = [...new Set((kept ?? []).map((k: { date: string }) => k.date))].sort();
+      out = out.filter((r) => !dailyDays.includes(r.date));
+    }
+    const info = { sheet: found.sheet, kind: layout.kind, dateColumn: layout.dateKey, gmvColumn: layout.gmvKey,
+      rowsIn: res.rowsIn, skipped: res.skipped, skippedWhy: res.why, keptLockedDays: lockedDays.length ? `${lockedDays[0]} → ${lockedDays.at(-1)}` : null,
+      keptDailyDays: dailyDays, skuDays: out.length, hourRows: res.hours.length, days: perDay(out) };
+    if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns: layout.columns, sampleSkipped: res.sample, ...info });
+    if (!res.out.length) {
+      const w = res.why;
+      await logError(`Không có dòng nào nạp được (${res.rowsIn} dòng; ngoài USA ${w.notUsa}, thiếu sku ${w.noSku}, SKU không quản lý ${w.unmanagedSku}, không đọc được ngày ${w.noDate}). ` +
+        `Cột ngày: ${layout.dateKey}. Dòng mẫu: ${JSON.stringify(res.sample)}. Cột: ${layout.columns.join(", ")}`);
+      return json({ ok: false, columns: layout.columns, sampleSkipped: res.sample, ...info }, 422);
     }
 
+    // hour-level rows first: the live race reads them even when the daily rows are kept
+    let hourRows: number | string = 0;
+    if (res.hours.length) {
+      const h = await db.rpc("replace_sales_hours", { p_rows: res.hours, p_source: source });
+      if (h.error) throw new Error("sales_hourly: " + h.error.message);
+      hourRows = h.data as number;
+    }
+    if (!out.length) {
+      await db.from("ingest_runs").insert({ source, status: "ok", file_hash: hash, rows_in: 0, rows_loaded: 0,
+        message: `sales_hourly ${hourRows} dòng; sales_daily giữ nguyên (ngày đã có từ file daily / đã khóa)` });
+      return json({ ok: true, ...info, hourRows });
+    }
     const { data, error } = await db.rpc("replace_sales_days", { p_rows: out, p_source: source, p_hash: hash });
     if (error) throw new Error(error.message);
-    return json({ ok: true, ...info, ...data });
+    return json({ ok: true, ...info, hourRows, ...data });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logError(msg);
