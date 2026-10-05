@@ -201,7 +201,8 @@ declare v_ws date := p_week_start - extract(dow from p_week_start)::int;  -- sna
 begin
   if coalesce(auth.role(), '') in ('anon', 'authenticated') then
     if p_force then raise exception 'Only an admin can re-freeze a week'; end if;
-    if v_ws + 7 > (now() at time zone 'Asia/Ho_Chi_Minh')::date then return 0; end if;  -- week not over yet
+    -- the week counts as complete once any day after it has data
+    if not exists (select 1 from sales_daily where date > v_ws + 6) then return 0; end if;
   end if;
   insert into review_weeks (week_start, week_end, due_at)
   values (v_ws, v_ws + 6, ((v_ws + 7 + p_due_dow)::timestamp + p_due_time) at time zone 'Asia/Ho_Chi_Minh')
@@ -241,15 +242,16 @@ begin
   return v_n;
 end $$;
 
--- Every Monday 06:00 Vietnam time (= Sunday 23:00 UTC): freeze last week.
+-- Every hour: freeze the last complete week as soon as data for a later day
+-- exists (max date − 7 days falls in that week; already frozen weeks are skipped).
 -- Needs the pg_cron extension (Database → Extensions → pg_cron). If it is not
 -- enabled this block only prints a notice.
 do $$
 begin
   create extension if not exists pg_cron;
   perform cron.unschedule('freeze-review-week') where exists (select 1 from cron.job where jobname = 'freeze-review-week');
-  perform cron.schedule('freeze-review-week', '0 23 * * 0',
-    $job$select freeze_review_week((now() at time zone 'Asia/Ho_Chi_Minh')::date - 7)$job$);
+  perform cron.schedule('freeze-review-week', '20 * * * *',
+    $job$select freeze_review_week((select max(date) from sales_daily) - 7)$job$);
 exception when others then
   raise notice 'pg_cron not available (%). Freeze weeks manually: select freeze_review_week(''2026-09-20'');', sqlerrm;
 end $$;
