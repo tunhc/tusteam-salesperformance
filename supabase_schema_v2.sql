@@ -140,8 +140,14 @@ create table if not exists weekly_review_versions (
   action_text    text,
   status         text,
   is_late        boolean not null,
-  saved_at       timestamptz not null default now()
+  saved_at       timestamptz not null default now(),
+  owner          text,
+  main_pl        text,
+  week_start     date
 );
+alter table weekly_review_versions add column if not exists owner text;
+alter table weekly_review_versions add column if not exists main_pl text;
+alter table weekly_review_versions add column if not exists week_start date;
 
 create table if not exists review_actions (
   id             bigint generated always as identity primary key,
@@ -164,6 +170,8 @@ begin
   -- bulk import of historical notes keeps is_late as given
   if coalesce(current_setting('app.import_notes', true), 'off') = 'on' then return new; end if;
   select due_at into v_due from review_weeks where week_start = new.week_start;
+  -- week row not created yet (e.g. notes entered early): default deadline = Tuesday 17:00 (VN) after the week
+  if v_due is null then v_due := ((new.week_start + 9)::timestamp + time '17:00') at time zone 'Asia/Ho_Chi_Minh'; end if;
   new.is_late := (tg_op = 'UPDATE' and old.is_late) or (v_due is not null and now() > v_due);
   new.updated_at := now();
   return new;
@@ -171,8 +179,8 @@ end $$;
 
 create or replace function trg_weekly_review_version() returns trigger language plpgsql as $$
 begin
-  insert into weekly_review_versions(review_id, issue_text, action_text, status, is_late)
-  values (new.id, new.issue_text, new.action_text, new.status, new.is_late);
+  insert into weekly_review_versions(review_id, issue_text, action_text, status, is_late, owner, main_pl, week_start)
+  values (new.id, new.issue_text, new.action_text, new.status, new.is_late, new.owner, new.main_pl, new.week_start);
   return null;
 end $$;
 
@@ -186,7 +194,7 @@ create trigger weekly_review_version after insert or update on weekly_reviews
 -- Snapshot one Sun→Sat week into review_snapshot (per SKU, with prior week and
 -- a pro-rated weekly target). Re-running with p_force = true refreshes it.
 create or replace function freeze_review_week(p_week_start date, p_force boolean default false,
-                                              p_due_dow int default 2, p_due_time time default '12:00')
+                                              p_due_dow int default 2, p_due_time time default '17:00')
 returns int language plpgsql as $$
 declare v_ws date := p_week_start - extract(dow from p_week_start)::int;  -- snap to Sunday
         v_frozen timestamptz; v_n int;
