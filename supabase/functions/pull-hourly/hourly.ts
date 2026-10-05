@@ -47,14 +47,31 @@ const DATE_KEYS = ["date", "order_date", "report_date", "day"];
 const GLANCE_KEYS = ["glance_views", "glance_view", "glanceviews"];
 
 // Streaming version: feed rows one at a time (keys already normalized).
-export function makeAggregator(managed: Set<string>, sourceFile: string, hasGmv: boolean) {
+// dateKey: the header holding the day (see pickDateKey). Skips are counted per
+// reason, with one sample row, so a 0-row load says why.
+// SKU match ignores case and invisible characters (some skus rows carry a zero-width space).
+export const skuKey = (v: unknown) => String(v ?? "").replace(/[\u200b-\u200d\ufeff\s]/g, "").toUpperCase();
+
+// managed: our SKU codes; file SKUs are matched with skuKey and stored under our spelling.
+export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string, hasGmv: boolean, dateKey = "date") {
+  const managed = new Map<string, string>();
+  for (const s of managedSkus) if (!managed.has(skuKey(s))) managed.set(skuKey(s), s);
   const agg = new Map<string, DayRow>();
   let rowsIn = 0, skipped = 0;
+  const sample: Record<string, Row> = {}; // first skipped row per reason
+  const why = { noSku: 0, noDate: 0, unmanagedSku: 0 };
   const add = (r: Row) => {
     rowsIn++;
-    const sku = String(r.sku ?? "").trim();
-    const date = isoDate(first(r, DATE_KEYS));
-    if (!sku || !date || !managed.has(sku)) { skipped++; return; }
+    const raw = skuKey(r.sku);
+    const sku = managed.get(raw);
+    const date = isoDate(r[dateKey]);
+    if (!sku || !date) {
+      skipped++;
+      const reason = !raw ? "noSku" : !sku ? "unmanagedSku" : "noDate";
+      why[reason]++;
+      sample[reason] ??= r;
+      return;
+    }
     const k = sku + "|" + date;
     let a = agg.get(k);
     if (!a) {
@@ -81,9 +98,14 @@ export function makeAggregator(managed: Set<string>, sourceFile: string, hasGmv:
       for (const [k, v] of Object.entries(o)) if (typeof v === "number") o[k] = r2(v);
       return o as DayRow;
     });
-    return { out, rowsIn, skipped, gmvColumn: hasGmv ? "ordered_gmv" : "ordered_nmv" };
+    return { out, rowsIn, skipped, why, sample, gmvColumn: hasGmv ? "ordered_gmv" : "ordered_nmv" };
   };
   return { add, finish };
+}
+
+// Day column: a known name, else the first header containing "date", else "day"/"time".
+export function pickDateKey(keys: string[]): string | undefined {
+  return DATE_KEYS.find((k) => keys.includes(k)) ?? keys.find((k) => k.includes("date")) ?? keys.find((k) => /day|time/.test(k));
 }
 
 // Header names (normalized) the aggregator reads; other columns are ignored.
@@ -97,8 +119,9 @@ export const USED_KEYS = new Set([
 export { normKey };
 
 // rows must already be normalize()d
-export function aggregate(rows: Row[], managed: Set<string>, sourceFile: string) {
-  const a = makeAggregator(managed, sourceFile, rows.length > 0 && "ordered_gmv" in rows[0]);
+export function aggregate(rows: Row[], managed: Iterable<string>, sourceFile: string) {
+  const keys = rows.length ? Object.keys(rows[0]) : [];
+  const a = makeAggregator(managed, sourceFile, keys.includes("ordered_gmv"), pickDateKey(keys));
   for (const r of rows) a.add(r);
   return a.finish();
 }

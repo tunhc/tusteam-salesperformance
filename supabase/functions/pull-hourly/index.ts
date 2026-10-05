@@ -21,7 +21,7 @@
 // Optional: HOURLY_SHEET (default: the first sheet with a "sku" column).
 // The workbook is read with the streaming reader in xlsx.ts (SheetJS ran out of memory).
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { downloadUrls, graphShareId, makeAggregator, normKey, perDay, USED_KEYS, type Row } from "./hourly.ts";
+import { downloadUrls, graphShareId, makeAggregator, normKey, perDay, pickDateKey, USED_KEYS, type Row } from "./hourly.ts";
 import { readSheetRows } from "./xlsx.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -121,19 +121,21 @@ Deno.serve(async (req) => {
 
     const { data: skus, error: skuErr } = await db.from("skus").select("sku");
     if (skuErr) throw new Error(skuErr.message);
-    const managed = new Set((skus ?? []).map((s: { sku: string }) => s.sku));
+    const managed = (skus ?? []).map((s: { sku: string }) => s.sku);
 
     // Stream the sheet: only the columns the aggregator reads are kept per row.
-    let agg: ReturnType<typeof makeAggregator> | null = null, cols: [number, string][] = [], columns: string[] = [];
+    let agg: ReturnType<typeof makeAggregator> | null = null, cols: [number, string][] = [], columns: string[] = [], dateKey = "";
     const found = await readSheetRows(bytes, (header) => {
       const keys = header.map(normKey);
       if (!keys.includes("sku")) return false;
       if (!keys.includes("ordered_units") || !(keys.includes("ordered_gmv") || keys.includes("ordered_nmv"))) {
         throw new Error(`Sheet thiếu cột ordered_units / ordered_gmv / ordered_nmv (có: ${keys.join(", ")})`);
       }
+      dateKey = pickDateKey(keys) ?? "";
+      if (!dateKey) throw new Error(`Sheet không có cột ngày (có: ${keys.join(", ")})`);
       columns = keys;
-      cols = keys.map((k, i) => [i, k] as [number, string]).filter(([, k]) => USED_KEYS.has(k));
-      agg = makeAggregator(managed, source, keys.includes("ordered_gmv"));
+      cols = keys.map((k, i) => [i, k] as [number, string]).filter(([, k]) => USED_KEYS.has(k) || k === dateKey);
+      agg = makeAggregator(managed, source, keys.includes("ordered_gmv"), dateKey);
       return cols.map(([i]) => i);
     }, (cells) => {
       const r: Row = {};
@@ -141,11 +143,15 @@ Deno.serve(async (req) => {
       agg!.add(r);
     }, Deno.env.get("HOURLY_SHEET") || undefined);
     if (!found || !agg) throw new Error("Không tìm thấy sheet nào có cột sku");
-    const { out, rowsIn, skipped, gmvColumn } = (agg as ReturnType<typeof makeAggregator>).finish();
+    const { out, rowsIn, skipped, why, sample, gmvColumn } = (agg as ReturnType<typeof makeAggregator>).finish();
     const sheetName = found.sheet;
-    const info = { sheet: sheetName, gmvColumn, rowsIn, skippedUnmanaged: skipped, skuDays: out.length, days: perDay(out) };
-    if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns, ...info });
-    if (!out.length) { await logError(`Không có dòng nào của SKU đang quản lý (${rowsIn} dòng trong file)`); return json({ ok: false, ...info }, 422); }
+    const info = { sheet: sheetName, dateColumn: dateKey, gmvColumn, rowsIn, skipped, skippedWhy: why, skuDays: out.length, days: perDay(out) };
+    if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns, sampleSkipped: sample, ...info });
+    if (!out.length) {
+      await logError(`Không có dòng nào nạp được (${rowsIn} dòng; thiếu sku ${why.noSku}, không đọc được ngày ${why.noDate}, SKU không quản lý ${why.unmanagedSku}). ` +
+        `Cột ngày: ${dateKey}. Dòng mẫu: ${JSON.stringify(sample)}. Cột: ${columns.join(", ")}`);
+      return json({ ok: false, columns, sampleSkipped: sample, ...info }, 422);
+    }
 
     const { data, error } = await db.rpc("replace_sales_days", { p_rows: out, p_source: source, p_hash: hash });
     if (error) throw new Error(error.message);
