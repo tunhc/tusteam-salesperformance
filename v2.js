@@ -909,7 +909,7 @@ function wrBuild(){
     <div class="fld"><label for="wrWeek">Tuần review (CN → T7)</label><select id="wrWeek" style="min-width:300px"></select></div>
     <div class="fld"><label for="wrPic">PIC</label><select id="wrPic"><option value="">Tất cả PIC</option></select></div>
     <div class="fld"><label for="wrPlSel">Product line</label><select id="wrPlSel" style="min-width:200px"></select></div>
-    <button class="btn" type="button" id="wrFreeze" title="Khóa số liệu tuần đã đủ 7 ngày để số không đổi khi data hourly/daily cập nhật sau đó. Hệ thống tự khóa ngay khi có data của ngày sau tuần.">Khóa số liệu tuần (snapshot)</button>
+    <button class="btn" type="button" id="wrFreeze" title="Khóa số liệu tuần đã đủ 7 ngày để số không đổi khi data hourly/daily cập nhật sau đó. Hệ thống tự khóa khi đã có data thứ Hai tuần sau.">Khóa số liệu tuần (snapshot)</button>
     <span class="result-count" id="wrStatus"></span>
   </div>
   <div class="v2-note" id="wrRule" style="margin:-4px 2px 10px"></div>
@@ -960,8 +960,8 @@ async function loadWeek(ws){
   const we = addDaysIso(ws, 6); const today = todayISO();
   let frozen = null;
   try { const {data} = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = data && data[0] && data[0].frozen_at ? data[0] : null; } catch(e){}
-  // auto-freeze as soon as a day after the week has data (the week is complete)
-  if(!frozen && ((V2.state.maxDate && V2.state.maxDate > we) || new Date() >= snapOf(ws))){
+  // auto-freeze once Monday after the week has data (weekend numbers have settled)
+  if(!frozen && ((V2.state.maxDate && V2.state.maxDate > addDaysIso(ws, 7)) || new Date() >= snapOf(ws))){
     try { const {data} = await sb.rpc('freeze_review_week', {p_week_start: ws}); if(data){ const r = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = r.data && r.data[0]; } } catch(e){}
   }
   const bySku = new Map();
@@ -998,15 +998,15 @@ async function renderWR(){
   catch(e){ const ids = WR.reviews.filter(r => r.week_start === WR.ws).map(r => r.id); try { WR.versions = ids.length ? await selectAll('weekly_review_versions', q => q.in('review_id', ids)) : []; } catch(_){ WR.versions = []; } }
   try { WR.ai = (await selectAll('ai_recommendations', q => q.eq('scope', 'main_pl').gte('as_of', WR.ws))).filter(a => String(a.scope_key).includes(' · ' + WR.ws)); } catch(e){ WR.ai = []; }
   $('#wrStatus').innerHTML = WR.data.frozen ? `<span class="badge green">Đã khóa ${new Date(WR.data.frozen.frozen_at).toLocaleString('vi-VN')}</span>` : `<span class="badge amber">Chưa khóa · số liệu live tới ${dm(WR.data.liveTo)}</span>`;
-  $('#wrFreeze').disabled = !!WR.data.frozen || !(V2.state.maxDate > addDaysIso(WR.ws, 6));
+  $('#wrFreeze').disabled = !!WR.data.frozen || !(V2.state.maxDate > addDaysIso(WR.ws, 7));
   wrLock(); wrTable(); wrPlSelect(); wrEditor(); wrHub(); wrPanels(); WRdirty = false;
 }
 function wrLock(){
   const ws = WR.ws, we = addDaysIso(ws, 6), snap = snapOf(ws), due = dueOf(ws), now = new Date();
-  const complete = (V2.state.maxDate || '') > we;
+  const complete = (V2.state.maxDate || '') > addDaysIso(ws, 7);
   const phase = !complete ? 0 : !(WR.data && WR.data.frozen) ? 1 : now < due ? 2 : 3;
   const fdt = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  const steps = [['Tuần bán hàng', dm(ws) + ' → ' + dm(we), 'Data còn cập nhật, số còn thay đổi'], ['Khóa số liệu (snapshot)', WR.data && WR.data.frozen ? fdt(new Date(WR.data.frozen.frozen_at)) : 'khi có data ' + dm(addDaysIso(ws, 7)), 'Tự khóa ngay khi data đã sang ngày đầu tuần sau (kiểm tra mỗi giờ)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
+  const steps = [['Tuần bán hàng', dm(ws) + ' → ' + dm(we), 'Data còn cập nhật, số còn thay đổi'], ['Khóa số liệu (snapshot)', WR.data && WR.data.frozen ? fdt(new Date(WR.data.frozen.frozen_at)) : 'khi có data T2 ' + dm(addDaysIso(ws, 8)), 'Tự khóa khi đã có data thứ Hai tuần sau, để số T7/CN kịp cập nhật đủ (kiểm tra mỗi giờ)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
   $('#wrLock').innerHTML = steps.map((s, i) => `<div class="step ${i < phase ? 'done' : ''} ${i === phase ? 'now' : ''}"><span class="lbl" style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase">${s[0]}</span><span class="when">${s[1]}</span><span class="v2-note">${s[2]}${i === phase ? ' · <b>đang ở bước này</b>' : ''}</span></div>`).join('');
 }
 function wrPlStats(picArg){
