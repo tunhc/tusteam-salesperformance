@@ -56,6 +56,46 @@ css.textContent = `
 .rs-tbl>summary::before{content:'▸';color:var(--muted)}.rs-tbl[open]>summary::before{content:'▾'}.rs-tbl>summary .n{margin-left:auto;font-weight:600;color:var(--muted);font-size:11.5px;white-space:nowrap}
 .rs-tw{overflow:auto;max-height:440px;border-top:1px solid var(--line)}.rs-tw table{border-collapse:collapse;width:100%;font-size:12px}.rs-tw th{position:sticky;top:0;background:#F4F6F9;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:800;color:var(--navy)}
 .rs-tw td{padding:5px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top;white-space:normal;min-width:56px;max-width:340px;overflow-wrap:anywhere}.rs-tw td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.rs-empty{color:var(--muted);padding:10px 2px}
+
+.live{--bg:#0B1220;--bg2:#121B2E;--ink:#E8EEF7;--mute:#8A97AD;--line:#223049;--gmv:#d95926;--gmv2:#FF8A3D;--mkt:#3987e5;--ok:#199e70;
+  background:radial-gradient(120% 140% at 0% 0%,#16223B 0%,var(--bg) 55%,#070C16 100%);color:var(--ink);border-radius:18px;padding:18px 20px 16px;margin:0 0 18px;box-shadow:0 18px 40px rgba(7,12,22,.35);border:1px solid #1C2840;position:relative;overflow:hidden}
+.live:before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.018) 0 1px,transparent 1px 64px);pointer-events:none}
+.live-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:relative}
+.live-h h2{margin:0;font-size:17px;letter-spacing:.6px;font-weight:900;text-transform:uppercase}
+.live-h h2 em{font-style:normal;color:var(--gmv2)}
+.live-dot{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:#FF6B5B;letter-spacing:1px}
+.live-dot:before{content:'';width:8px;height:8px;border-radius:50%;background:#FF4D3A;box-shadow:0 0 0 0 rgba(255,77,58,.7);animation:livePulse 1.6s infinite}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(255,77,58,.6)}70%{box-shadow:0 0 0 9px rgba(255,77,58,0)}100%{box-shadow:0 0 0 0 rgba(255,77,58,0)}}
+.live-sub{color:var(--mute);font-size:12px}
+.live-ctl{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.live-ctl select,.live-ctl button{background:#16213A;color:var(--ink);border:1px solid #2A3A5A;border-radius:9px;padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer}
+.live-ctl button.on{background:var(--gmv);border-color:var(--gmv);color:#fff}
+.live-ctl button:focus-visible,.live-ctl select:focus-visible{outline:2px solid var(--gmv2);outline-offset:2px}
+.live-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:14px 0 6px;position:relative}
+.live-k{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.live-k .k{font-size:10.5px;color:var(--mute);font-weight:800;letter-spacing:.6px;text-transform:uppercase}
+.live-k .v{font-size:22px;font-weight:900;margin-top:2px;font-variant-numeric:tabular-nums}
+.live-k .v.gmv{color:var(--gmv2);font-size:28px;text-shadow:0 0 18px rgba(255,138,61,.35)}
+.live-k .d{font-size:11.5px;color:var(--mute);margin-top:2px}.live-k .d b.up{color:#3FD39B}.live-k .d b.dn{color:#FF7A6B}
+.live-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px;position:relative}
+.live-card{background:rgba(255,255,255,.025);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.live-card h3{margin:0 0 2px;font-size:13px;font-weight:800;color:var(--ink)}.live-card .hint{color:var(--mute);font-size:11.5px;margin-bottom:8px}
+.lane{display:grid;grid-template-columns:150px minmax(0,1fr) 128px;gap:10px;align-items:center;padding:7px 0;border-bottom:1px dashed #1E2B44}
+.lane:last-child{border-bottom:0}
+.lane .nm{font-weight:800;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lane .nm small{display:block;color:var(--mute);font-weight:600;font-size:10.5px}
+.track{position:relative;height:26px;border-radius:13px;background:linear-gradient(90deg,#0F1729,#152038);border:1px solid #22314F;overflow:visible}
+.track .fill{position:absolute;left:0;top:0;bottom:0;border-radius:13px;background:linear-gradient(90deg,rgba(217,89,38,.25),var(--gmv) 70%,var(--gmv2));transition:width .55s cubic-bezier(.2,.8,.2,1);max-width:100%}
+.track .runner{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#fff;color:#0B1220;font-weight:900;font-size:11px;display:grid;place-items:center;box-shadow:0 0 0 3px var(--gmv),0 0 16px rgba(255,138,61,.65);transition:left .55s cubic-bezier(.2,.8,.2,1);z-index:2}
+.lane.lead .runner{box-shadow:0 0 0 3px #F5C542,0 0 22px rgba(245,197,66,.85)}
+.track .pace{position:absolute;top:-4px;bottom:-4px;width:2px;background:#9FB3D1;opacity:.75;border-radius:2px;z-index:1}
+.track .flag{position:absolute;right:-2px;top:-9px;font-size:13px}
+.lane .num{text-align:right;font-variant-numeric:tabular-nums}.lane .num b{font-size:14px}.lane .num small{display:block;color:var(--mute);font-size:10.5px}
+.live-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;position:relative}
+.live .plot{height:300px}.live .plot.sm{height:330px}
+.live-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--mute);margin-top:6px}.live-legend span:before{content:'';display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle;background:var(--c)}
+.live-empty{color:var(--mute);padding:18px 4px}
+@media (max-width:900px){.live-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.live-grid,.live-row{grid-template-columns:1fr}.lane{grid-template-columns:96px minmax(0,1fr) 92px}}
+@media (prefers-reduced-motion:reduce){.track .fill,.track .runner{transition:none}.live-dot:before{animation:none}}
 `;
 document.head.appendChild(css);
 
@@ -550,7 +590,146 @@ function rsDraw(host, d){
   body.querySelectorAll('details.rs-tbl').forEach(det => { if(det.open) fill(det); det.addEventListener('toggle', () => { if(det.open){ RS.open.add(det.dataset.id); fill(det); } else RS.open.delete(det.dataset.id); }); });
 }
 
-V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); };
+
+// =====================================================================
+// Tracking: live race (hour-level sales, dark panel)
+// =====================================================================
+const LV = {date:null, dates:[], by:'pic', rows:null, key:'', hour:null, timer:null, playing:false};
+const LIVE_C = {gmv:'#d95926', gmv2:'#FF8A3D', mkt:'#3987e5', ok:'#199e70', ink:'#E8EEF7', mute:'#8A97AD', grid:'#1E2B44', y:'#7C8BA6', w:'#5A6A86'};
+const liveLay = extra => Object.assign({paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{family:'Calibri, Segoe UI, Roboto, Arial, sans-serif', color:LIVE_C.ink, size:11.5},
+  margin:{l:48, r:14, t:8, b:34}, hoverlabel:{bgcolor:'#0F1729', bordercolor:'#2A3A5A', font:{color:LIVE_C.ink, size:12}}, showlegend:false}, extra || {});
+const liveAx = extra => Object.assign({gridcolor:LIVE_C.grid, zeroline:false, linecolor:'#2A3A5A', tickfont:{color:LIVE_C.mute, size:10.5}}, extra || {});
+async function liveLoad(){
+  const h = H();
+  if(!LV.dates.length){
+    const r = await sb.from('sales_hourly').select('date').order('date', {ascending:false}).limit(1);
+    if(r.error) throw r.error;
+    const last = r.data && r.data[0] && r.data[0].date; if(!last) return false;
+    LV.dates = Array.from({length:7}, (_, i) => addDaysIso(last, -i)); LV.date = last;
+    // just past midnight (US) the new day is nearly empty: open the previous day until 06h is in
+    const hr = await sb.from('sales_hourly').select('hour').eq('date', last).order('hour', {ascending:false}).limit(1);
+    if(!hr.error && hr.data && hr.data[0] && +hr.data[0].hour < 5) LV.date = addDaysIso(last, -1);
+  }
+  const want = [LV.date, addDaysIso(LV.date, -1), addDaysIso(LV.date, -7)], key = want.join('|');
+  if(LV.key !== key){ LV.rows = await h.selectAll('sales_hourly', q => q.in('date', want)); LV.key = key; }
+  return true;
+}
+function liveAgg(rows){ const a = {units:0, gmv:0, ads:0, promo:0, clicks:0, gv:0}; rows.forEach(r => { a.units += +r.units || 0; a.gmv += +r.gmv || 0; a.ads += +r.ads || 0; a.promo += +r.promo || 0; a.clicks += +r.clicks || 0; a.gv += +r.glance_views || 0; }); a.mkt = a.ads + a.promo; return a; }
+function liveCum(rows, upto){ const by = Array(24).fill(0); rows.forEach(r => { by[+r.hour] += +r.gmv || 0; }); let c = 0; return by.map((v, i) => i <= upto ? (c += v) : null); }
+V3.renderLive = async function(){
+  const host = document.getElementById('liveRace'); if(!host) return;
+  const h = H();
+  try { if(!(await liveLoad())){ host.innerHTML = ''; return; } }
+  catch(e){ host.innerHTML = h.missingSchema(e) ? '' : `<div class="live"><div class="live-empty">Không tải được số theo giờ: ${h.esc(e.message || e)}</div></div>`; return; }
+  const d0 = LV.date, d1 = addDaysIso(d0, -1), d7 = addDaysIso(d0, -7);
+  const today = LV.rows.filter(r => r.date === d0), yday = LV.rows.filter(r => r.date === d1), lw = LV.rows.filter(r => r.date === d7);
+  const lastHour = today.length ? Math.max(...today.map(r => +r.hour)) : -1;
+  if(!host.dataset.built){
+    host.dataset.built = '1';
+    host.innerHTML = `<div class="live" role="region" aria-label="Live race theo giờ">
+      <div class="live-h"><span class="live-dot">LIVE</span><h2>Prime Fall · <em>Live race</em></h2><span class="live-sub" id="lvSub"></span>
+        <div class="live-ctl"><select id="lvDate" aria-label="Ngày"></select>
+          <button type="button" data-by="pic">Theo PIC</button><button type="button" data-by="pl">Theo Product line</button>
+          <button type="button" id="lvPlay" title="Phát lại cuộc đua từ 0h">▶ Replay</button></div></div>
+      <div class="live-kpis" id="lvKpis"></div>
+      <div class="live-grid"><div class="live-card"><h3>Đường đua GMV</h3><div class="hint" id="lvLaneHint"></div><div id="lvLanes"></div></div>
+        <div class="live-card"><h3>GMV cộng dồn theo giờ</h3><div class="hint">Đường cam = ngày đang xem · nét đứt = hôm trước · chấm = cùng ngày tuần trước.</div><div id="lvCum" class="plot"></div>
+          <div class="live-legend"><span style="--c:${LIVE_C.gmv2}">Hôm nay</span><span style="--c:${LIVE_C.y}">Hôm trước</span><span style="--c:${LIVE_C.w}">Tuần trước</span></div></div></div>
+      <div class="live-row"><div class="live-card"><h3>Top Product line · GMV</h3><div class="hint">Trong ngày đang xem, tới giờ mới nhất. Rê chuột để xem SKU bán chạy nhất.</div><div id="lvTopG" class="plot sm"></div></div>
+        <div class="live-card"><h3>Top Product line · MKT spend</h3><div class="hint">Ads + promo; nhãn là %MKT/GMV — cao là đang đốt tiền. Rê chuột để xem SKU tốn nhất.</div><div id="lvTopM" class="plot sm"></div></div></div></div>`;
+    host.querySelector('#lvDate').onchange = e => { LV.date = e.target.value; LV.hour = null; V3.renderLive(); };
+    host.querySelectorAll('[data-by]').forEach(b => b.onclick = () => { LV.by = b.dataset.by; V3.renderLive(); });
+    host.querySelector('#lvPlay').onclick = () => liveReplay();
+    if(!LV.timer) LV.timer = setInterval(() => { if(document.visibilityState === 'visible' && V2.activeTab === 'sales' && !LV.playing){ LV.key = ''; LV.dates = []; V3.renderLive(); } }, 10 * 60 * 1000);
+  }
+  const sel = host.querySelector('#lvDate');
+  sel.innerHTML = LV.dates.map(d => `<option value="${d}" ${d === d0 ? 'selected' : ''}>${['CN','T2','T3','T4','T5','T6','T7'][new Date(d + 'T00:00:00').getDay()]} ${h.dm(d)}</option>`).join('');
+  host.querySelectorAll('[data-by]').forEach(b => b.classList.toggle('on', b.dataset.by === LV.by));
+  host.querySelector('#lvSub').textContent = lastHour >= 0 ? `cập nhật tới ${String(lastHour).padStart(2, '0')}:59 (giờ local của file) · tự làm mới 10 phút/lần` : 'chưa có số cho ngày này';
+  const upto = LV.hour === null ? lastHour : LV.hour;
+  liveKpis(today, yday, upto);
+  liveLanes(today, yday, upto, d0);
+  // cumulative chart
+  const x = Array.from({length:24}, (_, i) => i);
+  h.draw('lvCum', [
+    {type:'scatter', mode:'lines', x, y:liveCum(lw, 23), name:'Tuần trước', line:{color:LIVE_C.w, width:1.6, dash:'dot'}, hovertemplate:'Tuần trước %{x}h: %{y:$,.0f}<extra></extra>'},
+    {type:'scatter', mode:'lines', x, y:liveCum(yday, 23), name:'Hôm trước', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Hôm trước %{x}h: %{y:$,.0f}<extra></extra>'},
+    {type:'scatter', mode:'lines+markers', x, y:liveCum(today, upto), name:'Hôm nay', line:{color:LIVE_C.gmv2, width:3, shape:'spline'}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)', hovertemplate:'Hôm nay %{x}h: %{y:$,.0f}<extra></extra>'},
+  ], liveLay({xaxis:liveAx({range:[-0.3, 23.3], dtick:3, ticksuffix:'h'}), yaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), hovermode:'x unified'}));
+  // top SKUs
+  // top product lines (SKU detail in the tooltip)
+  const byPl = new Map(); today.filter(r => +r.hour <= upto).forEach(r => { const k = h.skuInfo(r.sku); const pl = (k && k.mainPL) || 'Unclassified';
+    const a = byPl.get(pl) || {pl, gmv:0, mkt:0, sk:new Map()}; const g = +r.gmv || 0, m = (+r.ads || 0) + (+r.promo || 0); a.gmv += g; a.mkt += m;
+    const x = a.sk.get(r.sku) || {gmv:0, mkt:0}; x.gmv += g; x.mkt += m; a.sk.set(r.sku, x); byPl.set(pl, a); });
+  const narrow = (document.getElementById('lvTopG') || {}).clientWidth < 520;
+  const lab = s => narrow && s.pl.length > 14 ? s.pl.slice(0, 13) + '…' : s.pl;
+  const topSk = (s, key) => [...s.sk].sort((a, b) => b[1][key] - a[1][key]).slice(0, 3).filter(([, v]) => v[key] > 0).map(([sku, v]) => sku + ' $' + Math.round(v[key]).toLocaleString('en-US')).join(' · ') || '—';
+  const tg = [...byPl.values()].filter(s => s.gmv > 0).sort((a, b) => b.gmv - a.gmv).slice(0, 10).reverse();
+  const tm = [...byPl.values()].filter(s => s.mkt > 0).sort((a, b) => b.mkt - a.mkt).slice(0, 10).reverse();
+  const barLay = () => liveLay({margin:{l:narrow ? 100 : 170, r:narrow ? 70 : 84, t:4, b:26}, xaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), yaxis:liveAx({automargin:false, tickfont:{color:LIVE_C.ink, size:11.5}}), bargap:.35});
+  if(tg.length) h.draw('lvTopG', [{type:'bar', orientation:'h', y:tg.map(lab), x:tg.map(s => s.gmv), marker:{color:LIVE_C.gmv, line:{color:'#0B1220', width:2}}, text:tg.map(s => '$' + Math.round(s.gmv).toLocaleString('en-US')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
+    customdata:tg.map(s => [s.mkt, s.gmv ? s.mkt / s.gmv : 0, s.pl, topSk(s, 'gmv')]), hovertemplate:'<b>%{customdata[2]}</b><br>GMV %{x:$,.0f}<br>MKT %{customdata[0]:$,.0f} (%{customdata[1]:.0%})<br>Top SKU: %{customdata[3]}<extra></extra>'}], barLay());
+  else document.getElementById('lvTopG').innerHTML = '<div class="live-empty">Chưa có doanh số.</div>';
+  if(tm.length) h.draw('lvTopM', [{type:'bar', orientation:'h', y:tm.map(lab), x:tm.map(s => s.mkt), marker:{color:LIVE_C.mkt, line:{color:'#0B1220', width:2}}, text:tm.map(s => '$' + Math.round(s.mkt).toLocaleString('en-US') + (s.gmv ? ' · ' + Math.round(s.mkt / s.gmv * 100) + '%' : ' · no GMV')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
+    customdata:tm.map(s => [s.gmv, s.pl, topSk(s, 'mkt')]), hovertemplate:'<b>%{customdata[1]}</b><br>MKT %{x:$,.0f}<br>GMV %{customdata[0]:$,.0f}<br>Tốn nhất: %{customdata[2]}<extra></extra>'}], barLay());
+  else document.getElementById('lvTopM').innerHTML = '<div class="live-empty">Chưa có chi phí MKT.</div>';
+};
+function liveKpis(today, yday, upto){
+  const h = H();
+  const t = liveAgg(today.filter(r => +r.hour <= upto)), y = liveAgg(yday.filter(r => +r.hour <= upto));
+  const dl = (a, b, inv) => { if(!b) return ''; const p = a / b - 1; const good = inv ? p < 0 : p > 0; return `<b class="${good ? 'up' : 'dn'}">${p > 0 ? '▲' : '▼'} ${Math.abs(p * 100).toFixed(1)}%</b> vs cùng giờ hôm trước`; };
+  const cr = t.gv ? t.units / t.gv : NaN;
+  document.getElementById('lvKpis').innerHTML = [
+    ['GMV tới ' + String(Math.max(upto, 0)).padStart(2, '0') + 'h', '$' + Math.round(t.gmv).toLocaleString('en-US'), dl(t.gmv, y.gmv), 'gmv'],
+    ['Units', Math.round(t.units).toLocaleString('en-US'), dl(t.units, y.units)],
+    ['MKT spend', '$' + Math.round(t.mkt).toLocaleString('en-US'), dl(t.mkt, y.mkt, true)],
+    ['%MKT / GMV', t.gmv ? (t.mkt / t.gmv * 100).toFixed(1) + '%' : '—', y.gmv ? 'hôm trước ' + (y.mkt / y.gmv * 100).toFixed(1) + '%' : ''],
+    ['CR (units/GV)', isFinite(cr) ? (cr * 100).toFixed(2) + '%' : '—', t.gv ? Math.round(t.gv).toLocaleString('en-US') + ' glance views' : ''],
+  ].map(([k, v, d, c]) => `<div class="live-k"><div class="k">${k}</div><div class="v ${c || ''}">${v}</div><div class="d">${d || '&nbsp;'}</div></div>`).join('');
+}
+function liveLanes(today, yday, upto, d0){
+  const h = H();
+  const groupOf = sku => { const k = h.skuInfo(sku); return !k ? 'Khác' : LV.by === 'pic' ? (k.pic || 'Unassigned') : (k.mainPL || 'Unclassified'); };
+  // daily target per group: monthly target ÷ days, when the loaded month is the race day's month
+  const month = (document.getElementById('fMonth') || {}).value || '';
+  const sameMonth = month && month.slice(0, 7) === d0.slice(0, 7);
+  const dim = new Date(+d0.slice(0, 4), +d0.slice(5, 7), 0).getDate();
+  const tgt = new Map(); if(sameMonth) ROWS.forEach(r => { const g = LV.by === 'pic' ? (r.pic || 'Unassigned') : (r.mainPL || 'Unclassified'); tgt.set(g, (tgt.get(g) || 0) + (r.targetGMV || 0) / dim); });
+  // pace: share of the day's GMV normally done by this hour (yesterday's curve)
+  const yc = liveCum(yday, 23), ytot = yc[23] || 0, pace = ytot ? (yc[Math.max(upto, 0)] || 0) / ytot : (upto + 1) / 24;
+  const g = new Map(); today.filter(r => +r.hour <= upto).forEach(r => { const k = groupOf(r.sku); const a = g.get(k) || {k, gmv:0, mkt:0}; a.gmv += +r.gmv || 0; a.mkt += (+r.ads || 0) + (+r.promo || 0); g.set(k, a); });
+  tgt.forEach((v, k) => { if(!g.has(k) && v > 50) g.set(k, {k, gmv:0, mkt:0}); });
+  let list = [...g.values()].map(a => ({...a, t: tgt.get(a.k) || 0})).filter(a => a.gmv > 0 || a.t > 0);
+  const hasT = list.some(a => a.t > 0);
+  const maxG = Math.max(1, ...list.map(a => a.gmv));
+  list.forEach(a => { a.pct = a.t ? a.gmv / a.t : NaN; a.pos = hasT ? (a.t ? Math.min(1.15, a.pct) / 1.15 : 0) : a.gmv / maxG; });
+  list.sort((a, b) => (hasT ? (isFinite(b.pct) ? b.pct : -1) - (isFinite(a.pct) ? a.pct : -1) : b.gmv - a.gmv) || b.gmv - a.gmv);
+  list = list.slice(0, LV.by === 'pic' ? 8 : 12);
+  document.getElementById('lvLaneHint').innerHTML = hasT ? `Vị trí = GMV ÷ target ngày (target tháng ÷ ${dim}). Cờ 🏁 = 100%; vạch dọc = tốc độ cần có tới giờ này (${Math.round(pace * 100)}% theo nhịp ngày hôm trước).` : 'Không có target cho tháng này: vị trí so với người dẫn đầu.';
+  const lanes = document.getElementById('lvLanes');
+  const html = list.map((a, i) => `<div class="lane${i === 0 && a.gmv > 0 ? ' lead' : ''}" data-k="${h.esc(a.k)}"><div class="nm" title="${h.esc(a.k)}">${i === 0 && a.gmv > 0 ? '🥇 ' : ''}${h.esc(a.k)}<small>MKT $${Math.round(a.mkt).toLocaleString('en-US')}${a.gmv ? ' · ' + Math.round(a.mkt / a.gmv * 100) + '%' : ''}</small></div>
+    <div class="track"><div class="fill" style="width:${(a.pos * 100).toFixed(1)}%"></div>${hasT && a.t ? `<div class="pace" style="left:${(Math.min(1.15, pace) / 1.15 * 100).toFixed(1)}%"></div><span class="flag" style="right:${(100 - 100 / 1.15).toFixed(1)}%">🏁</span>` : ''}<div class="runner" style="left:${(a.pos * 100).toFixed(1)}%">${i + 1}</div></div>
+    <div class="num"><b>$${Math.round(a.gmv).toLocaleString('en-US')}</b><small>${hasT && a.t ? Math.round(a.pct * 100) + '% target ngày' : ''}</small></div></div>`).join('');
+  // keep existing nodes so widths animate between renders
+  const same = lanes.children.length === list.length && [...lanes.children].every((c, i) => c.dataset.k === list[i].k);
+  if(same){ list.forEach((a, i) => { const c = lanes.children[i]; c.querySelector('.fill').style.width = (a.pos * 100).toFixed(1) + '%'; c.querySelector('.runner').style.left = (a.pos * 100).toFixed(1) + '%'; c.querySelector('.num').innerHTML = `<b>$${Math.round(a.gmv).toLocaleString('en-US')}</b><small>${hasT && a.t ? Math.round(a.pct * 100) + '% target ngày' : ''}</small>`; const p = c.querySelector('.pace'); if(p) p.style.left = (Math.min(1.15, pace) / 1.15 * 100).toFixed(1) + '%'; }); }
+  else lanes.innerHTML = html || '<div class="live-empty">Chưa có doanh số trong ngày này.</div>';
+}
+function liveReplay(){
+  if(LV.playing) return;
+  const today = (LV.rows || []).filter(r => r.date === LV.date); if(!today.length) return;
+  const last = Math.max(...today.map(r => +r.hour)); LV.playing = true; LV.hour = 0;
+  const btn = document.getElementById('lvPlay'); btn.classList.add('on'); btn.textContent = '■ 00h';
+  const step = () => { V3.renderLive(); btn.textContent = '■ ' + String(LV.hour).padStart(2, '0') + 'h';
+    if(LV.hour >= last){ LV.playing = false; LV.hour = null; btn.classList.remove('on'); btn.textContent = '▶ Replay'; V3.renderLive(); return; }
+    LV.hour++; setTimeout(step, 650); };
+  step();
+}
+
+// first paint and month changes (afterLoadMonth does not go through onTab)
+{ const base = V2.afterLoadMonth; V2.afterLoadMonth = async function(){ await base.apply(this, arguments); if(V2.activeTab === 'sales') V3.renderLive().catch(e => console.warn(e)); }; }
+
+V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); if(tab === 'sales') V3.renderLive(); };
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildChat); else buildChat();
 V3.parseProject = parseProject;
 })();

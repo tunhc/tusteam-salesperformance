@@ -73,6 +73,14 @@ Attach the new Excel/HTML export in a Cowork chat with Claude and ask it to inge
 
 ## Automatic hourly load (no manual upload)
 
+**Power Automate (push, works with view-only access):** Scheduled cloud flow every hour →
+SharePoint *Get file content* (the `usa_amz_sso_hourly -- usa.xlsx` file) → *HTTP* POST to
+`https://<project>.supabase.co/functions/v1/pull-hourly` with headers `x-pull-secret: <PULL_SECRET>`,
+`x-file-name: usa_amz_sso_hourly -- usa.xlsx`, body = *File Content*. Add `x-dry-run: 1` for a test run
+that writes nothing. The file has no `ordered_gmv`; GMV is taken from `ordered_nmv` until that column exists.
+
+**Pull (function downloads the link itself):**
+
 1. Run `supabase_auto_ingest.sql` in the SQL Editor (creates `ingest_runs` and `replace_sales_days`).
 2. Deploy `supabase/functions/pull-hourly/` (both files) as Edge Function `pull-hourly` with **Verify JWT off**.
 3. Edge Function secrets: `PULL_SECRET` (any long random string), `HOURLY_FILE_URL` (the Excel sharing link).
