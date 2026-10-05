@@ -135,7 +135,8 @@ Deno.serve(async (req) => {
       if (!dateKey) throw new Error(`Sheet không có cột ngày (có: ${keys.join(", ")})`);
       columns = keys;
       cols = keys.map((k, i) => [i, k] as [number, string]).filter(([, k]) => USED_KEYS.has(k) || k === dateKey);
-      agg = makeAggregator(managed, source, keys.includes("ordered_gmv"), dateKey);
+      agg = makeAggregator(managed, source, keys.includes("ordered_gmv"), dateKey,
+        { ads: keys.includes("total_ads"), promo: keys.includes("total_promo") });
       return cols.map(([i]) => i);
     }, (cells) => {
       const r: Row = {};

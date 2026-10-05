@@ -4,6 +4,8 @@
 //
 // Headers are matched case-insensitively ("Ordered_units" = "ordered_units").
 // Newer exports have no ordered_gmv column: gmv then falls back to ordered_nmv.
+// They also lack total_ads / total_promo: ads = sp+sb+sd spend, promo = deal+coupon+discount
+// (equal to the totals in older exports).
 
 export type Row = Record<string, unknown>;
 export type DayRow = {
@@ -53,7 +55,8 @@ const GLANCE_KEYS = ["glance_views", "glance_view", "glanceviews"];
 export const skuKey = (v: unknown) => String(v ?? "").replace(/[\u200b-\u200d\ufeff\s]/g, "").toUpperCase();
 
 // managed: our SKU codes; file SKUs are matched with skuKey and stored under our spelling.
-export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string, hasGmv: boolean, dateKey = "date") {
+export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string, hasGmv: boolean, dateKey = "date",
+  hasTotals = { ads: true, promo: true }) {
   const managed = new Map<string, string>();
   for (const s of managedSkus) if (!managed.has(skuKey(s))) managed.set(skuKey(s), s);
   const agg = new Map<string, DayRow>();
@@ -82,7 +85,9 @@ export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string
     }
     a.units += n(r.ordered_units); a.ordered_nmv += n(r.ordered_nmv);
     a.gmv += n(hasGmv ? r.ordered_gmv : r.ordered_nmv);
-    a.ads += n(r.total_ads); a.promo += n(r.total_promo);
+    a.ads += hasTotals.ads ? n(r.total_ads) : n(r.sp_spend) + n(r.sb_spend) + n(r.sd_spend);
+    a.promo += hasTotals.promo ? n(r.total_promo)
+      : n(r.best_deal_spend) + n(r.lightning_deal_spend) + n(r.vm_promo_spend) + n(r.coupon_spend) + n(r.price_discount_spend);
     a.ads_gmv += n(r.sb_ordered_nmv) + n(r.sd_ordered_nmv) + n(r.sp_ordered_nmv);
     a.ads_units += n(r.sb_ordered_units) + n(r.sd_ordered_units) + n(r.sp_ordered_units);
     a.total_clicks += n(r.sb_clicks) + n(r.sd_clicks) + n(r.sp_clicks);
@@ -121,7 +126,8 @@ export { normKey };
 // rows must already be normalize()d
 export function aggregate(rows: Row[], managed: Iterable<string>, sourceFile: string) {
   const keys = rows.length ? Object.keys(rows[0]) : [];
-  const a = makeAggregator(managed, sourceFile, keys.includes("ordered_gmv"), pickDateKey(keys));
+  const a = makeAggregator(managed, sourceFile, keys.includes("ordered_gmv"), pickDateKey(keys),
+    { ads: keys.includes("total_ads"), promo: keys.includes("total_promo") });
   for (const r of rows) a.add(r);
   return a.finish();
 }
