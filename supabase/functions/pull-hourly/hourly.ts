@@ -17,12 +17,16 @@ const n = (v: unknown): number => {
 };
 
 // Excel serial number, Date, or "YYYY-MM-DD..." / "M/D/YYYY" text → "YYYY-MM-DD"
+// Excel times come back as floats (e.g. 00:59:59.999 for 01:00); snap to the minute.
+const snap = (d: Date) => new Date(Math.round(d.getTime() / 60000) * 60000);
 export function isoDate(v: unknown): string | null {
   if (v instanceof Date && !isNaN(v.getTime())) {
-    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
+    v = snap(v);
+    const d = v as Date;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
   if (typeof v === "number" && v > 20000 && v < 80000) {
-    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v + 1e-6) * 86400000);
     return d.toISOString().slice(0, 10);
   }
   const s = String(v ?? "").trim();
@@ -99,4 +103,38 @@ export function downloadUrls(link: string): string[] {
 // Graph share id for a sharing link
 export function graphShareId(link: string): string {
   return "u!" + btoa(link.trim()).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+}
+
+
+// Hour-level rows (only when the export has a time of day), activity only.
+export type HourRow = { sku: string; ts: string; date: string; hour: number; units: number; gmv: number; ads: number; promo: number;
+  ads_gmv: number; clicks: number; impressions: number; glance_views: number };
+export function hourOf(v: unknown): number | null {
+  if (v instanceof Date && !isNaN(v.getTime())) return snap(v).getHours();
+  const m = String(v ?? "").match(/[ T](\d{1,2}):\d{2}/);
+  return m ? +m[1] : null;
+}
+export function aggregateHourly(rawRows: Row[], managed: Set<string>): HourRow[] {
+  const rows = rawRows.map((r) => { const o: Row = {}; for (const [k, v] of Object.entries(r)) o[k.trim().toLowerCase().replace(/\s+/g, "_")] = v; return o; });
+  const cols = new Set(rows.length ? Object.keys(rows[0]) : []);
+  const dateCol = ["date_time_local", "datetime", "date_time"].find((c) => cols.has(c));
+  if (!dateCol) return [];
+  const gmvCol = cols.has("ordered_gmv") ? "ordered_gmv" : "ordered_nmv";
+  const sum = (r: Row, ...ks: string[]) => ks.reduce((t, k) => t + n(r[k]), 0);
+  const agg = new Map<string, HourRow>();
+  for (const r of rows) {
+    const sku = String(r.sku ?? "").trim(); const date = isoDate(r[dateCol]); const hour = hourOf(r[dateCol]);
+    if (!sku || !date || hour === null || !managed.has(sku)) continue;
+    if (cols.has("country") && !/^(usa|us)$/i.test(String(r.country ?? "").trim())) continue;
+    const x = { units: n(r.ordered_units), gmv: n(r[gmvCol]), ads: cols.has("total_ads") ? n(r.total_ads) : sum(r, "sb_spend", "sd_spend", "sp_spend"),
+      promo: cols.has("total_promo") ? n(r.total_promo) : sum(r, "coupon_spend", "price_discount_spend", "lightning_deal_spend", "best_deal_spend", "vm_promo_spend"),
+      ads_gmv: sum(r, "sb_ordered_nmv", "sd_ordered_nmv", "sp_ordered_nmv"), clicks: sum(r, "sb_clicks", "sd_clicks", "sp_clicks"),
+      impressions: sum(r, "sb_impressions", "sd_impressions", "sp_impressions"), glance_views: n(r.glance_views ?? r.glance_view) };
+    const ts = `${date} ${String(hour).padStart(2, "0")}:00:00`; const k = sku + "|" + ts;
+    let a = agg.get(k);
+    if (!a) { a = { sku, ts, date, hour, units: 0, gmv: 0, ads: 0, promo: 0, ads_gmv: 0, clicks: 0, impressions: 0, glance_views: 0 }; agg.set(k, a); }
+    for (const key of Object.keys(x) as (keyof typeof x)[]) a[key] = r2(a[key] + x[key]);
+  }
+  // keep hours with some activity (impressions alone do not count)
+  return [...agg.values()].filter((a) => a.units || a.gmv || a.ads || a.promo || a.clicks || a.glance_views);
 }

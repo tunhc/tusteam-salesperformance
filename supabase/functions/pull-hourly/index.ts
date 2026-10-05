@@ -21,7 +21,7 @@
 // Optional: HOURLY_SHEET (default "hourly", else the first sheet).
 import * as XLSX from "npm:xlsx@0.18.5";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { aggregate, downloadUrls, graphShareId, type Row } from "./hourly.ts";
+import { aggregate, aggregateHourly, downloadUrls, graphShareId, type Row } from "./hourly.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -108,12 +108,19 @@ Deno.serve(async (req) => {
     const { out, rowsIn, skipped, gmvFrom } = aggregate(rows, managed, source);
     const byDay: Record<string, { skus: number; gmv: number; units: number }> = {};
     out.forEach((r) => { const d = byDay[r.date] ??= { skus: 0, gmv: 0, units: 0 }; d.skus++; d.gmv = Math.round((d.gmv + r.gmv) * 100) / 100; d.units += r.units; });
-    if (dryRun) return json({ ok: true, dryRun: true, sheet: sheetName, rowsIn, skippedUnmanaged: skipped, gmvFrom, days: byDay });
+    if (dryRun) return json({ ok: true, dryRun: true, sheet: sheetName, rowsIn, skippedUnmanaged: skipped, gmvFrom, days: byDay, hourRows: aggregateHourly(rows, managed).length });
     if (!out.length) { await logError(`Không có dòng nào của SKU đang quản lý (${rowsIn} dòng trong file)`); return json({ ok: false, rowsIn }, 422); }
 
     const { data, error } = await db.rpc("replace_sales_days", { p_rows: out, p_source: source, p_hash: hash });
     if (error) throw new Error(error.message);
-    return json({ ok: true, rowsIn, skippedUnmanaged: skipped, gmvFrom, days: byDay, ...data });
+    // hour-level rows for the live race (only when the export has a time of day)
+    const hours = aggregateHourly(rows, managed);
+    let hourRows: number | string = 0;
+    if (hours.length) {
+      const h = await db.rpc("replace_sales_hours", { p_rows: hours, p_source: source });
+      hourRows = h.error ? "lỗi: " + h.error.message : (h.data as number);
+    }
+    return json({ ok: true, rowsIn, skippedUnmanaged: skipped, gmvFrom, days: byDay, hourRows, ...data });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logError(msg);

@@ -83,3 +83,53 @@ exception when undefined_object then null; end $$;
 --
 --   -- stop: select cron.unschedule('pull-hourly');
 --   -- check: select * from ingest_runs order by ran_at desc limit 20;
+
+-- 4) Hour-level sales for the live race on the Tracking tab (only rows with
+--    some activity are stored; hours are the export's local time).
+create table if not exists sales_hourly (
+  sku          text not null,
+  ts           timestamp not null,          -- date + hour, local time of the export
+  date         date not null,
+  hour         smallint not null,
+  units        numeric not null default 0,
+  gmv          numeric not null default 0,
+  ads          numeric not null default 0,
+  promo        numeric not null default 0,
+  ads_gmv      numeric not null default 0,
+  clicks       numeric not null default 0,
+  impressions  numeric not null default 0,
+  glance_views numeric not null default 0,
+  source_file  text,
+  primary key (sku, ts)
+);
+create index if not exists idx_sales_hourly_date on sales_hourly(date);
+alter table sales_hourly enable row level security;
+drop policy if exists "public read sales_hourly" on sales_hourly;
+create policy "public read sales_hourly" on sales_hourly for select using (true);
+do $$ begin grant select on sales_hourly to ai_reader; exception when undefined_object then null; end $$;
+
+create or replace function replace_sales_hours(p_rows jsonb, p_source text default null)
+returns int language plpgsql security definer set search_path = public as $$
+declare v_days date[]; v_n int;
+begin
+  select array_agg(distinct (r->>'date')::date) into v_days from jsonb_array_elements(p_rows) r;
+  if v_days is null then return 0; end if;
+  delete from sales_hourly where date = any(v_days);
+  insert into sales_hourly (sku, ts, date, hour, units, gmv, ads, promo, ads_gmv, clicks, impressions, glance_views, source_file)
+  select r->>'sku', (r->>'ts')::timestamp, (r->>'date')::date, (r->>'hour')::smallint,
+         coalesce((r->>'units')::numeric, 0), coalesce((r->>'gmv')::numeric, 0), coalesce((r->>'ads')::numeric, 0),
+         coalesce((r->>'promo')::numeric, 0), coalesce((r->>'ads_gmv')::numeric, 0), coalesce((r->>'clicks')::numeric, 0),
+         coalesce((r->>'impressions')::numeric, 0), coalesce((r->>'glance_views')::numeric, 0), p_source
+  from jsonb_array_elements(p_rows) r
+  where exists (select 1 from skus s where s.sku = r->>'sku')
+  on conflict (sku, ts) do update set units = excluded.units, gmv = excluded.gmv, ads = excluded.ads, promo = excluded.promo,
+    ads_gmv = excluded.ads_gmv, clicks = excluded.clicks, impressions = excluded.impressions, glance_views = excluded.glance_views,
+    source_file = excluded.source_file;
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+revoke all on function replace_sales_hours(jsonb, text) from public;
+do $$ begin
+  revoke all on function replace_sales_hours(jsonb, text) from anon, authenticated;
+  grant execute on function replace_sales_hours(jsonb, text) to service_role;
+exception when undefined_object then null; end $$;

@@ -169,6 +169,42 @@ def hourly_month_rows(path, month, known_skus):
 SKU_CATEGORY = {}  # filled from --known-skus (category column) when available
 
 
+def hourly_hour_sql(path, known_skus):
+    """Hour-level rows (sales_hourly) from an export with date_time_local; None otherwise."""
+    d = pd.read_excel(path)
+    d.columns = [str(c).strip().lower().replace(" ", "_") for c in d.columns]
+    tcol = next((c for c in ("date_time_local", "datetime", "date_time") if c in d.columns), None)
+    if not tcol:
+        return None, 0
+    t = pd.to_datetime(d[tcol]).dt.round("min")
+    d["date"], d["hour"] = t.dt.date, t.dt.hour
+    if "country" in d.columns:
+        d = d[d["country"].astype(str).str.strip().str.upper().isin(["USA", "US"])]
+    d = d[d["sku"].astype(str).str.strip().isin(known_skus)].copy()
+    d["sku"] = d["sku"].astype(str).str.strip()
+    num = lambda c: pd.to_numeric(d[c], errors="coerce").fillna(0) if c in d.columns else 0
+    out = pd.DataFrame({"sku": d["sku"], "date": d["date"], "hour": d["hour"], "units": num("ordered_units"),
+                        "gmv": num("ordered_gmv") if "ordered_gmv" in d.columns else num("ordered_nmv"),
+                        "ads": num("sb_spend") + num("sd_spend") + num("sp_spend"),
+                        "promo": num("coupon_spend") + num("price_discount_spend") + num("lightning_deal_spend") + num("best_deal_spend") + num("vm_promo_spend"),
+                        "ads_gmv": num("sb_ordered_nmv") + num("sd_ordered_nmv") + num("sp_ordered_nmv"),
+                        "clicks": num("sb_clicks") + num("sd_clicks") + num("sp_clicks"),
+                        "impressions": num("sb_impressions") + num("sd_impressions") + num("sp_impressions"),
+                        "glance_views": num("glance_views") if "glance_views" in d.columns else num("glance_view")})
+    g = out.groupby(["sku", "date", "hour"], as_index=False).sum()
+    g = g[(g[["units", "gmv", "ads", "promo", "clicks", "glance_views"]] != 0).any(axis=1)]
+    g["ts"] = g.apply(lambda r: f"{r['date']} {int(r['hour']):02d}:00:00", axis=1)
+    src = re.sub(r"^[0-9a-f]{8}-", "", os.path.basename(path)).replace("_--_", " -- ").replace("_", " ")
+    g["source_file"] = src
+    recs = [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()} for r in g.to_dict("records")]
+    days = sorted({r["date"] for r in recs})
+    cols = ["sku", "ts", "date", "hour", "units", "gmv", "ads", "promo", "ads_gmv", "clicks", "impressions", "glance_views", "source_file"]
+    sql = ("-- hour-level sales for the live race; replaces " + ", ".join(map(str, days)) + "\n"
+           "delete from sales_hourly where date in (" + ", ".join(f"'{x}'" for x in days) + ");\n\n"
+           + upsert_sql("sales_hourly", cols, recs, ["sku", "ts"], batch=2000))
+    return sql, len(recs)
+
+
 def replace_days_sql(rows):
     """Replace exactly the days present in the export (other days untouched)."""
     days = sorted({r["date"] for r in rows})
@@ -815,6 +851,9 @@ def main():
             d0, d1 = min(r["date"] for r in rows), max(r["date"] for r in rows)
             name = f"12_sales_{d0:%Y_%m_%d}" + (f"_to_{d1:%Y_%m_%d}" if d1 != d0 else "") + ".sql"
             write(a.out, name, replace_days_sql(rows), header=info)
+            hsql, hn = hourly_hour_sql(a.hourly, known)
+            if hsql:
+                write_split(a.out, name[:-4].replace("12_sales", "12b_sales_hourly"), hsql, header=f"-- {hn} SKU-hour rows (activity only) · needs sales_hourly (16_auto_ingest.sql)")
         if not a.followup:
             return
     if a.market_dir and not a.followup:
