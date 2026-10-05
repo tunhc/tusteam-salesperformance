@@ -56,14 +56,19 @@ async function download(link: string): Promise<Uint8Array> {
   throw new Error("Link yêu cầu đăng nhập Microsoft nên không tải được. Cần chia sẻ link dạng 'Anyone with the link' (chỉ xem), hoặc cấu hình MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET.");
 }
 
-// Request body → xlsx bytes. Accepts raw bytes, or the {"$content": base64} JSON
-// Power Automate sends when the file content is wrapped in an object.
+// Request body → xlsx bytes. Accepts raw bytes, bare base64 text, or the
+// {"$content": base64} JSON Power Automate sends when the file content is wrapped in an object.
 // Empty body or other JSON (pg_cron's {"force": …}) → null: download instead.
 function bodyFile(b: Uint8Array): Uint8Array | null {
   if (!b.length) return null;
   if (isXlsx(b)) return b;
+  const text = new TextDecoder().decode(b).trim().replace(/^"|"$/g, "");
+  if (text.startsWith("UEsDB")) { // bare base64 of the xlsx: body('…')?['$content']
+    const bytes = Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
+    if (isXlsx(bytes)) return bytes;
+  }
   let j: unknown;
-  try { j = JSON.parse(new TextDecoder().decode(b)); } catch { j = undefined; }
+  try { j = JSON.parse(text); } catch { j = undefined; }
   if (j && typeof j === "object") {
     const o = j as { $content?: unknown; body?: { $content?: unknown } };
     const c = o.$content ?? o.body?.$content;
@@ -71,7 +76,7 @@ function bodyFile(b: Uint8Array): Uint8Array | null {
     const bytes = Uint8Array.from(atob(c), (ch) => ch.charCodeAt(0));
     if (isXlsx(bytes)) return bytes;
   }
-  throw new Error(`Body không phải file .xlsx (${b.length} bytes). Ở action HTTP, Body phải là File Content của bước Get file content.`);
+  throw new Error(`Body không phải file .xlsx (bắt đầu bằng "${text.slice(0, 40)}") (${b.length} bytes). Ở action HTTP, Body phải là File Content của bước Get file content.`);
 }
 
 Deno.serve(async (req) => {
@@ -93,7 +98,7 @@ Deno.serve(async (req) => {
     let bytes = bodyFile(raw);
     if (!bytes) {
       const link = Deno.env.get("HOURLY_FILE_URL");
-      if (!link) throw new Error("Body rỗng và HOURLY_FILE_URL chưa được cấu hình");
+      if (!link) throw new Error("Body rỗng: request không kèm file. Ở action HTTP, Body = biểu thức body('Get_file_content_using_path')?['$content']");
       try { force ||= !!JSON.parse(new TextDecoder().decode(raw))?.force; } catch { /* empty body */ }
       bytes = await download(link);
     }
