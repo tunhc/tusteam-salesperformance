@@ -94,6 +94,13 @@ css.textContent = `
 .live .plot{height:300px}.live .plot.sm{height:330px}
 .live-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--mute);margin-top:6px}.live-legend span:before{content:'';display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle;background:var(--c)}
 .live-empty{color:var(--mute);padding:18px 4px}
+.live-clock{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;padding:4px 12px;border-left:1px solid #2A3A5A;margin-left:4px}
+.live-clock .ck-t{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;color:#fff;letter-spacing:.5px}.live-clock .ck-t small{font-size:12px;color:var(--mute);font-weight:700}
+.live-clock .ck-z{font-size:10.5px;color:#7FB2F0;font-weight:800;letter-spacing:.4px}.live-clock .ck-s{font-size:10px;color:var(--mute)}
+.live-clock .ck-t:before{content:'🇺🇸 ';font-size:13px}
+.live .seg{display:inline-flex;border:1px solid #2A3A5A;border-radius:9px;overflow:hidden}.live .seg button{border:0;border-radius:0;background:#16213A}.live .seg button+button{border-left:1px solid #2A3A5A}
+.live .seg button.on{background:var(--gmv);color:#fff}
+.live>.live-sub{margin-top:6px;position:relative}
 @media (max-width:900px){.live-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.live-grid,.live-row{grid-template-columns:1fr}.lane{grid-template-columns:96px minmax(0,1fr) 92px}}
 @media (prefers-reduced-motion:reduce){.track .fill,.track .runner{transition:none}.live-dot:before{animation:none}}
 `;
@@ -593,139 +600,253 @@ function rsDraw(host, d){
 
 // =====================================================================
 // Tracking: live race (hour-level sales, dark panel)
+//  - Ngày: one day by hour (sales_hourly), vs the day before / same day last week
+//  - MTD:  month start → chosen day by day (sales_daily), vs target pace
+//  - refreshes at minute :50 of every hour (after the hourly load), US Pacific clock
 // =====================================================================
-const LV = {date:null, dates:[], by:'pic', rows:null, key:'', hour:null, timer:null, playing:false};
+const LV = {date:null, dates:[], follow:true, by:'pic', mode:'day', rows:null, key:'', lastHour:{}, cur:null, playing:false, timer:null, clock:null, lastRefresh:0};
 const LIVE_C = {gmv:'#d95926', gmv2:'#FF8A3D', mkt:'#3987e5', ok:'#199e70', ink:'#E8EEF7', mute:'#8A97AD', grid:'#1E2B44', y:'#7C8BA6', w:'#5A6A86'};
+const LIVE_REFRESH_MIN = 50;
 const liveLay = extra => Object.assign({paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{family:'Calibri, Segoe UI, Roboto, Arial, sans-serif', color:LIVE_C.ink, size:11.5},
   margin:{l:48, r:14, t:8, b:34}, hoverlabel:{bgcolor:'#0F1729', bordercolor:'#2A3A5A', font:{color:LIVE_C.ink, size:12}}, showlegend:false}, extra || {});
 const liveAx = extra => Object.assign({gridcolor:LIVE_C.grid, zeroline:false, linecolor:'#2A3A5A', tickfont:{color:LIVE_C.mute, size:10.5}}, extra || {});
+const liveMoney = v => '$' + Math.round(v).toLocaleString('en-US');
+const liveDay = iso => +iso.slice(8, 10);
+const liveMonthStart = iso => iso.slice(0, 8) + '01';
+const liveDim = iso => new Date(+iso.slice(0, 4), +iso.slice(5, 7), 0).getDate();
+async function liveLastHour(d){
+  if(d in LV.lastHour) return LV.lastHour[d];
+  const r = await sb.from('sales_hourly').select('hour').eq('date', d).order('hour', {ascending:false}).limit(1);
+  return (LV.lastHour[d] = !r.error && r.data && r.data[0] ? +r.data[0].hour : -1);
+}
 async function liveLoad(){
   const h = H();
   if(!LV.dates.length){
     const r = await sb.from('sales_hourly').select('date').order('date', {ascending:false}).limit(1);
     if(r.error) throw r.error;
     const last = r.data && r.data[0] && r.data[0].date; if(!last) return false;
-    LV.dates = Array.from({length:7}, (_, i) => addDaysIso(last, -i)); LV.date = last;
-    // just past midnight (US) the new day is nearly empty: open the previous day until 06h is in
-    const hr = await sb.from('sales_hourly').select('hour').eq('date', last).order('hour', {ascending:false}).limit(1);
-    if(!hr.error && hr.data && hr.data[0] && +hr.data[0].hour < 5) LV.date = addDaysIso(last, -1);
+    LV.dates = Array.from({length:14}, (_, i) => addDaysIso(last, -i));
+    if(LV.follow || !LV.dates.includes(LV.date)){
+      LV.date = last; LV.follow = true;
+      // just past midnight (US) the new day is nearly empty: open the previous day until 05h is in
+      if(LV.mode === 'day' && await liveLastHour(last) < 5) LV.date = addDaysIso(last, -1);
+    }
   }
-  const want = [LV.date, addDaysIso(LV.date, -1), addDaysIso(LV.date, -7)], key = want.join('|');
-  if(LV.key !== key){ LV.rows = await h.selectAll('sales_hourly', q => q.in('date', want)); LV.key = key; }
+  const d0 = LV.date;
+  if(LV.mode === 'mtd'){
+    const key = 'mtd|' + d0;
+    if(LV.key !== key){
+      LV.rows = (await h.selectAll('sales_daily', q => q.gte('date', liveMonthStart(d0)).lte('date', d0)))
+        .map(r => ({sku:r.sku, date:r.date, units:r.units, gmv:r.gmv, ads:r.ads, promo:r.promo, clicks:r.total_clicks, glance_views:r.glance_views}));
+      LV.key = key;
+    }
+  } else {
+    const want = [d0, addDaysIso(d0, -1), addDaysIso(d0, -7)], key = 'day|' + want.join('|');
+    if(LV.key !== key){ LV.rows = await h.selectAll('sales_hourly', q => q.in('date', want)); LV.key = key; }
+  }
+  await liveLastHour(d0);
   return true;
 }
 function liveAgg(rows){ const a = {units:0, gmv:0, ads:0, promo:0, clicks:0, gv:0}; rows.forEach(r => { a.units += +r.units || 0; a.gmv += +r.gmv || 0; a.ads += +r.ads || 0; a.promo += +r.promo || 0; a.clicks += +r.clicks || 0; a.gv += +r.glance_views || 0; }); a.mkt = a.ads + a.promo; return a; }
 function liveCum(rows, upto){ const by = Array(24).fill(0); rows.forEach(r => { by[+r.hour] += +r.gmv || 0; }); let c = 0; return by.map((v, i) => i <= upto ? (c += v) : null); }
+// targets of the month being raced (only when the loaded month is that month)
+function liveTargets(d0){
+  const month = (document.getElementById('fMonth') || {}).value || '';
+  const ok = month.slice(0, 7) === d0.slice(0, 7) && typeof ROWS !== 'undefined';
+  const t = {ok, gmv:0, units:0, mkt:0, by:new Map()};
+  if(!ok) return t;
+  ROWS.forEach(r => { t.gmv += r.targetGMV || 0; t.units += r.targetUnits || 0; t.mkt += r.mktTarget || 0;
+    const g = LV.by === 'pic' ? (r.pic || 'Unassigned') : (r.mainPL || 'Unclassified'); t.by.set(g, (t.by.get(g) || 0) + (r.targetGMV || 0)); });
+  t.ok = t.gmv > 0; return t;
+}
+function liveClock(){
+  const el = document.getElementById('lvClock'); if(!el) return;
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'America/Los_Angeles', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false, weekday:'short', month:'2-digit', day:'2-digit', timeZoneName:'short'}).formatToParts(now);
+  const g = k => (parts.find(p => p.type === k) || {}).value || '';
+  const vn = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Ho_Chi_Minh', hour:'2-digit', minute:'2-digit', hour12:false}).format(now);
+  const next = new Date(now); next.setSeconds(0, 0); next.setMinutes(LIVE_REFRESH_MIN); if(next <= now) next.setHours(next.getHours() + 1);
+  const mins = Math.max(0, Math.round((next - now) / 60000));
+  el.innerHTML = `<span class="ck-t">${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}<small>:${g('second')}</small></span><span class="ck-z">${g('timeZoneName')} · ${g('weekday')} ${g('day')}/${g('month')}</span><span class="ck-s">VN ${vn} · làm mới sau ${mins}′</span>`;
+}
+function liveSchedule(){
+  // next run at minute :50 (same minute in VN and US: whole-hour offsets)
+  const now = new Date(), next = new Date(now); next.setSeconds(5, 0); next.setMinutes(LIVE_REFRESH_MIN);
+  if(next <= now) next.setHours(next.getHours() + 1);
+  clearTimeout(LV.timer); LV.timer = setTimeout(() => { liveRefreshAll(); liveSchedule(); }, next - now);
+}
+// reload the live race and, when it is safe, the month data behind the other Tracking cards
+async function liveRefreshAll(){
+  if(document.visibilityState !== 'visible'){ LV.pending = true; return; }
+  LV.pending = false; LV.lastRefresh = Date.now();
+  if(!LV.playing){ LV.key = ''; LV.dates = []; LV.lastHour = {}; LV.cur = null; V3.renderLive().catch(e => console.warn(e)); }
+  const ae = document.activeElement, typing = ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && /text|search|number|date/.test(ae.type)));
+  const sel = document.getElementById('fMonth');
+  if(V2.activeTab === 'sales' && !typing && sel && sel.value && sel.value.slice(0, 7) === (LV.date || '').slice(0, 7)) sel.dispatchEvent(new Event('change'));
+}
 V3.renderLive = async function(){
   const host = document.getElementById('liveRace'); if(!host) return;
   const h = H();
   try { if(!(await liveLoad())){ host.innerHTML = ''; return; } }
   catch(e){ host.innerHTML = h.missingSchema(e) ? '' : `<div class="live"><div class="live-empty">Không tải được số theo giờ: ${h.esc(e.message || e)}</div></div>`; return; }
-  const d0 = LV.date, d1 = addDaysIso(d0, -1), d7 = addDaysIso(d0, -7);
-  const today = LV.rows.filter(r => r.date === d0), yday = LV.rows.filter(r => r.date === d1), lw = LV.rows.filter(r => r.date === d7);
-  const lastHour = today.length ? Math.max(...today.map(r => +r.hour)) : -1;
   if(!host.dataset.built){
     host.dataset.built = '1';
-    host.innerHTML = `<div class="live" role="region" aria-label="Live race theo giờ">
-      <div class="live-h"><span class="live-dot">LIVE</span><h2>Prime Fall · <em>Live race</em></h2><span class="live-sub" id="lvSub"></span>
-        <div class="live-ctl"><select id="lvDate" aria-label="Ngày"></select>
-          <button type="button" data-by="pic">Theo PIC</button><button type="button" data-by="pl">Theo Product line</button>
-          <button type="button" id="lvPlay" title="Phát lại cuộc đua từ 0h">▶ Replay</button></div></div>
+    host.innerHTML = `<div class="live" role="region" aria-label="Live race">
+      <div class="live-h"><span class="live-dot">LIVE</span><h2>Prime Big Deal Days · <em>Live race</em></h2>
+        <div class="live-clock" id="lvClock" title="Giờ Mỹ (Los Angeles, Pacific Time). Dashboard tự làm mới lúc phút :${LIVE_REFRESH_MIN} mỗi giờ."></div>
+        <div class="live-ctl"><div class="seg" role="group" aria-label="Khoảng thời gian"><button type="button" data-mode="day">Ngày</button><button type="button" data-mode="mtd">MTD</button></div>
+          <select id="lvDate" aria-label="Ngày"></select>
+          <div class="seg" role="group" aria-label="Nhóm theo"><button type="button" data-by="pic">PIC</button><button type="button" data-by="pl">Product line</button></div>
+          <button type="button" id="lvPlay" title="Phát lại cuộc đua">▶ Replay</button></div></div>
+      <div class="live-sub" id="lvSub"></div>
       <div class="live-kpis" id="lvKpis"></div>
       <div class="live-grid"><div class="live-card"><h3>Đường đua GMV</h3><div class="hint" id="lvLaneHint"></div><div id="lvLanes"></div></div>
-        <div class="live-card"><h3>GMV cộng dồn theo giờ</h3><div class="hint">Đường cam = ngày đang xem · nét đứt = hôm trước · chấm = cùng ngày tuần trước.</div><div id="lvCum" class="plot"></div>
-          <div class="live-legend"><span style="--c:${LIVE_C.gmv2}">Hôm nay</span><span style="--c:${LIVE_C.y}">Hôm trước</span><span style="--c:${LIVE_C.w}">Tuần trước</span></div></div></div>
-      <div class="live-row"><div class="live-card"><h3>Top Product line · GMV</h3><div class="hint">Trong ngày đang xem, tới giờ mới nhất. Rê chuột để xem SKU bán chạy nhất.</div><div id="lvTopG" class="plot sm"></div></div>
+        <div class="live-card"><h3 id="lvCumT"></h3><div class="hint" id="lvCumH"></div><div id="lvCum" class="plot"></div><div class="live-legend" id="lvLeg"></div></div></div>
+      <div class="live-row"><div class="live-card"><h3>Top Product line · GMV</h3><div class="hint" id="lvTopGH"></div><div id="lvTopG" class="plot sm"></div></div>
         <div class="live-card"><h3>Top Product line · MKT spend</h3><div class="hint">Ads + promo; nhãn là %MKT/GMV — cao là đang đốt tiền. Rê chuột để xem SKU tốn nhất.</div><div id="lvTopM" class="plot sm"></div></div></div></div>`;
-    host.querySelector('#lvDate').onchange = e => { LV.date = e.target.value; LV.hour = null; V3.renderLive(); };
+    host.querySelector('#lvDate').onchange = e => { LV.date = e.target.value; LV.follow = e.target.selectedIndex === 0; LV.cur = null; V3.renderLive(); };
     host.querySelectorAll('[data-by]').forEach(b => b.onclick = () => { LV.by = b.dataset.by; V3.renderLive(); });
+    host.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { if(LV.mode === b.dataset.mode || LV.playing) return; LV.mode = b.dataset.mode; LV.cur = null; V3.renderLive(); });
     host.querySelector('#lvPlay').onclick = () => liveReplay();
-    if(!LV.timer) LV.timer = setInterval(() => { if(document.visibilityState === 'visible' && V2.activeTab === 'sales' && !LV.playing){ LV.key = ''; LV.dates = []; V3.renderLive(); } }, 10 * 60 * 1000);
+    liveClock(); clearInterval(LV.clock); LV.clock = setInterval(liveClock, 1000);
+    liveSchedule();
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && (LV.pending || Date.now() - LV.lastRefresh > 65 * 60 * 1000 && LV.lastRefresh)) liveRefreshAll(); });
+    LV.lastRefresh = Date.now();
   }
+  const d0 = LV.date, mtd = LV.mode === 'mtd';
   const sel = host.querySelector('#lvDate');
-  sel.innerHTML = LV.dates.map(d => `<option value="${d}" ${d === d0 ? 'selected' : ''}>${['CN','T2','T3','T4','T5','T6','T7'][new Date(d + 'T00:00:00').getDay()]} ${h.dm(d)}</option>`).join('');
+  sel.innerHTML = LV.dates.map(d => `<option value="${d}" ${d === d0 ? 'selected' : ''}>${mtd ? 'MTD tới ' : ''}${['CN','T2','T3','T4','T5','T6','T7'][new Date(d + 'T00:00:00').getDay()]} ${h.dm(d)}</option>`).join('');
   host.querySelectorAll('[data-by]').forEach(b => b.classList.toggle('on', b.dataset.by === LV.by));
-  host.querySelector('#lvSub').textContent = lastHour >= 0 ? `cập nhật tới ${String(lastHour).padStart(2, '0')}:59 (giờ local của file) · tự làm mới 10 phút/lần` : 'chưa có số cho ngày này';
-  const upto = LV.hour === null ? lastHour : LV.hour;
-  liveKpis(today, yday, upto);
-  liveLanes(today, yday, upto, d0);
-  // cumulative chart
+  host.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === LV.mode));
+  const lastHour = LV.lastHour[d0] ?? -1, hh = x => String(x).padStart(2, '0');
+  host.querySelector('#lvSub').textContent = (mtd ? `Từ ${h.dm(liveMonthStart(d0))} tới ${h.dm(d0)}` : `Ngày ${h.dm(d0)}`) +
+    (lastHour >= 0 ? ` · số tới ${hh(lastHour)}:59 ngày ${h.dm(d0)} (giờ trong file hourly)` : ' · chưa có số theo giờ cho ngày này') + ` · tự làm mới lúc phút :${LIVE_REFRESH_MIN} mỗi giờ`;
+  const T = liveTargets(d0);
+  if(mtd) liveRenderMtd(d0, lastHour, T); else liveRenderDay(d0, lastHour, T);
+};
+function liveRenderDay(d0, lastHour, T){
+  const h = H(), d1 = addDaysIso(d0, -1), d7 = addDaysIso(d0, -7);
+  const today = LV.rows.filter(r => r.date === d0), yday = LV.rows.filter(r => r.date === d1), lw = LV.rows.filter(r => r.date === d7);
+  const last = today.length ? Math.max(...today.map(r => +r.hour)) : -1;
+  const upto = LV.cur === null ? last : LV.cur, hh = String(Math.max(upto, 0)).padStart(2, '0');
+  const cur = today.filter(r => +r.hour <= upto);
+  const t = liveAgg(cur), y = liveAgg(yday.filter(r => +r.hour <= upto));
+  const dl = (a, b, inv) => { if(!b) return ''; const p = a / b - 1; const good = inv ? p < 0 : p > 0; return `<b class="${good ? 'up' : 'dn'}">${p > 0 ? '▲' : '▼'} ${Math.abs(p * 100).toFixed(1)}%</b> vs cùng giờ hôm trước`; };
+  liveKpiHtml([
+    ['GMV tới ' + hh + 'h', liveMoney(t.gmv), dl(t.gmv, y.gmv), 'gmv'],
+    ['Units', Math.round(t.units).toLocaleString('en-US'), dl(t.units, y.units)],
+    ['MKT spend', liveMoney(t.mkt), dl(t.mkt, y.mkt, true)],
+    ['%MKT / GMV', t.gmv ? (t.mkt / t.gmv * 100).toFixed(1) + '%' : '—', y.gmv ? 'hôm trước ' + (y.mkt / y.gmv * 100).toFixed(1) + '%' : ''],
+    ['CR (units/GV)', t.gv ? (t.units / t.gv * 100).toFixed(2) + '%' : '—', t.gv ? Math.round(t.gv).toLocaleString('en-US') + ' glance views' : ''],
+  ]);
+  // lanes: GMV of the day ÷ daily target (month target ÷ days); pace from yesterday's hourly curve
+  const dim = liveDim(d0);
+  const yc = liveCum(yday, 23), ytot = yc[23] || 0, pace = ytot ? (yc[Math.max(upto, 0)] || 0) / ytot : (upto + 1) / 24;
+  liveLanes(cur, T, 1 / dim, pace, T.ok ? `Vị trí = GMV ÷ target ngày (target tháng ÷ ${dim}). Cờ 🏁 = 100%; vạch dọc = mức cần có tới ${hh}h (${Math.round(pace * 100)}% theo nhịp ngày hôm trước).` : '', '% target ngày');
   const x = Array.from({length:24}, (_, i) => i);
+  document.getElementById('lvCumT').textContent = 'GMV cộng dồn theo giờ';
+  document.getElementById('lvCumH').textContent = 'Đường cam = ngày đang xem · nét đứt = hôm trước · chấm = cùng ngày tuần trước.';
+  document.getElementById('lvLeg').innerHTML = `<span style="--c:${LIVE_C.gmv2}">Ngày ${h.dm(d0)}</span><span style="--c:${LIVE_C.y}">Hôm trước</span><span style="--c:${LIVE_C.w}">Tuần trước</span>`;
   h.draw('lvCum', [
     {type:'scatter', mode:'lines', x, y:liveCum(lw, 23), name:'Tuần trước', line:{color:LIVE_C.w, width:1.6, dash:'dot'}, hovertemplate:'Tuần trước %{x}h: %{y:$,.0f}<extra></extra>'},
     {type:'scatter', mode:'lines', x, y:liveCum(yday, 23), name:'Hôm trước', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Hôm trước %{x}h: %{y:$,.0f}<extra></extra>'},
-    {type:'scatter', mode:'lines+markers', x, y:liveCum(today, upto), name:'Hôm nay', line:{color:LIVE_C.gmv2, width:3, shape:'spline'}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)', hovertemplate:'Hôm nay %{x}h: %{y:$,.0f}<extra></extra>'},
+    {type:'scatter', mode:'lines+markers', x, y:liveCum(today, upto), name:'Ngày đang xem', line:{color:LIVE_C.gmv2, width:3, shape:'spline'}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)', hovertemplate:'%{x}h: %{y:$,.0f}<extra></extra>'},
   ], liveLay({xaxis:liveAx({range:[-0.3, 23.3], dtick:3, ticksuffix:'h'}), yaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), hovermode:'x unified'}));
-  // top SKUs
-  // top product lines (SKU detail in the tooltip)
-  const byPl = new Map(); today.filter(r => +r.hour <= upto).forEach(r => { const k = h.skuInfo(r.sku); const pl = (k && k.mainPL) || 'Unclassified';
+  document.getElementById('lvTopGH').textContent = `Ngày ${h.dm(d0)}, tới ${hh}h. Rê chuột để xem SKU bán chạy nhất.`;
+  liveTops(cur);
+}
+function liveRenderMtd(d0, lastHour, T){
+  const h = H(), dim = liveDim(d0), dEnd = liveDay(d0);
+  const upto = LV.cur === null ? dEnd : LV.cur;
+  const cur = LV.rows.filter(r => liveDay(r.date) <= upto);
+  // share of the month elapsed: full days before the last one + hours of the last one
+  const lastFrac = upto === dEnd ? (lastHour >= 0 ? (lastHour + 1) / 24 : 1) : 1;
+  const frac = (upto - 1 + lastFrac) / dim;
+  const t = liveAgg(cur);
+  liveKpiHtml([
+    ['GMV MTD', liveMoney(t.gmv), T.ok ? `<b class="${t.gmv >= T.gmv * frac ? 'up' : 'dn'}">${Math.round(t.gmv / (T.gmv * frac) * 100)}%</b> target tới nay · ${Math.round(t.gmv / T.gmv * 100)}% target tháng` : '', 'gmv'],
+    ['Units MTD', Math.round(t.units).toLocaleString('en-US'), T.ok && T.units ? `<b class="${t.units >= T.units * frac ? 'up' : 'dn'}">${Math.round(t.units / (T.units * frac) * 100)}%</b> target tới nay` : ''],
+    ['MKT spend MTD', liveMoney(t.mkt), T.ok && T.mkt ? `<b class="${t.mkt <= T.mkt * frac ? 'up' : 'dn'}">${Math.round(t.mkt / (T.mkt * frac) * 100)}%</b> ngân sách tới nay` : ''],
+    ['%MKT / GMV', t.gmv ? (t.mkt / t.gmv * 100).toFixed(1) + '%' : '—', T.ok && T.mkt ? 'target ' + (T.mkt / T.gmv * 100).toFixed(1) + '%' : ''],
+    ['CR (units/GV)', t.gv ? (t.units / t.gv * 100).toFixed(2) + '%' : '—', t.gv ? Math.round(t.gv).toLocaleString('en-US') + ' glance views' : ''],
+  ]);
+  liveLanes(cur, T, frac, null, T.ok ? `Vị trí = GMV MTD ÷ target tới ${h.dm(liveMonthStart(d0).slice(0, 8) + String(upto).padStart(2, '0'))} (target tháng × ${Math.round(frac * 100)}%). Cờ 🏁 = đúng tiến độ; qua cờ là đang vượt target. Số nhỏ bên phải: % tiến độ · % target cả tháng.` : '', '% tiến độ', frac);
+  // cumulative by day vs straight-line target
+  const by = Array(dim).fill(0); cur.forEach(r => { by[liveDay(r.date) - 1] += +r.gmv || 0; });
+  let c = 0; const act = by.map((v, i) => i < upto ? (c += v) : null);
+  const x = Array.from({length:dim}, (_, i) => i + 1);
+  const tr = [];
+  const xEnd = Math.min(dim, Math.max(upto + 3, 7)), xt = x.slice(0, xEnd);
+  if(T.ok) tr.push({type:'scatter', mode:'lines', x:xt, y:xt.map(d => T.gmv * d / dim), name:'Target', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Target tới ngày %{x}: %{y:$,.0f}<extra></extra>'});
+  tr.push({type:'scatter', mode:'lines+markers', x:xt, y:act.slice(0, xEnd), name:'Thực tế', line:{color:LIVE_C.gmv2, width:3}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)',
+    customdata:by.slice(0, xEnd).map((v, i) => i < upto ? v : null), hovertemplate:'Ngày %{x}: %{y:$,.0f} (trong ngày %{customdata:$,.0f})<extra></extra>'});
+  document.getElementById('lvCumT').textContent = 'GMV cộng dồn theo ngày (MTD)';
+  document.getElementById('lvCumH').textContent = T.ok ? `Đường cam = thực tế · nét đứt = target chia đều theo ngày (cả tháng ${liveMoney(T.gmv)}). Cam nằm trên nét đứt là đang vượt target.` : 'Chưa có target cho tháng này (chọn đúng tháng ở bộ lọc Tháng bên dưới để so target).';
+  document.getElementById('lvLeg').innerHTML = `<span style="--c:${LIVE_C.gmv2}">Thực tế</span>` + (T.ok ? `<span style="--c:${LIVE_C.y}">Target</span>` : '');
+  h.draw('lvCum', tr, liveLay({xaxis:liveAx({range:[0.5, xEnd + 0.5], dtick:xEnd > 14 ? 5 : 1}), yaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), hovermode:'x unified'}));
+  document.getElementById('lvTopGH').textContent = `Từ ${h.dm(liveMonthStart(d0))} tới ngày ${upto}. Rê chuột để xem SKU bán chạy nhất.`;
+  liveTops(cur);
+}
+function liveKpiHtml(items){
+  document.getElementById('lvKpis').innerHTML = items.map(([k, v, d, c]) => `<div class="live-k"><div class="k">${k}</div><div class="v ${c || ''}">${v}</div><div class="d">${d || '&nbsp;'}</div></div>`).join('');
+}
+// lanes: tShare = part of the month target that counts (1/dim for a day, 1 for MTD); pace = 0..1 where the group should be by now
+function liveLanes(cur, T, tShare, pace, hint, pctLabel, monthFrac){
+  const h = H();
+  const groupOf = sku => { const k = h.skuInfo(sku); return !k ? 'Khác' : LV.by === 'pic' ? (k.pic || 'Unassigned') : (k.mainPL || 'Unclassified'); };
+  const g = new Map(); cur.forEach(r => { const k = groupOf(r.sku); const a = g.get(k) || {k, gmv:0, mkt:0}; a.gmv += +r.gmv || 0; a.mkt += (+r.ads || 0) + (+r.promo || 0); g.set(k, a); });
+  T.by.forEach((v, k) => { if(!g.has(k) && v * tShare > 50) g.set(k, {k, gmv:0, mkt:0}); });
+  let list = [...g.values()].map(a => ({...a, t:(T.by.get(a.k) || 0) * tShare})).filter(a => a.gmv > 0 || a.t > 0);
+  const hasT = list.some(a => a.t > 0), maxG = Math.max(1, ...list.map(a => a.gmv));
+  list.forEach(a => { a.pct = a.t ? a.gmv / a.t : NaN; a.pos = hasT ? (a.t ? Math.min(1.15, a.pct) / 1.15 : 0) : a.gmv / maxG; });
+  list.sort((a, b) => (hasT ? (isFinite(b.pct) ? b.pct : -1) - (isFinite(a.pct) ? a.pct : -1) : b.gmv - a.gmv) || b.gmv - a.gmv);
+  list = list.slice(0, LV.by === 'pic' ? 8 : 12);
+  document.getElementById('lvLaneHint').innerHTML = hasT ? hint : 'Không có target cho tháng này: vị trí so với người dẫn đầu.';
+  const pacePos = pace === null ? '0' : (Math.min(1.15, pace) / 1.15 * 100).toFixed(1);
+  const num = a => `<b>${liveMoney(a.gmv)}</b><small>${hasT && a.t ? Math.round(a.pct * 100) + pctLabel + (monthFrac ? ' · ' + Math.round(a.pct * monthFrac * 100) + '% tháng' : '') : ''}</small>`;
+  const nm = (a, i) => `${i === 0 && a.gmv > 0 ? '🥇 ' : ''}${h.esc(a.k)}<small>MKT ${liveMoney(a.mkt)}${a.gmv ? ' · ' + Math.round(a.mkt / a.gmv * 100) + '%' : ''}</small>`;
+  const lanes = document.getElementById('lvLanes');
+  const same = lanes.children.length === list.length && [...lanes.children].every((c, i) => c.dataset.k === list[i].k) && lanes.dataset.t === String(hasT);
+  if(same){ list.forEach((a, i) => { const c = lanes.children[i]; c.querySelector('.fill').style.width = (a.pos * 100).toFixed(1) + '%'; c.querySelector('.runner').style.left = (a.pos * 100).toFixed(1) + '%'; c.querySelector('.num').innerHTML = num(a); c.querySelector('.nm').innerHTML = nm(a, i); c.classList.toggle('lead', i === 0 && a.gmv > 0); const p = c.querySelector('.pace'); if(p) p.style.left = pacePos + '%'; }); return; }
+  lanes.dataset.t = String(hasT);
+  lanes.innerHTML = list.map((a, i) => `<div class="lane${i === 0 && a.gmv > 0 ? ' lead' : ''}" data-k="${h.esc(a.k)}"><div class="nm" title="${h.esc(a.k)}">${nm(a, i)}</div>
+    <div class="track"><div class="fill" style="width:${(a.pos * 100).toFixed(1)}%"></div>${hasT && a.t ? `${pace === null ? '' : `<div class="pace" style="left:${pacePos}%"></div>`}<span class="flag" style="right:${(100 - 100 / 1.15).toFixed(1)}%">🏁</span>` : ''}<div class="runner" style="left:${(a.pos * 100).toFixed(1)}%">${i + 1}</div></div>
+    <div class="num">${num(a)}</div></div>`).join('') || '<div class="live-empty">Chưa có doanh số.</div>';
+}
+// top product lines (SKU detail in the tooltip)
+function liveTops(cur){
+  const h = H();
+  const byPl = new Map(); cur.forEach(r => { const k = h.skuInfo(r.sku); const pl = (k && k.mainPL) || 'Unclassified';
     const a = byPl.get(pl) || {pl, gmv:0, mkt:0, sk:new Map()}; const g = +r.gmv || 0, m = (+r.ads || 0) + (+r.promo || 0); a.gmv += g; a.mkt += m;
     const x = a.sk.get(r.sku) || {gmv:0, mkt:0}; x.gmv += g; x.mkt += m; a.sk.set(r.sku, x); byPl.set(pl, a); });
   const narrow = (document.getElementById('lvTopG') || {}).clientWidth < 520;
   const lab = s => narrow && s.pl.length > 14 ? s.pl.slice(0, 13) + '…' : s.pl;
-  const topSk = (s, key) => [...s.sk].sort((a, b) => b[1][key] - a[1][key]).slice(0, 3).filter(([, v]) => v[key] > 0).map(([sku, v]) => sku + ' $' + Math.round(v[key]).toLocaleString('en-US')).join(' · ') || '—';
+  const topSk = (s, key) => [...s.sk].sort((a, b) => b[1][key] - a[1][key]).slice(0, 3).filter(([, v]) => v[key] > 0).map(([sku, v]) => sku + ' ' + liveMoney(v[key])).join(' · ') || '—';
   const tg = [...byPl.values()].filter(s => s.gmv > 0).sort((a, b) => b.gmv - a.gmv).slice(0, 10).reverse();
   const tm = [...byPl.values()].filter(s => s.mkt > 0).sort((a, b) => b.mkt - a.mkt).slice(0, 10).reverse();
   const barLay = () => liveLay({margin:{l:narrow ? 100 : 170, r:narrow ? 70 : 84, t:4, b:26}, xaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), yaxis:liveAx({automargin:false, tickfont:{color:LIVE_C.ink, size:11.5}}), bargap:.35});
-  if(tg.length) h.draw('lvTopG', [{type:'bar', orientation:'h', y:tg.map(lab), x:tg.map(s => s.gmv), marker:{color:LIVE_C.gmv, line:{color:'#0B1220', width:2}}, text:tg.map(s => '$' + Math.round(s.gmv).toLocaleString('en-US')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
+  const empty = (id, msg) => { const el = document.getElementById(id); if(window.Plotly && el._fullLayout) Plotly.purge(el); el.innerHTML = `<div class="live-empty">${msg}</div>`; };
+  if(tg.length) h.draw('lvTopG', [{type:'bar', orientation:'h', y:tg.map(lab), x:tg.map(s => s.gmv), marker:{color:LIVE_C.gmv, line:{color:'#0B1220', width:2}}, text:tg.map(s => liveMoney(s.gmv)), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
     customdata:tg.map(s => [s.mkt, s.gmv ? s.mkt / s.gmv : 0, s.pl, topSk(s, 'gmv')]), hovertemplate:'<b>%{customdata[2]}</b><br>GMV %{x:$,.0f}<br>MKT %{customdata[0]:$,.0f} (%{customdata[1]:.0%})<br>Top SKU: %{customdata[3]}<extra></extra>'}], barLay());
-  else document.getElementById('lvTopG').innerHTML = '<div class="live-empty">Chưa có doanh số.</div>';
-  if(tm.length) h.draw('lvTopM', [{type:'bar', orientation:'h', y:tm.map(lab), x:tm.map(s => s.mkt), marker:{color:LIVE_C.mkt, line:{color:'#0B1220', width:2}}, text:tm.map(s => '$' + Math.round(s.mkt).toLocaleString('en-US') + (s.gmv ? ' · ' + Math.round(s.mkt / s.gmv * 100) + '%' : ' · no GMV')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
+  else empty('lvTopG', 'Chưa có doanh số.');
+  if(tm.length) h.draw('lvTopM', [{type:'bar', orientation:'h', y:tm.map(lab), x:tm.map(s => s.mkt), marker:{color:LIVE_C.mkt, line:{color:'#0B1220', width:2}}, text:tm.map(s => liveMoney(s.mkt) + (s.gmv ? ' · ' + Math.round(s.mkt / s.gmv * 100) + '%' : ' · no GMV')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
     customdata:tm.map(s => [s.gmv, s.pl, topSk(s, 'mkt')]), hovertemplate:'<b>%{customdata[1]}</b><br>MKT %{x:$,.0f}<br>GMV %{customdata[0]:$,.0f}<br>Tốn nhất: %{customdata[2]}<extra></extra>'}], barLay());
-  else document.getElementById('lvTopM').innerHTML = '<div class="live-empty">Chưa có chi phí MKT.</div>';
-};
-function liveKpis(today, yday, upto){
-  const h = H();
-  const t = liveAgg(today.filter(r => +r.hour <= upto)), y = liveAgg(yday.filter(r => +r.hour <= upto));
-  const dl = (a, b, inv) => { if(!b) return ''; const p = a / b - 1; const good = inv ? p < 0 : p > 0; return `<b class="${good ? 'up' : 'dn'}">${p > 0 ? '▲' : '▼'} ${Math.abs(p * 100).toFixed(1)}%</b> vs cùng giờ hôm trước`; };
-  const cr = t.gv ? t.units / t.gv : NaN;
-  document.getElementById('lvKpis').innerHTML = [
-    ['GMV tới ' + String(Math.max(upto, 0)).padStart(2, '0') + 'h', '$' + Math.round(t.gmv).toLocaleString('en-US'), dl(t.gmv, y.gmv), 'gmv'],
-    ['Units', Math.round(t.units).toLocaleString('en-US'), dl(t.units, y.units)],
-    ['MKT spend', '$' + Math.round(t.mkt).toLocaleString('en-US'), dl(t.mkt, y.mkt, true)],
-    ['%MKT / GMV', t.gmv ? (t.mkt / t.gmv * 100).toFixed(1) + '%' : '—', y.gmv ? 'hôm trước ' + (y.mkt / y.gmv * 100).toFixed(1) + '%' : ''],
-    ['CR (units/GV)', isFinite(cr) ? (cr * 100).toFixed(2) + '%' : '—', t.gv ? Math.round(t.gv).toLocaleString('en-US') + ' glance views' : ''],
-  ].map(([k, v, d, c]) => `<div class="live-k"><div class="k">${k}</div><div class="v ${c || ''}">${v}</div><div class="d">${d || '&nbsp;'}</div></div>`).join('');
+  else empty('lvTopM', 'Chưa có chi phí MKT.');
 }
-function liveLanes(today, yday, upto, d0){
-  const h = H();
-  const groupOf = sku => { const k = h.skuInfo(sku); return !k ? 'Khác' : LV.by === 'pic' ? (k.pic || 'Unassigned') : (k.mainPL || 'Unclassified'); };
-  // daily target per group: monthly target ÷ days, when the loaded month is the race day's month
-  const month = (document.getElementById('fMonth') || {}).value || '';
-  const sameMonth = month && month.slice(0, 7) === d0.slice(0, 7);
-  const dim = new Date(+d0.slice(0, 4), +d0.slice(5, 7), 0).getDate();
-  const tgt = new Map(); if(sameMonth) ROWS.forEach(r => { const g = LV.by === 'pic' ? (r.pic || 'Unassigned') : (r.mainPL || 'Unclassified'); tgt.set(g, (tgt.get(g) || 0) + (r.targetGMV || 0) / dim); });
-  // pace: share of the day's GMV normally done by this hour (yesterday's curve)
-  const yc = liveCum(yday, 23), ytot = yc[23] || 0, pace = ytot ? (yc[Math.max(upto, 0)] || 0) / ytot : (upto + 1) / 24;
-  const g = new Map(); today.filter(r => +r.hour <= upto).forEach(r => { const k = groupOf(r.sku); const a = g.get(k) || {k, gmv:0, mkt:0}; a.gmv += +r.gmv || 0; a.mkt += (+r.ads || 0) + (+r.promo || 0); g.set(k, a); });
-  tgt.forEach((v, k) => { if(!g.has(k) && v > 50) g.set(k, {k, gmv:0, mkt:0}); });
-  let list = [...g.values()].map(a => ({...a, t: tgt.get(a.k) || 0})).filter(a => a.gmv > 0 || a.t > 0);
-  const hasT = list.some(a => a.t > 0);
-  const maxG = Math.max(1, ...list.map(a => a.gmv));
-  list.forEach(a => { a.pct = a.t ? a.gmv / a.t : NaN; a.pos = hasT ? (a.t ? Math.min(1.15, a.pct) / 1.15 : 0) : a.gmv / maxG; });
-  list.sort((a, b) => (hasT ? (isFinite(b.pct) ? b.pct : -1) - (isFinite(a.pct) ? a.pct : -1) : b.gmv - a.gmv) || b.gmv - a.gmv);
-  list = list.slice(0, LV.by === 'pic' ? 8 : 12);
-  document.getElementById('lvLaneHint').innerHTML = hasT ? `Vị trí = GMV ÷ target ngày (target tháng ÷ ${dim}). Cờ 🏁 = 100%; vạch dọc = tốc độ cần có tới giờ này (${Math.round(pace * 100)}% theo nhịp ngày hôm trước).` : 'Không có target cho tháng này: vị trí so với người dẫn đầu.';
-  const lanes = document.getElementById('lvLanes');
-  const html = list.map((a, i) => `<div class="lane${i === 0 && a.gmv > 0 ? ' lead' : ''}" data-k="${h.esc(a.k)}"><div class="nm" title="${h.esc(a.k)}">${i === 0 && a.gmv > 0 ? '🥇 ' : ''}${h.esc(a.k)}<small>MKT $${Math.round(a.mkt).toLocaleString('en-US')}${a.gmv ? ' · ' + Math.round(a.mkt / a.gmv * 100) + '%' : ''}</small></div>
-    <div class="track"><div class="fill" style="width:${(a.pos * 100).toFixed(1)}%"></div>${hasT && a.t ? `<div class="pace" style="left:${(Math.min(1.15, pace) / 1.15 * 100).toFixed(1)}%"></div><span class="flag" style="right:${(100 - 100 / 1.15).toFixed(1)}%">🏁</span>` : ''}<div class="runner" style="left:${(a.pos * 100).toFixed(1)}%">${i + 1}</div></div>
-    <div class="num"><b>$${Math.round(a.gmv).toLocaleString('en-US')}</b><small>${hasT && a.t ? Math.round(a.pct * 100) + '% target ngày' : ''}</small></div></div>`).join('');
-  // keep existing nodes so widths animate between renders
-  const same = lanes.children.length === list.length && [...lanes.children].every((c, i) => c.dataset.k === list[i].k);
-  if(same){ list.forEach((a, i) => { const c = lanes.children[i]; c.querySelector('.fill').style.width = (a.pos * 100).toFixed(1) + '%'; c.querySelector('.runner').style.left = (a.pos * 100).toFixed(1) + '%'; c.querySelector('.num').innerHTML = `<b>$${Math.round(a.gmv).toLocaleString('en-US')}</b><small>${hasT && a.t ? Math.round(a.pct * 100) + '% target ngày' : ''}</small>`; const p = c.querySelector('.pace'); if(p) p.style.left = (Math.min(1.15, pace) / 1.15 * 100).toFixed(1) + '%'; }); }
-  else lanes.innerHTML = html || '<div class="live-empty">Chưa có doanh số trong ngày này.</div>';
-}
+// replay: hour by hour (Ngày) or day by day (MTD)
 function liveReplay(){
-  if(LV.playing) return;
-  const today = (LV.rows || []).filter(r => r.date === LV.date); if(!today.length) return;
-  const last = Math.max(...today.map(r => +r.hour)); LV.playing = true; LV.hour = 0;
-  const btn = document.getElementById('lvPlay'); btn.classList.add('on'); btn.textContent = '■ 00h';
-  const step = () => { V3.renderLive(); btn.textContent = '■ ' + String(LV.hour).padStart(2, '0') + 'h';
-    if(LV.hour >= last){ LV.playing = false; LV.hour = null; btn.classList.remove('on'); btn.textContent = '▶ Replay'; V3.renderLive(); return; }
-    LV.hour++; setTimeout(step, 650); };
+  if(LV.playing || !LV.rows) return;
+  const mtd = LV.mode === 'mtd';
+  const rows = mtd ? LV.rows : LV.rows.filter(r => r.date === LV.date); if(!rows.length) return;
+  const first = mtd ? 1 : 0, last = mtd ? liveDay(LV.date) : Math.max(...rows.map(r => +r.hour));
+  const lab = v => mtd ? 'ngày ' + v : String(v).padStart(2, '0') + 'h';
+  LV.playing = true; LV.cur = first;
+  const btn = document.getElementById('lvPlay'); btn.classList.add('on');
+  const step = () => { V3.renderLive(); btn.textContent = '■ ' + lab(LV.cur);
+    if(LV.cur >= last){ LV.playing = false; LV.cur = null; btn.classList.remove('on'); btn.textContent = '▶ Replay'; V3.renderLive(); return; }
+    LV.cur++; setTimeout(step, mtd ? 800 : 650); };
   step();
 }
-
 // first paint and month changes (afterLoadMonth does not go through onTab)
 { const base = V2.afterLoadMonth; V2.afterLoadMonth = async function(){ await base.apply(this, arguments); if(V2.activeTab === 'sales') V3.renderLive().catch(e => console.warn(e)); }; }
 
