@@ -46,15 +46,15 @@ const first = (r: Row, keys: string[]) => { for (const k of keys) if (k in r) re
 const DATE_KEYS = ["date", "order_date", "report_date", "day"];
 const GLANCE_KEYS = ["glance_views", "glance_view", "glanceviews"];
 
-// rows must already be normalize()d
-export function aggregate(rows: Row[], managed: Set<string>, sourceFile: string) {
+// Streaming version: feed rows one at a time (keys already normalized).
+export function makeAggregator(managed: Set<string>, sourceFile: string, hasGmv: boolean) {
   const agg = new Map<string, DayRow>();
-  let skipped = 0;
-  const hasGmv = rows.length > 0 && "ordered_gmv" in rows[0];
-  for (const r of rows) {
+  let rowsIn = 0, skipped = 0;
+  const add = (r: Row) => {
+    rowsIn++;
     const sku = String(r.sku ?? "").trim();
     const date = isoDate(first(r, DATE_KEYS));
-    if (!sku || !date || !managed.has(sku)) { skipped++; continue; }
+    if (!sku || !date || !managed.has(sku)) { skipped++; return; }
     const k = sku + "|" + date;
     let a = agg.get(k);
     if (!a) {
@@ -74,13 +74,33 @@ export function aggregate(rows: Row[], managed: Set<string>, sourceFile: string)
     a.sp_spend += n(r.sp_spend); a.sb_spend += n(r.sb_spend); a.sd_spend += n(r.sd_spend);
     a.promo_deal += n(r.best_deal_spend) + n(r.lightning_deal_spend) + n(r.vm_promo_spend);
     a.promo_coupon += n(r.coupon_spend); a.promo_discount += n(r.price_discount_spend);
-  }
-  const out = [...agg.values()].map((a) => {
-    const o = { ...a } as Record<string, unknown>;
-    for (const [k, v] of Object.entries(o)) if (typeof v === "number") o[k] = r2(v);
-    return o as DayRow;
-  });
-  return { out, rowsIn: rows.length, skipped, gmvColumn: hasGmv ? "ordered_gmv" : "ordered_nmv" };
+  };
+  const finish = () => {
+    const out = [...agg.values()].map((a) => {
+      const o = { ...a } as Record<string, unknown>;
+      for (const [k, v] of Object.entries(o)) if (typeof v === "number") o[k] = r2(v);
+      return o as DayRow;
+    });
+    return { out, rowsIn, skipped, gmvColumn: hasGmv ? "ordered_gmv" : "ordered_nmv" };
+  };
+  return { add, finish };
+}
+
+// Header names (normalized) the aggregator reads; other columns are ignored.
+export const USED_KEYS = new Set([
+  "sku", "main_category", "ordered_units", "ordered_gmv", "ordered_nmv", "total_ads", "total_promo",
+  "sb_ordered_nmv", "sd_ordered_nmv", "sp_ordered_nmv", "sb_ordered_units", "sd_ordered_units", "sp_ordered_units",
+  "sb_clicks", "sd_clicks", "sp_clicks", "sb_impressions", "sd_impressions", "sp_impressions",
+  "sp_spend", "sb_spend", "sd_spend", "best_deal_spend", "lightning_deal_spend", "vm_promo_spend", "coupon_spend", "price_discount_spend",
+  ...DATE_KEYS, ...GLANCE_KEYS,
+]);
+export { normKey };
+
+// rows must already be normalize()d
+export function aggregate(rows: Row[], managed: Set<string>, sourceFile: string) {
+  const a = makeAggregator(managed, sourceFile, rows.length > 0 && "ordered_gmv" in rows[0]);
+  for (const r of rows) a.add(r);
+  return a.finish();
 }
 
 // Totals per day, for the dry-run response

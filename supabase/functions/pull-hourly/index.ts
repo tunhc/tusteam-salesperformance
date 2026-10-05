@@ -19,9 +19,10 @@
 //   "Anyone with the link", or set MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET
 //   of an Azure app with Microsoft Graph application permission Files.Read.All.
 // Optional: HOURLY_SHEET (default: the first sheet with a "sku" column).
-import * as XLSX from "npm:xlsx@0.18.5";
+// The workbook is read with the streaming reader in xlsx.ts (SheetJS ran out of memory).
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { aggregate, downloadUrls, graphShareId, normalize, perDay, type Row } from "./hourly.ts";
+import { downloadUrls, graphShareId, makeAggregator, normKey, perDay, USED_KEYS, type Row } from "./hourly.ts";
+import { readSheetRows } from "./xlsx.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -56,6 +57,12 @@ async function download(link: string): Promise<Uint8Array> {
   throw new Error("Link yêu cầu đăng nhập Microsoft nên không tải được. Cần chia sẻ link dạng 'Anyone with the link' (chỉ xem), hoặc cấu hình MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET.");
 }
 
+function b64ToBytes(s: string): Uint8Array {
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 // Request body → xlsx bytes. Accepts raw bytes, bare base64 text, or the
 // {"$content": base64} JSON Power Automate sends when the file content is wrapped in an object.
 // Empty body or other JSON (pg_cron's {"force": …}) → null: download instead.
@@ -64,7 +71,7 @@ function bodyFile(b: Uint8Array): Uint8Array | null {
   if (isXlsx(b)) return b;
   const text = new TextDecoder().decode(b).trim().replace(/^"|"$/g, "");
   if (text.startsWith("UEsDB")) { // bare base64 of the xlsx: body('…')?['$content']
-    const bytes = Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
+    const bytes = b64ToBytes(text);
     if (isXlsx(bytes)) return bytes;
   }
   let j: unknown;
@@ -73,7 +80,7 @@ function bodyFile(b: Uint8Array): Uint8Array | null {
     const o = j as { $content?: unknown; body?: { $content?: unknown } };
     const c = o.$content ?? o.body?.$content;
     if (typeof c !== "string") return null;
-    const bytes = Uint8Array.from(atob(c), (ch) => ch.charCodeAt(0));
+    const bytes = b64ToBytes(c);
     if (isXlsx(bytes)) return bytes;
   }
   throw new Error(`Body không phải file .xlsx (bắt đầu bằng "${text.slice(0, 40)}") (${b.length} bytes). Ở action HTTP, Body phải là File Content của bước Get file content.`);
@@ -112,24 +119,32 @@ Deno.serve(async (req) => {
       }
     }
 
-    const wb = XLSX.read(bytes, { type: "array", cellDates: true });
-    const wanted = Deno.env.get("HOURLY_SHEET");
-    let sheetName = "", rows: Row[] = [];
-    for (const name of wanted && wb.SheetNames.includes(wanted) ? [wanted] : wb.SheetNames) {
-      const r = normalize(XLSX.utils.sheet_to_json<Row>(wb.Sheets[name], { defval: null, raw: true }));
-      if (r.length && "sku" in r[0]) { sheetName = name; rows = r; break; }
-    }
-    if (!rows.length) throw new Error(`Không tìm thấy sheet nào có cột sku (sheets: ${wb.SheetNames.join(", ")})`);
-    if (!("ordered_units" in rows[0]) || !("ordered_gmv" in rows[0] || "ordered_nmv" in rows[0])) {
-      throw new Error(`Sheet "${sheetName}" thiếu cột ordered_units / ordered_gmv / ordered_nmv`);
-    }
-
     const { data: skus, error: skuErr } = await db.from("skus").select("sku");
     if (skuErr) throw new Error(skuErr.message);
     const managed = new Set((skus ?? []).map((s: { sku: string }) => s.sku));
-    const { out, rowsIn, skipped, gmvColumn } = aggregate(rows, managed, source);
+
+    // Stream the sheet: only the columns the aggregator reads are kept per row.
+    let agg: ReturnType<typeof makeAggregator> | null = null, cols: [number, string][] = [], columns: string[] = [];
+    const found = await readSheetRows(bytes, (header) => {
+      const keys = header.map(normKey);
+      if (!keys.includes("sku")) return false;
+      if (!keys.includes("ordered_units") || !(keys.includes("ordered_gmv") || keys.includes("ordered_nmv"))) {
+        throw new Error(`Sheet thiếu cột ordered_units / ordered_gmv / ordered_nmv (có: ${keys.join(", ")})`);
+      }
+      columns = keys;
+      cols = keys.map((k, i) => [i, k] as [number, string]).filter(([, k]) => USED_KEYS.has(k));
+      agg = makeAggregator(managed, source, keys.includes("ordered_gmv"));
+      return cols.map(([i]) => i);
+    }, (cells) => {
+      const r: Row = {};
+      for (const [i, k] of cols) r[k] = cells[i] ?? null;
+      agg!.add(r);
+    }, Deno.env.get("HOURLY_SHEET") || undefined);
+    if (!found || !agg) throw new Error("Không tìm thấy sheet nào có cột sku");
+    const { out, rowsIn, skipped, gmvColumn } = (agg as ReturnType<typeof makeAggregator>).finish();
+    const sheetName = found.sheet;
     const info = { sheet: sheetName, gmvColumn, rowsIn, skippedUnmanaged: skipped, skuDays: out.length, days: perDay(out) };
-    if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns: Object.keys(rows[0]), ...info });
+    if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns, ...info });
     if (!out.length) { await logError(`Không có dòng nào của SKU đang quản lý (${rowsIn} dòng trong file)`); return json({ ok: false, ...info }, 422); }
 
     const { data, error } = await db.rpc("replace_sales_days", { p_rows: out, p_source: source, p_hash: hash });
