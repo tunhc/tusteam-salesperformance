@@ -635,8 +635,8 @@ V3.renderLive = async function(){
       <div class="live-grid"><div class="live-card"><h3>Đường đua GMV</h3><div class="hint" id="lvLaneHint"></div><div id="lvLanes"></div></div>
         <div class="live-card"><h3>GMV cộng dồn theo giờ</h3><div class="hint">Đường cam = ngày đang xem · nét đứt = hôm trước · chấm = cùng ngày tuần trước.</div><div id="lvCum" class="plot"></div>
           <div class="live-legend"><span style="--c:${LIVE_C.gmv2}">Hôm nay</span><span style="--c:${LIVE_C.y}">Hôm trước</span><span style="--c:${LIVE_C.w}">Tuần trước</span></div></div></div>
-      <div class="live-row"><div class="live-card"><h3>Top 10 SKU · GMV</h3><div class="hint">Trong ngày đang xem, tới giờ mới nhất.</div><div id="lvTopG" class="plot sm"></div></div>
-        <div class="live-card"><h3>Top 10 SKU · MKT spend</h3><div class="hint">Ads + promo; nhãn là %MKT/GMV của SKU — cao là đang đốt tiền.</div><div id="lvTopM" class="plot sm"></div></div></div></div>`;
+      <div class="live-row"><div class="live-card"><h3>Top Product line · GMV</h3><div class="hint">Trong ngày đang xem, tới giờ mới nhất. Rê chuột để xem SKU bán chạy nhất.</div><div id="lvTopG" class="plot sm"></div></div>
+        <div class="live-card"><h3>Top Product line · MKT spend</h3><div class="hint">Ads + promo; nhãn là %MKT/GMV — cao là đang đốt tiền. Rê chuột để xem SKU tốn nhất.</div><div id="lvTopM" class="plot sm"></div></div></div></div>`;
     host.querySelector('#lvDate').onchange = e => { LV.date = e.target.value; LV.hour = null; V3.renderLive(); };
     host.querySelectorAll('[data-by]').forEach(b => b.onclick = () => { LV.by = b.dataset.by; V3.renderLive(); });
     host.querySelector('#lvPlay').onclick = () => liveReplay();
@@ -657,17 +657,21 @@ V3.renderLive = async function(){
     {type:'scatter', mode:'lines+markers', x, y:liveCum(today, upto), name:'Hôm nay', line:{color:LIVE_C.gmv2, width:3, shape:'spline'}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)', hovertemplate:'Hôm nay %{x}h: %{y:$,.0f}<extra></extra>'},
   ], liveLay({xaxis:liveAx({range:[-0.3, 23.3], dtick:3, ticksuffix:'h'}), yaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), hovermode:'x unified'}));
   // top SKUs
-  const bySku = new Map(); today.filter(r => +r.hour <= upto).forEach(r => { const a = bySku.get(r.sku) || {sku:r.sku, gmv:0, mkt:0}; a.gmv += +r.gmv || 0; a.mkt += (+r.ads || 0) + (+r.promo || 0); bySku.set(r.sku, a); });
+  // top product lines (SKU detail in the tooltip)
+  const byPl = new Map(); today.filter(r => +r.hour <= upto).forEach(r => { const k = h.skuInfo(r.sku); const pl = (k && k.mainPL) || 'Unclassified';
+    const a = byPl.get(pl) || {pl, gmv:0, mkt:0, sk:new Map()}; const g = +r.gmv || 0, m = (+r.ads || 0) + (+r.promo || 0); a.gmv += g; a.mkt += m;
+    const x = a.sk.get(r.sku) || {gmv:0, mkt:0}; x.gmv += g; x.mkt += m; a.sk.set(r.sku, x); byPl.set(pl, a); });
   const narrow = (document.getElementById('lvTopG') || {}).clientWidth < 520;
-  const lab = s => { const k = h.skuInfo(s.sku); const nm = String((k && k.productName) || '').replace(/\s+/g, ' ').slice(0, 26).replace(/[\s\-·,]+$/, ''); return narrow || !nm ? s.sku : s.sku + ' · ' + nm; };
-  const tg = [...bySku.values()].filter(s => s.gmv > 0).sort((a, b) => b.gmv - a.gmv).slice(0, 10).reverse();
-  const tm = [...bySku.values()].filter(s => s.mkt > 0).sort((a, b) => b.mkt - a.mkt).slice(0, 10).reverse();
-  const barLay = (n) => liveLay({margin:{l:narrow ? 52 : 190, r:narrow ? 70 : 84, t:4, b:26}, xaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), yaxis:liveAx({automargin:false, tickfont:{color:LIVE_C.ink, size:11}}), bargap:.35});
+  const lab = s => narrow && s.pl.length > 14 ? s.pl.slice(0, 13) + '…' : s.pl;
+  const topSk = (s, key) => [...s.sk].sort((a, b) => b[1][key] - a[1][key]).slice(0, 3).filter(([, v]) => v[key] > 0).map(([sku, v]) => sku + ' $' + Math.round(v[key]).toLocaleString('en-US')).join(' · ') || '—';
+  const tg = [...byPl.values()].filter(s => s.gmv > 0).sort((a, b) => b.gmv - a.gmv).slice(0, 10).reverse();
+  const tm = [...byPl.values()].filter(s => s.mkt > 0).sort((a, b) => b.mkt - a.mkt).slice(0, 10).reverse();
+  const barLay = () => liveLay({margin:{l:narrow ? 100 : 170, r:narrow ? 70 : 84, t:4, b:26}, xaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), yaxis:liveAx({automargin:false, tickfont:{color:LIVE_C.ink, size:11.5}}), bargap:.35});
   if(tg.length) h.draw('lvTopG', [{type:'bar', orientation:'h', y:tg.map(lab), x:tg.map(s => s.gmv), marker:{color:LIVE_C.gmv, line:{color:'#0B1220', width:2}}, text:tg.map(s => '$' + Math.round(s.gmv).toLocaleString('en-US')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
-    customdata:tg.map(s => [s.mkt, s.gmv ? s.mkt / s.gmv : 0]), hovertemplate:'<b>%{y}</b><br>GMV %{x:$,.0f}<br>MKT %{customdata[0]:$,.0f} (%{customdata[1]:.0%})<extra></extra>'}], barLay());
+    customdata:tg.map(s => [s.mkt, s.gmv ? s.mkt / s.gmv : 0, s.pl, topSk(s, 'gmv')]), hovertemplate:'<b>%{customdata[2]}</b><br>GMV %{x:$,.0f}<br>MKT %{customdata[0]:$,.0f} (%{customdata[1]:.0%})<br>Top SKU: %{customdata[3]}<extra></extra>'}], barLay());
   else document.getElementById('lvTopG').innerHTML = '<div class="live-empty">Chưa có doanh số.</div>';
   if(tm.length) h.draw('lvTopM', [{type:'bar', orientation:'h', y:tm.map(lab), x:tm.map(s => s.mkt), marker:{color:LIVE_C.mkt, line:{color:'#0B1220', width:2}}, text:tm.map(s => '$' + Math.round(s.mkt).toLocaleString('en-US') + (s.gmv ? ' · ' + Math.round(s.mkt / s.gmv * 100) + '%' : ' · no GMV')), textposition:'outside', textfont:{color:LIVE_C.ink, size:11}, cliponaxis:false,
-    customdata:tm.map(s => [s.gmv]), hovertemplate:'<b>%{y}</b><br>MKT %{x:$,.0f}<br>GMV %{customdata[0]:$,.0f}<extra></extra>'}], barLay());
+    customdata:tm.map(s => [s.gmv, s.pl, topSk(s, 'mkt')]), hovertemplate:'<b>%{customdata[1]}</b><br>MKT %{x:$,.0f}<br>GMV %{customdata[0]:$,.0f}<br>Tốn nhất: %{customdata[2]}<extra></extra>'}], barLay());
   else document.getElementById('lvTopM').innerHTML = '<div class="live-empty">Chưa có chi phí MKT.</div>';
 };
 function liveKpis(today, yday, upto){
