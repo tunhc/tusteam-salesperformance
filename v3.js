@@ -692,7 +692,7 @@ V3.renderLive = async function(){
   if(!host.dataset.built){
     host.dataset.built = '1';
     host.innerHTML = `<div class="live" role="region" aria-label="Live race">
-      <div class="live-h"><span class="live-dot">LIVE</span><h2>Prime Fall · <em>Live race</em></h2>
+      <div class="live-h"><span class="live-dot">LIVE</span><h2>Prime Big Deal Days · <em>Live race</em></h2>
         <div class="live-clock" id="lvClock" title="Giờ Mỹ (Los Angeles, Pacific Time). Dashboard tự làm mới lúc phút :${LIVE_REFRESH_MIN} mỗi giờ."></div>
         <div class="live-ctl"><div class="seg" role="group" aria-label="Khoảng thời gian"><button type="button" data-mode="day">Ngày</button><button type="button" data-mode="mtd">MTD</button></div>
           <select id="lvDate" aria-label="Ngày"></select>
