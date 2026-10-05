@@ -451,7 +451,7 @@ async function askAI(scope, key, context, outEl, force){
 // SALES PERFORMANCE tab
 // =====================================================================
 let SPdirty = true, SPbuilt = false;
-const SP = { from:null, to:null, compare:'yoy', pic:'', mpl:'', spl:'', ch:'', grain:'auto', abs:'gmv', rates:['mktGmv','tacos','cr'],
+const SP = { from:null, to:null, compare:'yoy', pic:'', mpl:'', spl:'', ch:'', exSpt:false, grain:'auto', abs:'gmv', rates:['mktGmv','tacos','cr'],
   relLevel:'mpl', preset:'promoAds', x:'promo', y:'ads', s:'gmv', h:12, invSel:null, sortKey:'gmv', sortDir:-1, cur:new Map(), prev:new Map(), key:'' };
 function spBuild(){
   const v = $('#view-sp');
@@ -467,6 +467,7 @@ function spBuild(){
     <div class="fld"><label for="spMpl">Main PL</label><select id="spMpl"><option value="">All</option></select></div>
     <div class="fld"><label for="spSpl">Old Product Line</label><select id="spSpl"><option value="">All</option></select></div>
     <div class="fld"><label for="spCh">Channel</label><select id="spCh"><option value="">All</option></select></div>
+    <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="spExSpt"> Exclude SPT</label></div>
     <button class="btn" id="spReset" type="button">Reset</button>
     <span class="result-count" id="spCount"></span>
   </div>
@@ -527,7 +528,8 @@ function spBuild(){
     SP.from = f; SP.to = t; $('#spFrom').value = f; $('#spTo').value = t; renderSP(); };
   $('#spCompare').onchange = () => { SP.compare = $('#spCompare').value; renderSP(); };
   [['#spPic','pic'],['#spMpl','mpl'],['#spSpl','spl'],['#spCh','ch']].forEach(([id, k]) => $(id).onchange = () => { SP[k] = $(id).value; SP.invSel = null; renderSP(false); });
-  $('#spReset').onclick = () => { SP.pic = SP.mpl = SP.spl = SP.ch = ''; ['#spPic','#spMpl','#spSpl','#spCh'].forEach(id => $(id).value = ''); SP.invSel = null; renderSP(false); };
+  $('#spExSpt').onchange = () => { SP.exSpt = $('#spExSpt').checked; SP.invSel = null; renderSP(false); };
+  $('#spReset').onclick = () => { SP.pic = SP.mpl = SP.spl = SP.ch = ''; SP.exSpt = false; $('#spExSpt').checked = false; ['#spPic','#spMpl','#spSpl','#spCh'].forEach(id => $(id).value = ''); SP.invSel = null; renderSP(false); };
   $('#spGrain').onclick = e => { const b = e.target.closest('[data-g]'); if(!b) return; SP.grain = b.dataset.g; spTrend(); };
   $('#spLevel').onclick = e => { const b = e.target.closest('[data-l]'); if(!b) return; SP.relLevel = b.dataset.l; spRel(); };
   $('#spH').onclick = e => { const b = e.target.closest('[data-h]'); if(!b) return; SP.h = +b.dataset.h; spInv(); };
@@ -540,7 +542,7 @@ function spComparePeriod(){
   const n = daysBetweenInclusive(SP.from, SP.to); return [addDaysIso(SP.from, -n), addDaysIso(SP.from, -1)];
 }
 function spScope(ignore){
-  return ROWS.filter(r => (!SP.pic || r.pic === SP.pic) && (!SP.mpl || r.mainPL === SP.mpl) && (ignore === 'spl' || !SP.spl || r.subPL === SP.spl) && (!SP.ch || r.channel === SP.ch) && matchGS(r));
+  return ROWS.filter(r => (!SP.pic || r.pic === SP.pic) && (!SP.mpl || r.mainPL === SP.mpl) && (ignore === 'spl' || !SP.spl || r.subPL === SP.spl) && (!SP.ch || r.channel === SP.ch) && (!SP.exSpt || !(r.channel || '').toUpperCase().includes('SPT')) && matchGS(r));
 }
 function aggFor(rows, map){ const a = emptyAgg(); rows.forEach(r => { const x = map.get(r.sku); if(x) addInto(a, x); }); return derive(a); }
 async function renderSP(refetch = true){
