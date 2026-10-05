@@ -121,37 +121,52 @@ def compact_sales_sql(rows):
 
 
 def hourly_month_rows(path, month, known_skus):
-    """Aggregate an "SSO Data Extraction Hourly" export to one row per SKU per
-    day for `month` (YYYY-MM). Same mapping as the ingest-sales Edge Function,
-    plus the ad-type / promo-type / click / impression columns it has."""
+    """Aggregate an hourly sales export to one row per SKU per day (optionally
+    only `month`, YYYY-MM). Same mapping as the pull-hourly Edge Function.
+    Accepts "SSO Data Extraction Hourly" (date, ordered_gmv, total_ads, total_promo)
+    and "usa_amz_sso_hourly -- usa" (date_time_local per hour, glance_view,
+    no ordered_gmv → GMV = ordered_nmv, ads/promo summed from their parts)."""
     d = pd.read_excel(path)
-    d["date"] = pd.to_datetime(d["date"]).dt.date
+    d.columns = [str(c).strip().lower().replace(" ", "_") for c in d.columns]
+    date_col = next(c for c in ("date", "date_time_local", "datetime", "day") if c in d.columns)
+    gmv_col = next(c for c in ("ordered_gmv", "ordered_nmv") if c in d.columns)
+    d["date"] = pd.to_datetime(d[date_col]).dt.date
+    if "country" in d.columns:
+        d = d[d["country"].astype(str).str.strip().str.upper().isin(["USA", "US"])]
     if month:
         d = d[d["date"].map(lambda x: x.strftime("%Y-%m") == month)]
     d = d[d["sku"].astype(str).str.strip().isin(known_skus)].copy()
     d["sku"] = d["sku"].astype(str).str.strip()
-    num_cols = [c for c in d.columns if c not in ("date", "department", "sku", "asin", "main_category")]
+    text_cols = {"date", date_col, "department", "sku", "asin", "product_id", "country", "main_category"}
+    num_cols = [c for c in d.columns if c not in text_cols]
     for c in num_cols:
         d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
+    if "main_category" not in d.columns:
+        d["main_category"] = None
     g = d.groupby(["sku", "date"], as_index=False).agg({**{c: "sum" for c in num_cols}, "main_category": "first"})
+    v = lambda r, *ks: sum(float(r.get(k, 0) or 0) for k in ks)
     src = re.sub(r"^[0-9a-f]{8}-", "", os.path.basename(path)).replace("_--_", " -- ").replace("_", " ")
     rows = []
     for r in g.to_dict("records"):
         rows.append({
             "sku": r["sku"], "date": r["date"],
-            "units": r["ordered_units"], "gmv": r["ordered_gmv"], "ordered_nmv": r["ordered_nmv"],
-            "ads": r["total_ads"], "promo": r["total_promo"],
-            "ads_gmv": r["sb_ordered_nmv"] + r["sd_ordered_nmv"] + r["sp_ordered_nmv"],
-            "ads_units": r["sb_ordered_units"] + r["sd_ordered_units"] + r["sp_ordered_units"],
-            "total_clicks": r["sb_clicks"] + r["sd_clicks"] + r["sp_clicks"],
-            "total_impressions": r["sb_impressions"] + r["sd_impressions"] + r["sp_impressions"],
-            "glance_views": 0, "ordered_revenue": 0,
-            "sp_spend": r["sp_spend"], "sb_spend": r["sb_spend"], "sd_spend": r["sd_spend"], "dsp_spend": 0, "aff_spend": 0,
-            "promo_deal": r["best_deal_spend"] + r["lightning_deal_spend"] + r["vm_promo_spend"],
-            "promo_coupon": r["coupon_spend"], "promo_discount": r["price_discount_spend"],
-            "category": r["main_category"], "source_file": src,
+            "units": r["ordered_units"], "gmv": r[gmv_col], "ordered_nmv": v(r, "ordered_nmv"),
+            "ads": r["total_ads"] if "total_ads" in r else v(r, "sb_spend", "sd_spend", "sp_spend"),
+            "promo": r["total_promo"] if "total_promo" in r else v(r, "coupon_spend", "price_discount_spend", "lightning_deal_spend", "best_deal_spend", "vm_promo_spend"),
+            "ads_gmv": v(r, "sb_ordered_nmv", "sd_ordered_nmv", "sp_ordered_nmv"),
+            "ads_units": v(r, "sb_ordered_units", "sd_ordered_units", "sp_ordered_units"),
+            "total_clicks": v(r, "sb_clicks", "sd_clicks", "sp_clicks"),
+            "total_impressions": v(r, "sb_impressions", "sd_impressions", "sp_impressions"),
+            "glance_views": v(r, "glance_views", "glance_view"), "ordered_revenue": 0,
+            "sp_spend": v(r, "sp_spend"), "sb_spend": v(r, "sb_spend"), "sd_spend": v(r, "sd_spend"), "dsp_spend": 0, "aff_spend": 0,
+            "promo_deal": v(r, "best_deal_spend", "lightning_deal_spend", "vm_promo_spend"),
+            "promo_coupon": v(r, "coupon_spend"), "promo_discount": v(r, "price_discount_spend"),
+            "category": r["main_category"] or SKU_CATEGORY.get(r["sku"]), "source_file": src,
         })
     return rows
+
+
+SKU_CATEGORY = {}  # filled from --known-skus (category column) when available
 
 
 def replace_days_sql(rows):
@@ -788,6 +803,9 @@ def main():
             ap.error("--hourly needs --known-skus (and optionally --overwrite-month YYYY-MM)")
         txt = open(a.known_skus, encoding="utf-8").read()
         known = set(re.findall(r"^\('([^']+)',", txt, re.M)) or {l.strip() for l in txt.splitlines() if l.strip()}
+        # category is the 7th column of 01_skus.sql rows (sku, product_name, asin, pic, main_pl, sub_pl, category, ...)
+        for m in re.finditer(r"^\('([^']+)',(?:(?:'(?:[^']|'')*'|null),){5}'((?:[^']|'')*)'", txt, re.M):
+            SKU_CATEGORY[m.group(1)] = m.group(2).replace("''", "'")
         rows = hourly_month_rows(a.hourly, a.overwrite_month, known)
         tot = sum(r["gmv"] for r in rows)
         info = f"-- {len(rows)} SKU-day rows, {len({r['sku'] for r in rows})} SKUs, GMV {tot:,.2f} · source {rows[0]['source_file'] if rows else a.hourly}"

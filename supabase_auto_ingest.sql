@@ -45,14 +45,14 @@ begin
          coalesce((r->>'units')::numeric, 0), coalesce((r->>'gmv')::numeric, 0), coalesce((r->>'ordered_nmv')::numeric, 0),
          coalesce((r->>'ads')::numeric, 0), coalesce((r->>'promo')::numeric, 0), coalesce((r->>'ads_gmv')::numeric, 0),
          coalesce((r->>'ads_units')::numeric, 0), coalesce((r->>'total_clicks')::numeric, 0), coalesce((r->>'total_impressions')::numeric, 0),
-         0, 0, coalesce((r->>'sp_spend')::numeric, 0), coalesce((r->>'sb_spend')::numeric, 0), coalesce((r->>'sd_spend')::numeric, 0), 0, 0,
+         coalesce((r->>'glance_views')::numeric, 0), 0, coalesce((r->>'sp_spend')::numeric, 0), coalesce((r->>'sb_spend')::numeric, 0), coalesce((r->>'sd_spend')::numeric, 0), 0, 0,
          coalesce((r->>'promo_deal')::numeric, 0), coalesce((r->>'promo_coupon')::numeric, 0), coalesce((r->>'promo_discount')::numeric, 0),
-         r->>'category', coalesce(r->>'source_file', p_source)
+         coalesce(r->>'category', (select s.category from skus s where s.sku = r->>'sku')), coalesce(r->>'source_file', p_source)
   from jsonb_array_elements(p_rows) r
   where exists (select 1 from skus s where s.sku = r->>'sku')
   on conflict (sku, date) do update set
     units = excluded.units, gmv = excluded.gmv, ordered_nmv = excluded.ordered_nmv, ads = excluded.ads, promo = excluded.promo,
-    ads_gmv = excluded.ads_gmv, ads_units = excluded.ads_units, total_clicks = excluded.total_clicks, total_impressions = excluded.total_impressions,
+    ads_gmv = excluded.ads_gmv, ads_units = excluded.ads_units, total_clicks = excluded.total_clicks, total_impressions = excluded.total_impressions, glance_views = excluded.glance_views,
     sp_spend = excluded.sp_spend, sb_spend = excluded.sb_spend, sd_spend = excluded.sd_spend,
     promo_deal = excluded.promo_deal, promo_coupon = excluded.promo_coupon, promo_discount = excluded.promo_discount,
     category = excluded.category, source_file = excluded.source_file;

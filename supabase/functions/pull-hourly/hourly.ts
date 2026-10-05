@@ -7,7 +7,7 @@ export type DayRow = {
   sku: string; date: string; units: number; gmv: number; ordered_nmv: number; ads: number; promo: number;
   ads_gmv: number; ads_units: number; total_clicks: number; total_impressions: number;
   sp_spend: number; sb_spend: number; sd_spend: number; promo_deal: number; promo_coupon: number; promo_discount: number;
-  category: string | null; source_file: string;
+  glance_views?: number; category: string | null; source_file: string;
 };
 
 const n = (v: unknown): number => {
@@ -35,37 +35,53 @@ export function isoDate(v: unknown): string | null {
 
 const r2 = (x: number) => Math.round(x * 10000) / 10000;
 
-export function aggregate(rows: Row[], managed: Set<string>, sourceFile: string): { out: DayRow[]; rowsIn: number; skipped: number } {
-  const agg = new Map<string, DayRow>();
+// Works with both exports:
+//  - "SSO Data Extraction Hourly": one row per SKU per day, ordered_gmv / total_ads / total_promo
+//  - "usa_amz_sso_hourly -- usa": one row per SKU per hour (date_time_local), glance_view,
+//    no ordered_gmv (GMV falls back to ordered_nmv), ads/promo summed from their parts
+export type Info = { rowsIn: number; skipped: number; gmvFrom: string; columns: string[] };
+export function aggregate(rawRows: Row[], managed: Set<string>, sourceFile: string): { out: DayRow[] } & Info {
+  const rows = rawRows.map((r) => { const o: Row = {}; for (const [k, v] of Object.entries(r)) o[k.trim().toLowerCase().replace(/\s+/g, "_")] = v; return o; });
+  const cols = new Set(rows.length ? Object.keys(rows[0]) : []);
+  const has = (c: string) => cols.has(c);
+  const dateCol = ["date", "date_time_local", "datetime", "day"].find(has);
+  const gmvCol = ["ordered_gmv", "ordered_revenue_gmv", "ordered_nmv"].find(has);
+  const missing = [!has("sku") && "sku", !dateCol && "date/date_time_local", !has("ordered_units") && "ordered_units", !gmvCol && "ordered_gmv/ordered_nmv"].filter(Boolean);
+  if (missing.length) throw new Error("File thiếu cột: " + missing.join(", ") + ". Cột hiện có: " + [...cols].join(", "));
+  const sum = (r: Row, ...ks: string[]) => ks.reduce((t, k) => t + n(r[k]), 0);
+  const agg = new Map<string, DayRow & { glance_views: number }>();
   let skipped = 0;
   for (const r of rows) {
     const sku = String(r.sku ?? "").trim();
-    const date = isoDate(r.date);
+    const date = isoDate(r[dateCol!]);
+    if (has("country") && !/^(usa|us)$/i.test(String(r.country ?? "").trim())) { skipped++; continue; }
     if (!sku || !date || !managed.has(sku)) { skipped++; continue; }
     const k = sku + "|" + date;
     let a = agg.get(k);
     if (!a) {
       a = { sku, date, units: 0, gmv: 0, ordered_nmv: 0, ads: 0, promo: 0, ads_gmv: 0, ads_units: 0, total_clicks: 0, total_impressions: 0,
-        sp_spend: 0, sb_spend: 0, sd_spend: 0, promo_deal: 0, promo_coupon: 0, promo_discount: 0,
+        sp_spend: 0, sb_spend: 0, sd_spend: 0, promo_deal: 0, promo_coupon: 0, promo_discount: 0, glance_views: 0,
         category: r.main_category ? String(r.main_category) : null, source_file: sourceFile };
       agg.set(k, a);
     }
-    a.units += n(r.ordered_units); a.gmv += n(r.ordered_gmv); a.ordered_nmv += n(r.ordered_nmv);
-    a.ads += n(r.total_ads); a.promo += n(r.total_promo);
-    a.ads_gmv += n(r.sb_ordered_nmv) + n(r.sd_ordered_nmv) + n(r.sp_ordered_nmv);
-    a.ads_units += n(r.sb_ordered_units) + n(r.sd_ordered_units) + n(r.sp_ordered_units);
-    a.total_clicks += n(r.sb_clicks) + n(r.sd_clicks) + n(r.sp_clicks);
-    a.total_impressions += n(r.sb_impressions) + n(r.sd_impressions) + n(r.sp_impressions);
+    a.units += n(r.ordered_units); a.gmv += n(r[gmvCol!]); a.ordered_nmv += n(r.ordered_nmv);
+    a.ads += has("total_ads") ? n(r.total_ads) : sum(r, "sb_spend", "sd_spend", "sp_spend");
+    a.promo += has("total_promo") ? n(r.total_promo) : sum(r, "coupon_spend", "price_discount_spend", "lightning_deal_spend", "best_deal_spend", "vm_promo_spend");
+    a.ads_gmv += sum(r, "sb_ordered_nmv", "sd_ordered_nmv", "sp_ordered_nmv");
+    a.ads_units += sum(r, "sb_ordered_units", "sd_ordered_units", "sp_ordered_units");
+    a.total_clicks += sum(r, "sb_clicks", "sd_clicks", "sp_clicks");
+    a.total_impressions += sum(r, "sb_impressions", "sd_impressions", "sp_impressions");
     a.sp_spend += n(r.sp_spend); a.sb_spend += n(r.sb_spend); a.sd_spend += n(r.sd_spend);
-    a.promo_deal += n(r.best_deal_spend) + n(r.lightning_deal_spend) + n(r.vm_promo_spend);
+    a.promo_deal += sum(r, "best_deal_spend", "lightning_deal_spend", "vm_promo_spend");
     a.promo_coupon += n(r.coupon_spend); a.promo_discount += n(r.price_discount_spend);
+    a.glance_views += n(r.glance_views ?? r.glance_view);
   }
   const out = [...agg.values()].map((a) => {
     const o = { ...a } as Record<string, unknown>;
     for (const [k, v] of Object.entries(o)) if (typeof v === "number") o[k] = r2(v);
     return o as DayRow;
   });
-  return { out, rowsIn: rows.length, skipped };
+  return { out, rowsIn: rows.length, skipped, gmvFrom: gmvCol!, columns: [...cols] };
 }
 
 // SharePoint / OneDrive share link → direct-download candidates (no login)
