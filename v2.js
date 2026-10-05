@@ -451,7 +451,7 @@ async function askAI(scope, key, context, outEl, force){
 // SALES PERFORMANCE tab
 // =====================================================================
 let SPdirty = true, SPbuilt = false;
-const SP = { from:null, to:null, compare:'yoy', pic:'', mpl:'', spl:'', ch:'', grain:'auto', abs:'gmv', rates:['mktGmv','tacos','cr'],
+const SP = { from:null, to:null, compare:'yoy', pic:'', mpl:'', spl:'', ch:'', exSpt:false, grain:'auto', abs:'gmv', rates:['mktGmv','tacos','cr'],
   relLevel:'mpl', preset:'promoAds', x:'promo', y:'ads', s:'gmv', h:12, invSel:null, sortKey:'gmv', sortDir:-1, cur:new Map(), prev:new Map(), key:'' };
 function spBuild(){
   const v = $('#view-sp');
@@ -467,6 +467,7 @@ function spBuild(){
     <div class="fld"><label for="spMpl">Main PL</label><select id="spMpl"><option value="">All</option></select></div>
     <div class="fld"><label for="spSpl">Old Product Line</label><select id="spSpl"><option value="">All</option></select></div>
     <div class="fld"><label for="spCh">Channel</label><select id="spCh"><option value="">All</option></select></div>
+    <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="spExSpt"> Exclude SPT</label></div>
     <button class="btn" id="spReset" type="button">Reset</button>
     <span class="result-count" id="spCount"></span>
   </div>
@@ -527,7 +528,8 @@ function spBuild(){
     SP.from = f; SP.to = t; $('#spFrom').value = f; $('#spTo').value = t; renderSP(); };
   $('#spCompare').onchange = () => { SP.compare = $('#spCompare').value; renderSP(); };
   [['#spPic','pic'],['#spMpl','mpl'],['#spSpl','spl'],['#spCh','ch']].forEach(([id, k]) => $(id).onchange = () => { SP[k] = $(id).value; SP.invSel = null; renderSP(false); });
-  $('#spReset').onclick = () => { SP.pic = SP.mpl = SP.spl = SP.ch = ''; ['#spPic','#spMpl','#spSpl','#spCh'].forEach(id => $(id).value = ''); SP.invSel = null; renderSP(false); };
+  $('#spExSpt').onchange = () => { SP.exSpt = $('#spExSpt').checked; SP.invSel = null; renderSP(false); };
+  $('#spReset').onclick = () => { SP.pic = SP.mpl = SP.spl = SP.ch = ''; SP.exSpt = false; $('#spExSpt').checked = false; ['#spPic','#spMpl','#spSpl','#spCh'].forEach(id => $(id).value = ''); SP.invSel = null; renderSP(false); };
   $('#spGrain').onclick = e => { const b = e.target.closest('[data-g]'); if(!b) return; SP.grain = b.dataset.g; spTrend(); };
   $('#spLevel').onclick = e => { const b = e.target.closest('[data-l]'); if(!b) return; SP.relLevel = b.dataset.l; spRel(); };
   $('#spH').onclick = e => { const b = e.target.closest('[data-h]'); if(!b) return; SP.h = +b.dataset.h; spInv(); };
@@ -540,7 +542,7 @@ function spComparePeriod(){
   const n = daysBetweenInclusive(SP.from, SP.to); return [addDaysIso(SP.from, -n), addDaysIso(SP.from, -1)];
 }
 function spScope(ignore){
-  return ROWS.filter(r => (!SP.pic || r.pic === SP.pic) && (!SP.mpl || r.mainPL === SP.mpl) && (ignore === 'spl' || !SP.spl || r.subPL === SP.spl) && (!SP.ch || r.channel === SP.ch) && matchGS(r));
+  return ROWS.filter(r => (!SP.pic || r.pic === SP.pic) && (!SP.mpl || r.mainPL === SP.mpl) && (ignore === 'spl' || !SP.spl || r.subPL === SP.spl) && (!SP.ch || r.channel === SP.ch) && (!SP.exSpt || !(r.channel || '').toUpperCase().includes('SPT')) && matchGS(r));
 }
 function aggFor(rows, map){ const a = emptyAgg(); rows.forEach(r => { const x = map.get(r.sku); if(x) addInto(a, x); }); return derive(a); }
 async function renderSP(refetch = true){
@@ -874,7 +876,7 @@ V2.openSkuDetail = openSkuDetail;
 // WEEKLY REVIEW tab
 // =====================================================================
 let WRdirty = true, WRbuilt = false;
-const WR = { ws:null, pl:null, open:new Set(), data:null, weeks:[], reviews:[], actions:[], dueDow:2, dueTime:'12:00' };
+const WR = { ws:null, pl:null, open:new Set(), data:null, weeks:[], reviews:[], actions:[], versions:[], ai:[], dueDow:2, dueTime:'17:00' };
 const CODES = ['INV','LIS','PRC','MKT','Others'];
 const CODE_RX = {
   INV:/(tồn|stock|\boos\b|hết hàng|hàng về|về hàng|incoming|replenish|\bmoc\b|inventory|lô hàng)/i,
@@ -904,13 +906,13 @@ function wrBuild(){
   const v = $('#view-wr');
   v.innerHTML = `
   <div class="filterbar">
-    <div class="fld"><label for="wrWeek">Tuần (CN → T7)</label><select id="wrWeek"></select></div>
-    <div class="fld"><label for="wrPic">PIC</label><select id="wrPic"><option value="">All</option></select></div>
-    <div class="fld"><label for="wrDueDow">Hạn nhập</label><select id="wrDueDow"><option value="1">Thứ Hai</option><option value="2" selected>Thứ Ba</option><option value="3">Thứ Tư</option></select></div>
-    <div class="fld"><label for="wrDueTime">Giờ</label><input type="time" id="wrDueTime" value="12:00" style="border:1px solid var(--line);border-radius:8px;padding:6px 8px"></div>
-    <button class="btn" type="button" id="wrFreeze">Chụp snapshot tuần này</button>
+    <div class="fld"><label for="wrWeek">Tuần review (CN → T7)</label><select id="wrWeek" style="min-width:300px"></select></div>
+    <div class="fld"><label for="wrPic">PIC</label><select id="wrPic"><option value="">Tất cả PIC</option></select></div>
+    <div class="fld"><label for="wrPlSel">Product line</label><select id="wrPlSel" style="min-width:200px"></select></div>
+    <button class="btn" type="button" id="wrFreeze" title="Khóa số liệu tuần đã đủ 7 ngày để số không đổi khi data hourly/daily cập nhật sau đó. Hệ thống tự khóa khi đã có data thứ Hai tuần sau.">Khóa số liệu tuần (snapshot)</button>
     <span class="result-count" id="wrStatus"></span>
   </div>
+  <div class="v2-note" id="wrRule" style="margin:-4px 2px 10px"></div>
   <div class="lockbar" id="wrLock"></div>
   <div class="review-layout">
     <div class="card" style="margin:0">
@@ -920,6 +922,11 @@ function wrBuild(){
     </div>
     <div class="card editor-card" style="margin:0" id="wrEditor"></div>
   </div>
+  <div class="section-title">Nhật ký nhập liệu của PIC</div>
+  <div class="card"><h3 style="margin:0 0 3px">Tổng hợp theo PIC</h3><div class="hint" id="wrLogHint"></div><div class="tablewrap" style="max-height:320px"><table id="wrLogSum"></table></div>
+    <h3 style="margin:14px 0 3px">Log từng lần lưu</h3><div class="hint">Mỗi lần PIC bấm “Lưu diễn giải” là một dòng. Nhập sớm = lưu khi tuần chưa kết thúc · Đúng hạn = trước 17:00 thứ Ba · Trễ = sau hạn.</div><div class="tablewrap" style="max-height:320px"><table id="wrLog"></table></div></div>
+  <div class="card"><h3 style="margin:0 0 3px">Toàn bộ nội dung PIC đã nhập</h3><div class="hint">Nguyên văn ô Vấn đề và Hành động của từng group trong tuần, theo bộ lọc PIC. Bấm “Sửa” để mở ô nhập bên trên.</div><div id="wrFull"></div></div>
+  <div class="card"><h3 style="margin:0 0 3px">Issue theo mã & theo dõi action đề xuất</h3><div class="hint">Trái: các issue PIC ghi, tự tách theo mã. Phải: action PIC đề xuất (từ ô Hành động) và action AI đề xuất (từ nút “Hỏi AI cho group này”); bấm “＋ Action” để đưa đề xuất AI vào Action tracker.</div><div class="grid2" style="margin-top:8px"><div id="wrIssueBreak"></div><div id="wrActTrack"></div></div></div>
   <div class="section-title">Knowledge hub</div>
   <div class="tiles" id="wrHubTiles"></div>
   <div class="grid-7-5"><div class="card" style="margin:0"><h3 style="margin:0 0 3px">Vấn đề theo mã, theo tuần</h3><div class="hint">INV tồn kho · LIS listing · PRC giá · MKT ads/promo · Others. Tách tự động từ ô “Vấn đề” mỗi khi PIC lưu.</div><div id="wrIssuePlot" class="plot"></div></div>
@@ -927,17 +934,25 @@ function wrBuild(){
   <div class="card"><h3 style="margin:0 0 3px">Action tracker</h3><div class="hint">Deadline lấy từ “dd/mm:” trong ô Hành động; không ghi ngày thì mặc định thứ Bảy tuần kế tiếp.</div><div class="board" id="wrBoard" style="margin-top:8px"></div></div>`;
   const today = todayISO(); const thisSun = sundayOf(today);
   WR.weeks = Array.from({length: 10}, (_, i) => addDaysIso(thisSun, -7 * i));
-  const sel = $('#wrWeek');
-  WR.weeks.forEach((w, i) => { const o = document.createElement('option'); o.value = w; o.textContent = `W${String(weekNo(w)).padStart(2, '0')} · ${dm(w)} → ${dm(addDaysIso(w, 6))}${i === 0 ? ' (đang chạy)' : ''}`; sel.appendChild(o); });
-  WR.ws = WR.weeks[1]; sel.value = WR.ws;
-  [...new Set(ROWS.map(r => r.pic).filter(Boolean))].sort().forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; $('#wrPic').appendChild(o); });
+  const sel = $('#wrWeek'); const act = activeWeek();
+  WR.weeks.forEach(w => { const o = document.createElement('option'); o.value = w; o.textContent = wrWeekLabel(w, act); sel.appendChild(o); });
+  WR.ws = act; sel.value = WR.ws;
+  $('#wrRule').innerHTML = `Quy tắc: tuần bán hàng CN → T7, <b>hạn nhập diễn giải 17:00 thứ Ba tuần kế tiếp</b>. Trước 17:00 thứ Ba, tab mặc định mở tuần vừa kết thúc; sau đó chuyển sang tuần đang chạy (PIC được nhập sớm). Đổi tuần ở ô “Tuần review” khi cần nhập lại tuần khác.`;
+  [...new Set([...PIC_LIST, ...ROWS.map(r => r.pic).filter(p => p && p !== 'Unassigned')])].sort().forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; $('#wrPic').appendChild(o); });
   sel.onchange = () => { WR.ws = sel.value; WR.pl = null; WR.open.clear(); renderWR(); };
-  $('#wrPic').onchange = () => wrTable();
-  $('#wrDueDow').onchange = () => { WR.dueDow = +$('#wrDueDow').value; wrLock(); };
-  $('#wrDueTime').onchange = () => { WR.dueTime = $('#wrDueTime').value || '12:00'; wrLock(); };
+  $('#wrPic').onchange = () => { WR.pl = null; wrTable(); wrPlSelect(); wrEditor(); wrPanels(); };
+  $('#wrPlSel').onchange = () => { WR.pl = $('#wrPlSel').value || null; wrTable(); wrEditor(); const ed = $('#wrEditor'); if(ed) ed.scrollIntoView({behavior:'smooth', block:'nearest'}); };
   $('#wrFreeze').onclick = async () => { try { const {data, error} = await sb.rpc('freeze_review_week', {p_week_start: WR.ws}); if(error) throw error; toast(data ? `Đã chụp snapshot ${data} SKU` : 'Tuần này đã khóa hoặc chưa kết thúc'); renderWR(); } catch(e){ toast('Không chụp được: ' + (e.message || e)); } };
   WRbuilt = true;
 }
+function activeWeek(){ const last = addDaysIso(sundayOf(todayISO()), -7); return new Date() < dueOf(last) ? last : sundayOf(todayISO()); }
+const fdow = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+function wrWeekLabel(w, act){
+  const now = new Date(), due = dueOf(w), ended = now >= new Date(addDaysIso(w, 7) + 'T00:00:00');
+  const st = w === act ? (ended ? '● đang nhập' : '● đang chạy, nhập sớm') : !ended ? 'chưa kết thúc · nhập sớm' : now < due ? 'đang nhập' : 'đã qua hạn';
+  return `W${String(weekNo(w)).padStart(2, '0')} · ${dm(w)} → ${dm(addDaysIso(w, 6))} · hạn ${fdow(due)} · ${st}`;
+}
+function timingOf(iso, ws){ const t = new Date(iso); return t < new Date(addDaysIso(ws, 7) + 'T00:00:00') ? ['green', 'Nhập sớm'] : t <= dueOf(ws) ? ['green', 'Đúng hạn'] : ['red', 'Trễ']; }
 function weekNo(sun){ const sat = addDaysIso(sun, 6); const d = new Date(sat + 'T00:00:00'); const j1 = new Date(d.getFullYear(), 0, 1); return Math.ceil(((d - j1) / 864e5 + j1.getDay() + 1) / 7); }
 function dueOf(ws){ return new Date(addDaysIso(ws, 7 + WR.dueDow) + 'T' + WR.dueTime + ':00'); }
 function snapOf(ws){ return new Date(addDaysIso(ws, 8) + 'T06:00:00'); }
@@ -945,8 +960,8 @@ async function loadWeek(ws){
   const we = addDaysIso(ws, 6); const today = todayISO();
   let frozen = null;
   try { const {data} = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = data && data[0] && data[0].frozen_at ? data[0] : null; } catch(e){}
-  // auto-freeze an ended week once its snapshot time has passed
-  if(!frozen && new Date() >= snapOf(ws)){
+  // auto-freeze once Monday after the week has data (weekend numbers have settled)
+  if(!frozen && ((V2.state.maxDate && V2.state.maxDate > addDaysIso(ws, 7)) || new Date() >= snapOf(ws))){
     try { const {data} = await sb.rpc('freeze_review_week', {p_week_start: ws}); if(data){ const r = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = r.data && r.data[0]; } } catch(e){}
   }
   const bySku = new Map();
@@ -979,19 +994,23 @@ async function renderWR(){
   catch(e){ $('#wrStatus').textContent = ''; $('#wrTable').innerHTML = missingSchema(e) ? '<tr><td>' + schemaHint + '</td></tr>' : '<tr><td>Không tải được: ' + esc(e.message || e) + '</td></tr>'; return; }
   try { WR.reviews = await selectAll('weekly_reviews', q => q.gte('week_start', addDaysIso(WR.weeks[WR.weeks.length - 1], -56))); } catch(e){ WR.reviews = []; }
   await reloadActions();
+  try { WR.versions = await selectAll('weekly_review_versions', q => q.eq('week_start', WR.ws)); }
+  catch(e){ const ids = WR.reviews.filter(r => r.week_start === WR.ws).map(r => r.id); try { WR.versions = ids.length ? await selectAll('weekly_review_versions', q => q.in('review_id', ids)) : []; } catch(_){ WR.versions = []; } }
+  try { WR.ai = (await selectAll('ai_recommendations', q => q.eq('scope', 'main_pl').gte('as_of', WR.ws))).filter(a => String(a.scope_key).includes(' · ' + WR.ws)); } catch(e){ WR.ai = []; }
   $('#wrStatus').innerHTML = WR.data.frozen ? `<span class="badge green">Đã khóa ${new Date(WR.data.frozen.frozen_at).toLocaleString('vi-VN')}</span>` : `<span class="badge amber">Chưa khóa · số liệu live tới ${dm(WR.data.liveTo)}</span>`;
-  $('#wrFreeze').disabled = !!WR.data.frozen || new Date() < new Date(addDaysIso(WR.ws, 7) + 'T00:00:00');
-  wrLock(); wrTable(); wrEditor(); wrHub(); WRdirty = false;
+  $('#wrFreeze').disabled = !!WR.data.frozen || !(V2.state.maxDate > addDaysIso(WR.ws, 7));
+  wrLock(); wrTable(); wrPlSelect(); wrEditor(); wrHub(); wrPanels(); WRdirty = false;
 }
 function wrLock(){
   const ws = WR.ws, we = addDaysIso(ws, 6), snap = snapOf(ws), due = dueOf(ws), now = new Date();
-  const phase = now < new Date(addDaysIso(ws, 7) + 'T00:00:00') ? 0 : now < snap ? 1 : now < due ? 2 : 3;
+  const complete = (V2.state.maxDate || '') > addDaysIso(ws, 7);
+  const phase = !complete ? 0 : !(WR.data && WR.data.frozen) ? 1 : now < due ? 2 : 3;
   const fdt = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  const steps = [['Tuần bán hàng', dm(ws) + ' → ' + dm(we), 'Data load daily, số còn thay đổi'], ['Chụp snapshot', fdt(snap), 'Khóa số liệu tuần (tự động bằng pg_cron hoặc khi mở tuần này)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
+  const steps = [['Tuần bán hàng', dm(ws) + ' → ' + dm(we), 'Data còn cập nhật, số còn thay đổi'], ['Khóa số liệu (snapshot)', WR.data && WR.data.frozen ? fdt(new Date(WR.data.frozen.frozen_at)) : 'khi có data T2 ' + dm(addDaysIso(ws, 8)), 'Tự khóa khi đã có data thứ Hai tuần sau, để số T7/CN kịp cập nhật đủ (kiểm tra mỗi giờ)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
   $('#wrLock').innerHTML = steps.map((s, i) => `<div class="step ${i < phase ? 'done' : ''} ${i === phase ? 'now' : ''}"><span class="lbl" style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase">${s[0]}</span><span class="when">${s[1]}</span><span class="v2-note">${s[2]}${i === phase ? ' · <b>đang ở bước này</b>' : ''}</span></div>`).join('');
 }
-function wrPlStats(){
-  const pic = $('#wrPic').value;
+function wrPlStats(picArg){
+  const pic = picArg === undefined ? $('#wrPic').value : picArg;
   const g = new Map();
   WR.data.bySku.forEach((x, sku) => {
     const k = skuInfo(sku); if(!k || !matchGS(k) || (pic && k.pic !== pic)) return;
@@ -1028,7 +1047,7 @@ function wrEditor(){
   const owners = [...new Set(ROWS.map(r => r.pic).filter(Boolean))].sort();
   el.innerHTML = `<h3 style="margin:0">${esc(e.pl)}</h3><div class="v2-note" style="margin:2px 0 8px">GMV ${f$(e.c.gmv)} (${fP(div(e.c.gmv, e.p.gmv) - 1)} WoW) · target ${fP(e.ach, 0)} · Ads ${f$(e.c.ads)} · TACOS ${fP(e.c.tacos)} · GV ${fN(e.c.glance_views)}</div>
     <div style="display:flex;gap:8px;margin-bottom:8px"><div style="flex:1"><label class="lbl2" for="edSt">Trạng thái</label><select id="edSt">${['Đạt tiến độ','Cần chú ý','Chậm tiến độ'].map(s => `<option ${((rv.status || autoSt(e.ach)[1]) === s) ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-      <div style="flex:1"><label class="lbl2" for="edOw">Owner</label><select id="edOw">${owners.map(o => `<option ${((rv.owner || e.pic) === o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div></div>
+      <div style="flex:1"><label class="lbl2" for="edOw">Owner</label><select id="edOw">${[...new Set([...PIC_LIST, ...owners])].map(o => `<option ${((rv.owner || $('#wrPic').value || e.pic) === o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div></div>
     <label class="lbl2" for="edIs">Vấn đề / Follow-up (mỗi ý một dòng)</label><textarea id="edIs" placeholder="VD: 5SU6 OOS, hàng về giữa tháng&#10;D5XI mất badge Best Deal">${esc(rv.issue_text || '')}</textarea>
     <label class="lbl2" for="edAc" style="margin-top:6px;display:block">Hành động tiếp theo (ghi “dd/mm:” để đặt deadline)</label><textarea id="edAc" placeholder="VD: 02/10: Kiện case long shipping cho 4M82&#10;Push ads vào SKU còn stock">${esc(rv.action_text || '')}</textarea>
     <div class="lbl2" style="margin-top:6px">Hệ thống tự bóc tách</div><div class="parsed" id="edParsed"></div>
@@ -1056,13 +1075,16 @@ function wrEditor(){
       toast(data.is_late ? 'Đã lưu · gắn nhãn Late (sau hạn)' : 'Đã lưu diễn giải');
       WR.reviews = await selectAll('weekly_reviews', q => q.gte('week_start', addDaysIso(WR.weeks[WR.weeks.length - 1], -56)));
       await reloadActions();
-      V2.state.notes = WR.reviews; wrTable(); wrEditor(); wrHub();
+      try { WR.versions = await selectAll('weekly_review_versions', q => q.eq('week_start', WR.ws)); } catch(_){ }
+      V2.state.notes = WR.reviews; wrTable(); wrPlSelect(); wrEditor(); wrHub(); wrPanels();
     } catch(err){ toast('Không lưu được: ' + (err.message || err)); btn.disabled = false; btn.textContent = 'Lưu diễn giải'; }
   };
-  $('#edAI').onclick = () => askAI('main_pl', e.pl + ' · ' + WR.ws, {week: {start: WR.ws, end: addDaysIso(WR.ws, 6), frozen: !!WR.data.frozen}, main_pl: e.pl, pic: e.pic,
+  $('#edAI').onclick = async () => { await askAI('main_pl', e.pl + ' · ' + WR.ws, {week: {start: WR.ws, end: addDaysIso(WR.ws, 6), frozen: !!WR.data.frozen}, main_pl: e.pl, pic: e.pic,
     totals: {current: pick(e.c), previous_week: pick(e.p), target_week: e.t, stock: e.stock},
     skus: e.skus.sort((a, b) => b.c.gmv - a.c.gmv).slice(0, 25).map(s => ({sku: s.sku, name: s.k.productName, rrp: s.k.rrp, current: pick(derive(addInto(emptyAgg(), s.c))), previous_week: pick(derive(addInto(emptyAgg(), s.p))), target_week: s.t, stock: s.stock, rule_recommendations: s.recs.map(r => r.text)})),
     pic_notes: {issues: $('#edIs').value, actions: $('#edAc').value}}, $('#edAIbox'));
+    try { WR.ai = (await selectAll('ai_recommendations', q => q.eq('scope', 'main_pl').gte('as_of', WR.ws))).filter(a => String(a.scope_key).includes(' · ' + WR.ws)); } catch(_){ }
+    wrPanels(); };
 }
 function wrHub(){
   const today = todayISO();
@@ -1083,6 +1105,94 @@ function wrHub(){
   const rr = [...rec.values()].filter(r => r.weeks.size >= 2).sort((a, b) => b.weeks.size - a.weeks.size);
   $('#wrRecur').innerHTML = '<thead><tr><th>Group</th><th>Mã</th><th class="num">Số tuần</th><th>Ghi chú gần nhất</th></tr></thead><tbody>' + (rr.length ? rr.map(r => `<tr><td>${esc(r.pl)}</td><td><span class="codeb ${r.c}">${r.c}</span></td><td class="num">${r.weeks.size}</td><td style="white-space:normal;min-width:220px">${esc(r.last)}</td></tr>`).join('') : '<tr><td colspan="4" class="v2-note">Chưa có vấn đề lặp lại.</td></tr>') + '</tbody>';
   renderBoard(today, open, overdue);
+}
+
+
+// Product line picker (follows the PIC filter) -----------------------------
+function wrPlSelect(){
+  const sel = $('#wrPlSel'); if(!sel) return;
+  const stats = WR.stats || [];
+  sel.innerHTML = stats.map(e => { const rv = reviewOf(WR.ws, e.pl); const st = autoSt(e.ach)[0];
+    const tag = rv ? '✓' : (st === 'green' || st === 'gray') ? '·' : '✗';
+    return `<option value="${esc(e.pl)}">${tag} ${esc(e.pl)}${e.pic ? ' — ' + esc(e.pic) : ''}</option>`; }).join('') || '<option value="">(không có group)</option>';
+  if(WR.pl) sel.value = WR.pl;
+}
+
+// Log + summary + full text + issue / action tracking ----------------------
+const wrNorm = t => String(t || '').toLowerCase().replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+function wrPanels(){
+  if(!$('#wrLogSum')) return;
+  const ws = WR.ws, pic = $('#wrPic').value;
+  const all = wrPlStats('');
+  const plPic = new Map(all.map(e => [e.pl, e.pic]));
+  const weekRv = WR.reviews.filter(r => r.week_start === ws);
+  const ownerOf = r => r.owner || plPic.get(r.main_pl) || 'Chưa gán';
+  const vers = (WR.versions || []).map(v => { const r = weekRv.find(x => x.id === v.review_id) || {}; return {...v, pl: v.main_pl || r.main_pl, who: v.owner || ownerOf(r)}; }).sort((a, b) => a.saved_at.localeCompare(b.saved_at));
+  const firstOf = new Map(), cntOf = new Map();
+  vers.forEach(v => { if(!firstOf.has(v.review_id)) firstOf.set(v.review_id, v.saved_at); cntOf.set(v.review_id, (cntOf.get(v.review_id) || 0) + 1); });
+  const first = r => firstOf.get(r.id) || r.updated_at;
+  const need = e => { const st = autoSt(e.ach)[0]; return st !== 'green' && st !== 'gray'; };
+  const due = dueOf(ws), now = new Date();
+  $('#wrLogHint').innerHTML = `Tuần ${dm(ws)} → ${dm(addDaysIso(ws, 6))} · hạn ${fdow(due)} ${now > due ? '<span class="badge red">đã qua hạn</span>' : '<span class="badge amber">còn ' + Math.max(0, Math.ceil((due - now) / 36e5)) + ' giờ</span>'} · “Bắt buộc” = group chưa đạt tiến độ target tuần. Bấm một dòng để lọc theo PIC đó.`;
+  // summary per PIC
+  const pics = [...new Set([...PIC_LIST, ...all.map(e => e.pic), ...weekRv.map(ownerOf)].filter(p => p && p !== 'Unassigned'))].sort();
+  const sum = pics.map(p => {
+    const groups = all.filter(e => e.pic === p), req = groups.filter(need);
+    const rvs = weekRv.filter(r => ownerOf(r) === p);
+    const t = rvs.map(r => timingOf(first(r), ws)[1]);
+    const miss = req.filter(e => !reviewOf(ws, e.pl));
+    const times = rvs.map(r => first(r)).sort(), lasts = rvs.map(r => r.updated_at).sort();
+    return {p, groups: groups.length, req: req.length, done: rvs.length, early: t.filter(x => x === 'Nhập sớm').length, ontime: t.filter(x => x === 'Đúng hạn').length, late: t.filter(x => x === 'Trễ').length, miss, first: times[0], last: lasts[lasts.length - 1], edits: rvs.reduce((a, r) => a + Math.max(0, (cntOf.get(r.id) || 1) - 1), 0)};
+  }).filter(x => x.groups || x.done);
+  $('#wrLogSum').innerHTML = `<thead><tr><th>PIC</th><th class="num">Group phụ trách</th><th class="num">Bắt buộc</th><th class="num">Đã nhập</th><th class="num">Nhập sớm</th><th class="num">Đúng hạn</th><th class="num">Trễ</th><th>Chưa nhập (bắt buộc)</th><th>Lưu lần đầu</th><th>Lưu gần nhất</th><th class="num">Số lần sửa</th></tr></thead><tbody>` +
+    sum.map(x => `<tr class="clickable${x.p === pic ? ' sel' : ''}" data-pic="${esc(x.p)}"><td><b>${esc(x.p)}</b></td><td class="num">${x.groups}</td><td class="num">${x.req}</td><td class="num">${x.done}</td><td class="num">${x.early || ''}</td><td class="num">${x.ontime || ''}</td><td class="num" style="${x.late ? 'color:var(--red);font-weight:800' : ''}">${x.late || ''}</td>
+      <td style="white-space:normal;min-width:180px">${x.miss.length ? x.miss.map(e => `<span class="badge ${now > due ? 'red' : 'amber'}" style="margin:1px">${esc(e.pl)}</span>`).join(' ') : (x.req ? '<span class="badge green">đủ</span>' : '<span class="v2-note">—</span>')}</td>
+      <td>${x.first ? fdow(new Date(x.first)) : '—'}</td><td>${x.last ? fdow(new Date(x.last)) : '—'}</td><td class="num">${x.edits || ''}</td></tr>`).join('') + '</tbody>';
+  $$('#wrLogSum tr.clickable').forEach(tr => tr.onclick = () => { const v = tr.dataset.pic; $('#wrPic').value = $('#wrPic').value === v ? '' : v; $('#wrPic').onchange(); });
+  // per-save log
+  const seen = new Set();
+  const log = vers.map(v => { const isNew = !seen.has(v.review_id); seen.add(v.review_id); return {...v, isNew}; }).filter(v => !pic || v.who === pic).reverse();
+  $('#wrLog').innerHTML = '<thead><tr><th>Thời gian lưu</th><th>PIC</th><th>Group</th><th>Loại</th><th>So với hạn</th><th>Tóm tắt</th></tr></thead><tbody>' +
+    (log.map(v => { const tm = timingOf(v.saved_at, ws); const iss = parseIssues(v.issue_text), acts = parseActions(v.action_text, ws);
+      return `<tr><td>${fdow(new Date(v.saved_at))}</td><td>${esc(v.who)}</td><td>${esc(v.pl || '')}</td><td>${v.isNew ? '<span class="badge green">Tạo mới</span>' : '<span class="badge gray">Cập nhật</span>'}</td><td><span class="badge ${tm[0]}">${tm[1]}</span></td>
+        <td style="white-space:normal;min-width:260px">${iss.length} issue · ${acts.length} action${iss[0] ? ' — ' + esc(iss[0].text.slice(0, 110)) : ''}</td></tr>`; }).join('') || '<tr><td colspan="6" class="v2-note">Chưa có lần lưu nào trong tuần này' + (pic ? ' của ' + esc(pic) : '') + '.</td></tr>') + '</tbody>';
+  // full text of what PICs entered
+  const scope = (WR.stats || []);
+  const blocks = scope.map(e => ({e, rv: reviewOf(ws, e.pl)})).filter(x => x.rv || need(x.e));
+  $('#wrFull').innerHTML = blocks.length ? blocks.map(({e, rv}) => {
+    if(!rv) return `<div class="rv-full miss"><div class="rv-h"><b>${esc(e.pl)}</b><span>${esc(e.pic)}</span><span class="badge ${now > due ? 'red' : 'amber'}">Chưa nhập</span><button class="btn small" type="button" data-edit="${esc(e.pl)}">Nhập</button></div></div>`;
+    const tm = timingOf(first(rv), ws);
+    return `<div class="rv-full"><div class="rv-h"><b>${esc(e.pl)}</b><span>${esc(ownerOf(rv))}</span><span class="badge ${rv.status === 'Đạt tiến độ' ? 'green' : rv.status === 'Chậm tiến độ' ? 'red' : 'amber'}">${esc(rv.status || '')}</span><span class="badge ${tm[0]}">${tm[1]}</span>${rv.is_late ? '<span class="badge red">Late</span>' : ''}
+        <span class="v2-note">lưu đầu ${fdow(new Date(first(rv)))} · gần nhất ${fdow(new Date(rv.updated_at))} · ${cntOf.get(rv.id) || 1} lần lưu</span><button class="btn small" type="button" data-edit="${esc(e.pl)}">Sửa</button></div>
+      <div class="rv-cols"><div><div class="lbl2">Vấn đề / Follow-up</div><div class="rv-tx">${esc(rv.issue_text || '—')}</div></div><div><div class="lbl2">Hành động tiếp theo</div><div class="rv-tx">${esc(rv.action_text || '—')}</div></div></div></div>`;
+  }).join('') : '<span class="v2-note">Chưa có nội dung cho bộ lọc này.</span>';
+  $$('#wrFull [data-edit]').forEach(b => b.onclick = () => { WR.pl = b.dataset.edit; wrTable(); wrPlSelect(); wrEditor(); $('#wrEditor').scrollIntoView({behavior:'smooth', block:'start'}); });
+  // issues by code
+  const rvScope = weekRv.filter(r => !pic || ownerOf(r) === pic);
+  const issues = rvScope.flatMap(r => parseIssues(r.issue_text).map(i => ({...i, pl: r.main_pl, who: ownerOf(r)})));
+  $('#wrIssueBreak').innerHTML = `<div class="lbl2" style="margin-bottom:4px">Issue theo mã (${issues.length})</div>` + (issues.length ? CODES.map(c => { const list = issues.filter(i => i.codes.includes(c)); if(!list.length) return '';
+    return `<details open class="rs-grp" style="margin-bottom:6px"><summary style="cursor:pointer;font-weight:800"><span class="codeb ${c}">${c}</span> ${list.length} issue</summary><ul style="margin:4px 0 0;padding-left:18px;font-size:12.3px">${list.map(i => `<li style="margin-bottom:3px"><b>${esc(i.pl)}</b> <span class="v2-note">${esc(i.who)}</span>: ${esc(i.text)} ${i.skus.map(k => `<span class="skutag">${esc(k)}</span>`).join(' ')}</li>`).join('')}</ul></details>`; }).join('') : '<span class="v2-note">Chưa có issue nào được nhập.</span>');
+  // actions: PIC-proposed + AI-proposed
+  const acts = (WR.actions || []).filter(a => a.week_start === ws && (!pic || a.owner === pic || plPic.get(a.main_pl) === pic));
+  const have = new Set((WR.actions || []).map(a => wrNorm(a.text)));
+  const latestAi = new Map();
+  (WR.ai || []).forEach(a => { const pl = String(a.scope_key).split(' · ')[0]; const cur = latestAi.get(pl); if(!cur || a.created_at > cur.created_at) latestAi.set(pl, a); });
+  const aiRows = [];
+  latestAi.forEach((a, pl) => { if(pic && plPic.get(pl) !== pic) return;
+    String(a.answer || '').split('\n').map(l => l.match(/^\s*(?:[-*•]|\d+[.)])\s+(.+)$/)).filter(Boolean).map(m => m[1].replace(/\*\*/g, '').trim()).filter(t => t.length > 8)
+      .slice(0, 8).forEach(t => aiRows.push({pl, text: t, at: a.created_at, exists: have.has(wrNorm(t))})); });
+  const stB = a => a.status === 'Done' ? `<span class="badge green">Xong${a.done_by ? ' · ' + esc(a.done_by) : ''}</span>` : a.due_date < todayISO() ? '<span class="badge red">Quá hạn</span>' : '<span class="badge amber">Đang mở</span>';
+  $('#wrActTrack').innerHTML = `<div class="lbl2" style="margin-bottom:4px">Action đề xuất (${acts.length} đã tạo · ${aiRows.filter(r => !r.exists).length} đề xuất AI chưa tạo)</div>
+    <div class="tablewrap" style="max-height:460px"><table><thead><tr><th>Group</th><th>Nguồn</th><th>Action</th><th>Owner</th><th>Hạn</th><th>Trạng thái</th></tr></thead><tbody>` +
+    acts.map(a => `<tr><td>${esc(a.main_pl)}</td><td>${a.created_by === 'AI' ? '<span class="badge gray">AI</span>' : a.review_id ? 'PIC' : 'Tạo tay'}</td><td style="white-space:normal;min-width:200px">${esc(a.text)}</td><td>${esc(a.owner || '')}</td><td>${dm(a.due_date)}</td><td>${stB(a)}</td></tr>`).join('') +
+    aiRows.filter(r => !r.exists).map((r, i) => `<tr style="background:#FFF8F1"><td>${esc(r.pl)}</td><td><span class="badge amber">AI đề xuất</span></td><td style="white-space:normal;min-width:200px">${esc(r.text)}</td><td>${esc(plPic.get(r.pl) || '')}</td><td>—</td><td><button class="btn small" type="button" data-aiact="${i}">＋ Action</button></td></tr>`).join('') +
+    ((acts.length || aiRows.length) ? '' : '<tr><td colspan="6" class="v2-note">Chưa có action. PIC ghi ở ô Hành động, hoặc bấm “Hỏi AI cho group này” để có đề xuất.</td></tr>') + '</tbody></table></div>';
+  const pending = aiRows.filter(r => !r.exists);
+  $$('#wrActTrack [data-aiact]').forEach(b => b.onclick = async () => { const r = pending[+b.dataset.aiact]; b.disabled = true;
+    const {error} = await sb.from('review_actions').insert({review_id: null, week_start: ws, main_pl: r.pl, owner: plPic.get(r.pl) || null, text: r.text.slice(0, 500), due_date: addDaysIso(ws, 13), status: 'Open', created_by: 'AI',
+      skus: [...new Set((r.text.match(/\b[A-Z0-9]{4}\b/g) || []).filter(x => /[A-Z]/.test(x) && !SKU_STOP.has(x)))]});
+    if(error){ toast('Không tạo được: ' + error.message); b.disabled = false; return; }
+    toast('Đã đưa vào Action tracker'); await reloadActions(); wrHub(); wrPanels(); });
 }
 
 // Action tracker ---------------------------------------------------------

@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Yes4All &middot; Sales Performance Hub</title>
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="theme-color" content="#002859">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -31,7 +35,13 @@
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;font-size:13px;line-height:1.5}
 header{background:linear-gradient(120deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;padding:18px 26px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:var(--shadow-lg)}
 .brand{display:flex;align-items:center;gap:12px}
-.brand .mark{width:44px;height:44px;border-radius:11px;background:var(--orange);display:grid;place-items:center;font-weight:900;font-size:15px;color:#fff;letter-spacing:.5px;box-shadow:0 4px 12px rgba(255,112,0,.45)}
+.brand .mark{position:relative;width:50px;height:50px;border-radius:13px;background:radial-gradient(circle at 50% 42%,#fff 0%,#fff 58%,#FFE9D6 100%);display:grid;place-items:center;overflow:hidden;
+  box-shadow:0 0 0 1px rgba(255,255,255,.7),0 0 14px 2px rgba(255,140,40,.55),0 0 34px 6px rgba(255,112,0,.28);animation:logoGlow 3.2s ease-in-out infinite}
+.brand .mark img{width:38px;height:auto;display:block;position:relative;z-index:1;filter:drop-shadow(0 1px 1.5px rgba(0,40,89,.25))}
+.brand .mark::after{content:'';position:absolute;top:-60%;left:-80%;width:45%;height:220%;transform:rotate(25deg);background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.95),rgba(255,255,255,0));z-index:2;animation:logoShine 4.8s ease-in-out infinite}
+@keyframes logoGlow{0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.7),0 0 12px 2px rgba(255,140,40,.45),0 0 28px 4px rgba(255,112,0,.20)}50%{box-shadow:0 0 0 1px rgba(255,255,255,.9),0 0 20px 5px rgba(255,150,50,.75),0 0 46px 12px rgba(255,112,0,.38)}}
+@keyframes logoShine{0%,62%{left:-80%}82%,100%{left:140%}}
+@media (prefers-reduced-motion:reduce){.brand .mark,.brand .mark::after{animation:none}}
 .brand h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.2px}
 .brand .sub{font-size:11px;color:#B9C6D6;margin-top:2px}
 .meta{display:flex;gap:16px;align-items:center;font-size:11px;color:#B9C6D6;flex-wrap:wrap}
@@ -236,6 +246,10 @@ tr.sub td:first-child{padding-left:28px}
 .parsed{display:flex;flex-direction:column;gap:5px;margin:8px 0}
 .parsed .it{display:flex;gap:7px;align-items:flex-start;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:#F7F8FA}
 .parsed .it .meta{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}
+.rv-full{border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin:8px 0;background:#fff}.rv-full.miss{background:#FFF6F6;border-style:dashed}
+.rv-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv-h .btn{margin-left:auto}
+.rv-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}.rv-tx{white-space:pre-wrap;font-size:12.6px;line-height:1.55;background:#F7F9FB;border-radius:8px;padding:7px 9px}
+@media (max-width:760px){.rv-cols{grid-template-columns:1fr}}
 .codeb{font-size:9.5px;font-weight:900;border-radius:5px;padding:1px 6px;color:#fff;white-space:nowrap}
 .codeb.INV{background:#2a78d6}.codeb.LIS{background:#eb6834}.codeb.PRC{background:#1baf7a}.codeb.MKT{background:#eda100}.codeb.Others{background:#e87ba4}
 .board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -265,7 +279,7 @@ tr.sub td:first-child{padding-left:28px}
 
 <header>
   <div class="brand">
-    <div class="mark">Y4A</div>
+    <div class="mark"><img src="assets/logo.png" alt="Yes4All"></div>
     <div>
       <h1>Sales Performance Dashboard</h1>
       <div class="sub">Amazon US &middot; SSO &middot; Vendor + Seller Central</div>

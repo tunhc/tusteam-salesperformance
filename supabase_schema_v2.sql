@@ -140,8 +140,14 @@ create table if not exists weekly_review_versions (
   action_text    text,
   status         text,
   is_late        boolean not null,
-  saved_at       timestamptz not null default now()
+  saved_at       timestamptz not null default now(),
+  owner          text,
+  main_pl        text,
+  week_start     date
 );
+alter table weekly_review_versions add column if not exists owner text;
+alter table weekly_review_versions add column if not exists main_pl text;
+alter table weekly_review_versions add column if not exists week_start date;
 
 create table if not exists review_actions (
   id             bigint generated always as identity primary key,
@@ -164,6 +170,8 @@ begin
   -- bulk import of historical notes keeps is_late as given
   if coalesce(current_setting('app.import_notes', true), 'off') = 'on' then return new; end if;
   select due_at into v_due from review_weeks where week_start = new.week_start;
+  -- week row not created yet (e.g. notes entered early): default deadline = Tuesday 17:00 (VN) after the week
+  if v_due is null then v_due := ((new.week_start + 9)::timestamp + time '17:00') at time zone 'Asia/Ho_Chi_Minh'; end if;
   new.is_late := (tg_op = 'UPDATE' and old.is_late) or (v_due is not null and now() > v_due);
   new.updated_at := now();
   return new;
@@ -171,8 +179,8 @@ end $$;
 
 create or replace function trg_weekly_review_version() returns trigger language plpgsql as $$
 begin
-  insert into weekly_review_versions(review_id, issue_text, action_text, status, is_late)
-  values (new.id, new.issue_text, new.action_text, new.status, new.is_late);
+  insert into weekly_review_versions(review_id, issue_text, action_text, status, is_late, owner, main_pl, week_start)
+  values (new.id, new.issue_text, new.action_text, new.status, new.is_late, new.owner, new.main_pl, new.week_start);
   return null;
 end $$;
 
@@ -186,14 +194,15 @@ create trigger weekly_review_version after insert or update on weekly_reviews
 -- Snapshot one Sun→Sat week into review_snapshot (per SKU, with prior week and
 -- a pro-rated weekly target). Re-running with p_force = true refreshes it.
 create or replace function freeze_review_week(p_week_start date, p_force boolean default false,
-                                              p_due_dow int default 2, p_due_time time default '12:00')
+                                              p_due_dow int default 2, p_due_time time default '17:00')
 returns int language plpgsql as $$
 declare v_ws date := p_week_start - extract(dow from p_week_start)::int;  -- snap to Sunday
         v_frozen timestamptz; v_n int;
 begin
   if coalesce(auth.role(), '') in ('anon', 'authenticated') then
     if p_force then raise exception 'Only an admin can re-freeze a week'; end if;
-    if v_ws + 7 > (now() at time zone 'Asia/Ho_Chi_Minh')::date then return 0; end if;  -- week not over yet
+    -- the week is locked once Monday after it has data (Saturday/Sunday numbers have settled)
+    if not exists (select 1 from sales_daily where date > v_ws + 7) then return 0; end if;
   end if;
   insert into review_weeks (week_start, week_end, due_at)
   values (v_ws, v_ws + 6, ((v_ws + 7 + p_due_dow)::timestamp + p_due_time) at time zone 'Asia/Ho_Chi_Minh')
@@ -233,15 +242,16 @@ begin
   return v_n;
 end $$;
 
--- Every Monday 06:00 Vietnam time (= Sunday 23:00 UTC): freeze last week.
+-- Every hour: freeze the last week once Monday after it has data
+-- (max date − 8 days falls in that week; already frozen weeks are skipped).
 -- Needs the pg_cron extension (Database → Extensions → pg_cron). If it is not
 -- enabled this block only prints a notice.
 do $$
 begin
   create extension if not exists pg_cron;
   perform cron.unschedule('freeze-review-week') where exists (select 1 from cron.job where jobname = 'freeze-review-week');
-  perform cron.schedule('freeze-review-week', '0 23 * * 0',
-    $job$select freeze_review_week((now() at time zone 'Asia/Ho_Chi_Minh')::date - 7)$job$);
+  perform cron.schedule('freeze-review-week', '20 * * * *',
+    $job$select freeze_review_week((select max(date) from sales_daily) - 8)$job$);
 exception when others then
   raise notice 'pg_cron not available (%). Freeze weeks manually: select freeze_review_week(''2026-09-20'');', sqlerrm;
 end $$;
