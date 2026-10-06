@@ -602,11 +602,11 @@ function rsDraw(host, d){
 // Tracking: live race (hour-level sales, dark panel)
 //  - Ngày: one day by hour (sales_hourly), vs the day before / same day last week
 //  - MTD:  month start → chosen day by day (sales_daily), vs target pace
-//  - refreshes at minute :17 of every hour (the hourly file lands late; flow loads it just before), US Pacific clock
+//  - refreshes at minute :07 of every hour (the hourly file lands late; flow loads it just before), US Pacific clock
 // =====================================================================
 const LV = {date:null, dates:[], follow:true, by:'pic', mode:'day', rows:null, key:'', lastHour:{}, cur:null, playing:false, timer:null, clock:null, lastRefresh:0};
 const LIVE_C = {gmv:'#d95926', gmv2:'#FF8A3D', mkt:'#3987e5', ok:'#199e70', ink:'#E8EEF7', mute:'#8A97AD', grid:'#1E2B44', y:'#7C8BA6', w:'#5A6A86'};
-const LIVE_REFRESH_MIN = 17;
+const LIVE_REFRESH_MIN = 7, LIVE_REFRESH_MM = String(LIVE_REFRESH_MIN).padStart(2, "0");
 const liveLay = extra => Object.assign({paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{family:'Calibri, Segoe UI, Roboto, Arial, sans-serif', color:LIVE_C.ink, size:11.5},
   margin:{l:48, r:14, t:8, b:34}, hoverlabel:{bgcolor:'#0F1729', bordercolor:'#2A3A5A', font:{color:LIVE_C.ink, size:12}}, showlegend:false}, extra || {});
 const liveAx = extra => Object.assign({gridcolor:LIVE_C.grid, zeroline:false, linecolor:'#2A3A5A', tickfont:{color:LIVE_C.mute, size:10.5}}, extra || {});
@@ -670,7 +670,7 @@ function liveClock(){
   el.innerHTML = `<span class="ck-t">${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}<small>:${g('second')}</small></span><span class="ck-z">${g('timeZoneName')} · ${g('weekday')} ${g('day')}/${g('month')}</span><span class="ck-s">VN ${vn} · làm mới sau ${mins}′</span>`;
 }
 function liveSchedule(){
-  // next run at minute :17 (same minute in VN and US: whole-hour offsets)
+  // next run at minute :07 (same minute in VN and US: whole-hour offsets)
   const now = new Date(), next = new Date(now); next.setSeconds(5, 0); next.setMinutes(LIVE_REFRESH_MIN);
   if(next <= now) next.setHours(next.getHours() + 1);
   clearTimeout(LV.timer); LV.timer = setTimeout(() => { liveRefreshAll(); liveSchedule(); }, next - now);
@@ -693,7 +693,7 @@ V3.renderLive = async function(){
     host.dataset.built = '1';
     host.innerHTML = `<div class="live" role="region" aria-label="Live race">
       <div class="live-h"><span class="live-dot">LIVE</span><h2>Prime Big Deal Days · <em>Live race</em></h2>
-        <div class="live-clock" id="lvClock" title="Giờ Mỹ (Los Angeles, Pacific Time). Dashboard tự làm mới lúc phút :${LIVE_REFRESH_MIN} mỗi giờ."></div>
+        <div class="live-clock" id="lvClock" title="Giờ Mỹ (Los Angeles, Pacific Time). Dashboard tự làm mới lúc phút :${LIVE_REFRESH_MM} mỗi giờ."></div>
         <div class="live-ctl"><div class="seg" role="group" aria-label="Khoảng thời gian"><button type="button" data-mode="day">Ngày</button><button type="button" data-mode="mtd">MTD</button></div>
           <select id="lvDate" aria-label="Ngày"></select>
           <div class="seg" role="group" aria-label="Nhóm theo"><button type="button" data-by="pic">PIC</button><button type="button" data-by="pl">Product line</button></div>
@@ -720,7 +720,7 @@ V3.renderLive = async function(){
   host.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === LV.mode));
   const lastHour = LV.lastHour[d0] ?? -1, hh = x => String(x).padStart(2, '0');
   host.querySelector('#lvSub').textContent = (mtd ? `Từ ${h.dm(liveMonthStart(d0))} tới ${h.dm(d0)}` : `Ngày ${h.dm(d0)}`) +
-    (lastHour >= 0 ? ` · số tới ${hh(lastHour)}:59 ngày ${h.dm(d0)} (giờ trong file hourly)` : ' · chưa có số theo giờ cho ngày này') + ` · tự làm mới lúc phút :${LIVE_REFRESH_MIN} mỗi giờ`;
+    (lastHour >= 0 ? ` · số tới ${hh(lastHour)}:59 ngày ${h.dm(d0)} (giờ trong file hourly)` : ' · chưa có số theo giờ cho ngày này') + ` · tự làm mới lúc phút :${LIVE_REFRESH_MM} mỗi giờ`;
   const T = liveTargets(d0);
   if(mtd) liveRenderMtd(d0, lastHour, T); else liveRenderDay(d0, lastHour, T);
 };
