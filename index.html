@@ -429,6 +429,7 @@ tr.sub td:first-child{padding-left:28px}
       </div>
     </div>
     <div class="hint">Click a column header to sort. Table reflects the filters above, plus the Inventory Health bucket and/or Action Code selected up top (if any). Inv = salable inventory units. DOC (Days of Cover) = (Inv Y4A + Inv AMZ) ÷ trailing 7-day avg units/day — hover a DOC badge for velocity + projected stockout date.</div>
+    <div class="hint" id="skuGvNote" hidden style="color:#B8860B;font-weight:600"></div>
     <div class="tablewrap">
       <table id="skuTable">
         <thead><tr>
@@ -451,6 +452,8 @@ tr.sub td:first-child{padding-left:28px}
           <th data-k="targetUnits" class="num">Target Units</th>
           <th data-k="actualUnits" class="num">Actual Units</th>
           <th>Action gợi ý</th>
+          <th data-k="glanceViews" class="num" title="Tổng glance views trong khoảng thời gian đang lọc">Glance views</th>
+          <th data-k="cr" class="num" title="CR = units của những ngày có glance view ÷ glance views">CR</th>
         </tr></thead>
         <tbody id="skuTbody"></tbody>
       </table>
@@ -892,7 +895,7 @@ async function loadMonth(monthIso){
       targetUnits, actualUnits, gmvRunrateProj, gmvRunratePct,
       targetGMV, actualGMV, adsTarget, promoTarget, mktTarget,
       adsActual, promoActual, mktActual, mktRunrateProj, mktRunratePct,
-      daily,
+      daily, ...gvStats(daily),
     };
   });
 
@@ -1139,7 +1142,7 @@ function applyDateRange(rows){
 
     return {...r, daily, actualUnits, actualGMV, adsActual, promoActual, mktActual,
       targetUnits, targetGMV, adsTarget, promoTarget, mktTarget,
-      gmvRunrateProj, gmvRunratePct, mktRunrateProj, mktRunratePct};
+      gmvRunrateProj, gmvRunratePct, mktRunrateProj, mktRunratePct, ...gvStats(daily)};
   });
 }
 
@@ -1623,6 +1626,12 @@ document.getElementById('dailyChartToggle').addEventListener('click', (e)=>{
   renderDailyChart();
 });
 
+// Glance views and CR (units on days that have glance views ÷ glance views) from a SKU's daily[]
+function gvStats(daily){
+  let gv = 0, gvUnits = 0;
+  (daily||[]).forEach(d=>{ if(d.glanceViews > 0){ gv += d.glanceViews; gvUnits += Math.max(0, d.units); } }); // returns (negative units) do not count
+  return { glanceViews: gv, cr: gv ? +(gvUnits/gv*100).toFixed(2) : null };
+}
 let lastSortedRows = [];
 function renderTable(rows){
   const sorted = [...rows].sort((a,b)=>{
@@ -1631,6 +1640,16 @@ function renderTable(rows){
     return sortDir*((va||0)-(vb||0));
   });
   lastSortedRows = sorted;
+  // glance views can be missing for some days (e.g. a file without the column): say which days CR covers
+  const allDays = new Set(), gvDays = new Set();
+  rows.forEach(r=>(r.daily||[]).forEach(d=>{ if(d.units || d.gmv) allDays.add(d.date); if(d.glanceViews > 0) gvDays.add(d.date); }));
+  const gvNote = document.getElementById('skuGvNote');
+  if(gvNote){
+    const g = [...gvDays].sort(), dmy = iso => iso.slice(8,10) + '/' + iso.slice(5,7);
+    gvNote.hidden = !allDays.size || [...allDays].every(d => gvDays.has(d));
+    gvNote.textContent = !gvDays.size ? `⚠ Chưa có glance view cho ${allDays.size} ngày đang xem — cột Glance views / CR để trống.`
+      : `⚠ Glance view chỉ có ${gvDays.size}/${allDays.size} ngày đang xem (${dmy(g[0])}${g.length > 1 ? ' → ' + dmy(g[g.length-1]) : ''}). CR chỉ tính trên những ngày có glance view.`;
+  }
   document.getElementById('skuTbody').innerHTML = sorted.map(r=>{
     const gmvPace = paceInfo(r.gmvRunratePct);
     const mktPace = paceInfo(r.mktRunratePct);
@@ -1661,8 +1680,10 @@ function renderTable(rows){
       <td class="num">${fmtInt(r.targetUnits)}</td>
       <td class="num">${fmtInt(r.actualUnits)}</td>
       <td style="white-space:normal;min-width:180px">${window.V2 ? V2.actionLabels(r) : ''}</td>
+      <td class="num">${r.glanceViews ? fmtInt(r.glanceViews) : '—'}</td>
+      <td class="num">${r.cr === null || r.cr === undefined ? '—' : r.cr.toFixed(2) + '%'}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="19" style="text-align:center;padding:24px;color:#66707C">No SKU matches the current filters</td></tr>';
+  }).join('') || '<tr><td colspan="21" style="text-align:center;padding:24px;color:#66707C">No SKU matches the current filters</td></tr>';
 }
 
 document.querySelectorAll('#skuTable thead th').forEach(th=>{
@@ -1704,6 +1725,7 @@ function exportSkuTable(){
     'Target GMV': r.targetGMV, 'Actual GMV': r.actualGMV, 'GMV Run-rate %': +r.gmvRunratePct.toFixed(1),
     'Target MKT $': r.mktTarget, 'Actual MKT $': r.mktActual, 'MKT Run-rate %': +r.mktRunratePct.toFixed(1),
     'Target Units': r.targetUnits, 'Actual Units': r.actualUnits,
+    'Glance Views': r.glanceViews || 0, 'CR %': r.cr === null || r.cr === undefined ? '' : r.cr,
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   ws['!cols'] = Object.keys(data[0]).map(k => ({ wch: Math.max(k.length, 12) }));
@@ -2415,13 +2437,6 @@ async function boot(){
       mocBandFilter = null;
       actionCodeFilter = null;
       renderAll();
-    });
-    document.querySelectorAll('#skuTable thead th').forEach(th=>{
-      th.addEventListener('click', ()=>{
-        const k = th.dataset.k;
-        if(sortKey===k) sortDir *= -1; else { sortKey=k; sortDir=-1; }
-        renderAll();
-      });
     });
     renderAll();
 
