@@ -23,7 +23,8 @@ drop policy if exists "public read ingest_runs" on ingest_runs;
 create policy "public read ingest_runs" on ingest_runs for select using (true);
 
 -- 2) Replace whole days in one transaction: every row of the days present in
---    p_rows is deleted, then p_rows is inserted. Days before data_locks.lock_before
+--    p_rows is deleted, then p_rows is inserted (ordered_revenue / dsp / aff come
+--    from the daily export; hourly exports send none, i.e. 0). Days before data_locks.lock_before
 --    stay untouched (the lock trigger skips them).
 create or replace function replace_sales_days(p_rows jsonb, p_source text default null, p_hash text default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
@@ -45,7 +46,9 @@ begin
          coalesce((r->>'units')::numeric, 0), coalesce((r->>'gmv')::numeric, 0), coalesce((r->>'ordered_nmv')::numeric, 0),
          coalesce((r->>'ads')::numeric, 0), coalesce((r->>'promo')::numeric, 0), coalesce((r->>'ads_gmv')::numeric, 0),
          coalesce((r->>'ads_units')::numeric, 0), coalesce((r->>'total_clicks')::numeric, 0), coalesce((r->>'total_impressions')::numeric, 0),
-         coalesce((r->>'glance_views')::numeric, 0), 0, coalesce((r->>'sp_spend')::numeric, 0), coalesce((r->>'sb_spend')::numeric, 0), coalesce((r->>'sd_spend')::numeric, 0), 0, 0,
+         coalesce((r->>'glance_views')::numeric, 0), coalesce((r->>'ordered_revenue')::numeric, 0),
+         coalesce((r->>'sp_spend')::numeric, 0), coalesce((r->>'sb_spend')::numeric, 0), coalesce((r->>'sd_spend')::numeric, 0),
+         coalesce((r->>'dsp_spend')::numeric, 0), coalesce((r->>'aff_spend')::numeric, 0),
          coalesce((r->>'promo_deal')::numeric, 0), coalesce((r->>'promo_coupon')::numeric, 0), coalesce((r->>'promo_discount')::numeric, 0),
          coalesce(r->>'category', (select s.category from skus s where s.sku = r->>'sku')), coalesce(r->>'source_file', p_source)
   from jsonb_array_elements(p_rows) r
@@ -53,8 +56,8 @@ begin
   on conflict (sku, date) do update set
     units = excluded.units, gmv = excluded.gmv, ordered_nmv = excluded.ordered_nmv, ads = excluded.ads, promo = excluded.promo,
     ads_gmv = excluded.ads_gmv, ads_units = excluded.ads_units, total_clicks = excluded.total_clicks, total_impressions = excluded.total_impressions, glance_views = excluded.glance_views,
-    sp_spend = excluded.sp_spend, sb_spend = excluded.sb_spend, sd_spend = excluded.sd_spend,
-    promo_deal = excluded.promo_deal, promo_coupon = excluded.promo_coupon, promo_discount = excluded.promo_discount,
+    ordered_revenue = excluded.ordered_revenue, sp_spend = excluded.sp_spend, sb_spend = excluded.sb_spend, sd_spend = excluded.sd_spend,
+    dsp_spend = excluded.dsp_spend, aff_spend = excluded.aff_spend, promo_deal = excluded.promo_deal, promo_coupon = excluded.promo_coupon, promo_discount = excluded.promo_discount,
     category = excluded.category, source_file = excluded.source_file;
   get diagnostics v_n = row_count;
   select sum((r->>'gmv')::numeric) into v_gmv from jsonb_array_elements(p_rows) r;

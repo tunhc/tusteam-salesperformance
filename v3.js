@@ -602,11 +602,11 @@ function rsDraw(host, d){
 // Tracking: live race (hour-level sales, dark panel)
 //  - Ngày: one day by hour (sales_hourly), vs the day before / same day last week
 //  - MTD:  month start → chosen day by day (sales_daily), vs target pace
-//  - refreshes at minute :50 of every hour (after the hourly load), US Pacific clock
+//  - refreshes at minute :17 of every hour (the hourly file lands late; flow loads it just before), US Pacific clock
 // =====================================================================
 const LV = {date:null, dates:[], follow:true, by:'pic', mode:'day', rows:null, key:'', lastHour:{}, cur:null, playing:false, timer:null, clock:null, lastRefresh:0};
 const LIVE_C = {gmv:'#d95926', gmv2:'#FF8A3D', mkt:'#3987e5', ok:'#199e70', ink:'#E8EEF7', mute:'#8A97AD', grid:'#1E2B44', y:'#7C8BA6', w:'#5A6A86'};
-const LIVE_REFRESH_MIN = 50;
+const LIVE_REFRESH_MIN = 17;
 const liveLay = extra => Object.assign({paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{family:'Calibri, Segoe UI, Roboto, Arial, sans-serif', color:LIVE_C.ink, size:11.5},
   margin:{l:48, r:14, t:8, b:34}, hoverlabel:{bgcolor:'#0F1729', bordercolor:'#2A3A5A', font:{color:LIVE_C.ink, size:12}}, showlegend:false}, extra || {});
 const liveAx = extra => Object.assign({gridcolor:LIVE_C.grid, zeroline:false, linecolor:'#2A3A5A', tickfont:{color:LIVE_C.mute, size:10.5}}, extra || {});
@@ -670,7 +670,7 @@ function liveClock(){
   el.innerHTML = `<span class="ck-t">${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}<small>:${g('second')}</small></span><span class="ck-z">${g('timeZoneName')} · ${g('weekday')} ${g('day')}/${g('month')}</span><span class="ck-s">VN ${vn} · làm mới sau ${mins}′</span>`;
 }
 function liveSchedule(){
-  // next run at minute :50 (same minute in VN and US: whole-hour offsets)
+  // next run at minute :17 (same minute in VN and US: whole-hour offsets)
   const now = new Date(), next = new Date(now); next.setSeconds(5, 0); next.setMinutes(LIVE_REFRESH_MIN);
   if(next <= now) next.setHours(next.getHours() + 1);
   clearTimeout(LV.timer); LV.timer = setTimeout(() => { liveRefreshAll(); liveSchedule(); }, next - now);
