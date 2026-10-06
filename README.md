@@ -71,6 +71,16 @@ Attach the new Excel/HTML export in a Cowork chat with Claude and ask it to inge
 - Market tab: charts come from `market_variation` / `market_brand_monthly` / `market_asin_weekly` / `market_variation_monthly`; the research library below them (all SWOT, conclusions, action plans and data tables per category) comes from `market_reports` / `market_insights` / `market_tables`. Re-running `09_market_research.sql` replaces the library.
 - Market tab data comes from the research files in `Markets.zip` (variation × brand tables, Tricep Rope weekly ASIN price/units, Soft Kettlebell brand revenue). Categories show whatever each file contains.
 
+## Inventory-only refresh
+
+New `Yes4All_US_Inventory_*.xlsx` (sheet `report`: salable Y4A/AMZ + weekly incoming) can be loaded on its own:
+
+```bash
+python ingest_v2.py --out ./sql_out --inventory "Yes4All_US_Inventory_10062026.xlsx"
+```
+
+This writes `03_inventory_refresh.sql`: a new `inventory_snapshot` + `incoming_weekly` snapshot (dated from the report's refresh time) for the SKUs already in `skus`, and refreshes `skus.salable_y4a / salable_amz / asin_status / inventory_as_of`. SKUs missing from the report are set to 0 stock. Re-running is safe.
+
 ## Automatic hourly load (no manual upload)
 
 **Power Automate (push, works with view-only access):** Scheduled cloud flow every hour →

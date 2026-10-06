@@ -351,6 +351,40 @@ def load_inventory_report(path):
     return snapshot_date, per_sku, incoming
 
 
+def write_inventory_refresh(out_dir, path):
+    """Inventory-only refresh: new salable snapshot + weekly incoming for the
+    SKUs already in `skus` (filtered in SQL, so no SKU list is needed), and the
+    salable / ASIN status columns the dashboard reads from `skus`."""
+    snapshot_date, inv, incoming = load_inventory_report(path)
+    d = lit(snapshot_date)
+    inv_vals = ",\n".join(f"({lit(s)},{lit(v['salable_y4a'])},{lit(v['salable_amz'])},{lit(v['asin_status'])})"
+                          for s, v in sorted(inv.items()))
+    inc_vals = ",\n".join(f"({lit(s)},{lit(wk)},{lit(q[0])},{lit(q[1])})" for (s, wk), q in sorted(incoming.items()))
+    body = f"""create temp table _inv (sku text, salable_y4a numeric, salable_amz numeric, asin_status text) on commit drop;
+insert into _inv values
+{inv_vals};
+
+create temp table _inc (sku text, week_start date, qty_y4a numeric, qty_amz numeric) on commit drop;
+insert into _inc values
+{inc_vals};
+
+insert into inventory_snapshot (sku, snapshot_date, salable_y4a, salable_amz)
+select i.sku, {d}, i.salable_y4a, i.salable_amz from _inv i join skus s using (sku)
+on conflict (sku, snapshot_date) do update set salable_y4a = excluded.salable_y4a, salable_amz = excluded.salable_amz;
+
+delete from incoming_weekly where snapshot_date = {d};
+insert into incoming_weekly (sku, week_start, qty_y4a, qty_amz, snapshot_date)
+select i.sku, i.week_start, i.qty_y4a, i.qty_amz, {d} from _inc i join skus s using (sku);
+
+-- SKUs missing from the report have no stock: zero them so old figures do not linger.
+update skus s set salable_y4a = coalesce(i.salable_y4a, 0), salable_amz = coalesce(i.salable_amz, 0),
+  asin_status = coalesce(i.asin_status, s.asin_status), inventory_as_of = {d}
+from skus s2 left join _inv i using (sku) where s2.sku = s.sku;"""
+    tot_y, tot_a = sum(v["salable_y4a"] for v in inv.values()), sum(v["salable_amz"] for v in inv.values())
+    write(out_dir, "03_inventory_refresh.sql", "begin;\n" + body + "\ncommit;",
+          header=f"-- snapshot {snapshot_date} · {len(inv)} SKUs in report (salable Y4A {tot_y:,.0f}, AMZ {tot_a:,.0f}) · {len(incoming)} SKU-weeks incoming")
+
+
 def load_target(path, team):
     t = pd.read_excel(path, sheet_name=0, header=1)
     c = list(t.columns)
@@ -855,6 +889,10 @@ def main():
             if hsql:
                 write_split(a.out, name[:-4].replace("12_sales", "12b_sales_hourly"), hsql, header=f"-- {hn} SKU-hour rows (activity only) · needs sales_hourly (16_auto_ingest.sql)")
         if not a.followup:
+            return
+    if a.inventory and not a.followup:
+        write_inventory_refresh(a.out, a.inventory)  # inventory + incoming only
+        if not a.market_dir:
             return
     if a.market_dir and not a.followup:
         write_market(a.out, a.market_dir)  # market files only
