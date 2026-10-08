@@ -101,6 +101,19 @@ css.textContent = `
 .live .seg{display:inline-flex;border:1px solid #2A3A5A;border-radius:9px;overflow:hidden}.live .seg button{border:0;border-radius:0;background:#16213A}.live .seg button+button{border-left:1px solid #2A3A5A}
 .live .seg button.on{background:var(--gmv);color:#fff}
 .live>.live-sub{margin-top:6px;position:relative}
+.btr-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.btr-src{font-size:11.5px;color:var(--muted);margin:-4px 0 12px;display:flex;gap:6px 16px;flex-wrap:wrap}
+.btr-src b{color:var(--ink)}
+.btr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.btr-grid .plot{height:340px}
+#btrTable td.sub{color:var(--muted);font-size:11.5px;background:#FAFBFC}
+#btrTable tr.sub td{background:#FAFBFC;border-bottom:1px dashed var(--line)}
+#btrTable tr.sub td:first-child{border-left:3px solid #E4E5E6}
+#btrTable tr.main td:first-child{border-left:3px solid var(--orange)}
+#btrTable .asin-tag{font-size:10px;font-weight:800;padding:1px 6px;border-radius:10px;background:#FFF3EA;color:var(--orange-dark);margin-left:4px}
+#btrTable .asin-tag.off{background:#EEF1F5;color:var(--muted)}
+#btrTable .vs{font-size:10.5px;color:var(--muted);display:block}
+@media (max-width:1100px){.btr-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.btr-grid{grid-template-columns:1fr}}
 @media (max-width:900px){.live-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.live-grid,.live-row{grid-template-columns:1fr}.lane{grid-template-columns:96px minmax(0,1fr) 92px}}
 @media (prefers-reduced-motion:reduce){.track .fill,.track .runner{transition:none}.live-dot:before{animation:none}}
 `;
@@ -847,10 +860,229 @@ function liveReplay(){
     LV.cur++; setTimeout(step, mtd ? 800 : 650); };
   step();
 }
+// =====================================================================
+// BTR Tracking (Amazon Born To Run)
+//  - btr_offers: Amazon's alert file (sold quantity up to as_of, retention estimate)
+//  - sales_asin_daily: sales per ASIN from the hourly export, added after as_of
+//  - asin_inventory: salable stock per SKU × ASIN (Y4A per SKU, AMZ per ASIN)
+// Evaluated per SKU (the BTR ASIN); the other ASINs of the SKU are listed for their stock.
+// Run-rate as in Amazon's file: Est. sold by ST End = Sold ÷ days passed × ST days.
+// =====================================================================
+const BT = {data:null, pic:'', alert:'', q:'', rows:[], sort:'estPct', dir:1};
+const BTR_C = {sold:'#E86A10', est:'#F6B88A', pace:'#002859', amzBtr:'#2a78d6', amzOther:'#9EC3EF', y4a:'#1baf7a', need:'#D64545'};
+const DAY = 86400000;
+const btrDate = iso => new Date(iso + 'T00:00:00');
+async function btrLoad(){
+  const h = H();
+  const offers = await h.selectAll('btr_offers', q => q.order('st_end', {ascending:true}));
+  if(!offers.length) return {offers:[]};
+  const asOfMin = offers.map(o => o.as_of).sort()[0];
+  const [inv, sales, lastTs, lastDay] = await Promise.all([
+    h.selectAll('asin_inventory', q => q.in('sku', [...new Set(offers.map(o => o.sku).filter(Boolean))])).catch(() => []),
+    h.selectAll('sales_asin_daily', q => q.gt('date', asOfMin)).catch(() => []),
+    sb.from('sales_hourly').select('ts').order('ts', {ascending:false}).limit(1).then(r => r.data && r.data[0] ? String(r.data[0].ts).replace(' ', 'T').slice(0, 19) : null, () => null),
+    sb.from('sales_asin_daily').select('date').order('date', {ascending:false}).limit(1).then(r => r.data && r.data[0] ? r.data[0].date : null, () => null),
+  ]);
+  return {offers, inv, sales, lastTs, lastDay};
+}
+// one row per BTR offer, with the other ASINs of the SKU attached
+function btrCompute(D){
+  const h = H();
+  const rates = D.offers.map(o => +o.retention_rate).filter(x => x > 0).sort((a, b) => a - b);
+  const rateDefault = rates.length ? rates[Math.floor(rates.length / 2)] : 0.35;
+  const invBySku = new Map(); (D.inv || []).forEach(r => { if(!invBySku.has(r.sku)) invBySku.set(r.sku, []); invBySku.get(r.sku).push(r); });
+  const asinOf = new Map(); (D.inv || []).forEach(r => { if(!asinOf.has(r.asin)) asinOf.set(r.asin, r.sku); });
+  return D.offers.map(o => {
+    const sku = o.sku || asinOf.get(o.asin) || '';
+    const k = h.skuInfo(sku) || {};
+    // sales after Amazon's as_of, per ASIN of this SKU
+    const after = new Map(); (D.sales || []).forEach(s => { if(s.date > o.as_of && (s.asin === o.asin || s.sku === sku)){
+      const a = after.get(s.asin) || {units:0, mkt:0, gmv:0}; a.units += +s.units || 0; a.mkt += (+s.ads || 0) + (+s.promo || 0); a.gmv += +s.gmv || 0; after.set(s.asin, a); } });
+    const extra = after.get(o.asin) || {units:0, mkt:0, gmv:0};
+    // how far the data goes: Amazon's file covers through as_of; newer hourly data moves it forward (part of a day counts)
+    let through = btrDate(o.as_of).getTime() + DAY;
+    if(D.lastDay && D.lastDay > o.as_of){
+      const t = D.lastTs && D.lastTs.slice(0, 10) === D.lastDay ? new Date(D.lastTs).getTime() + 3600000 : btrDate(D.lastDay).getTime() + DAY;
+      through = Math.max(through, t);
+    }
+    const start = btrDate(o.st_start).getTime(), end = btrDate(o.st_end).getTime();
+    const total = (end - start) / DAY;
+    const passed = Math.min(total, Math.max(0.5, (through - start) / DAY - 1));   // Amazon: as_of − ST start
+    const daysLeft = Math.max(0, total - passed);
+    const base = +o.vendor_resp_qty || +o.submitted_qty || 0;
+    const sold = (+o.sold_qty || 0) + extra.units;
+    const est = passed > 0 ? sold / passed * total : sold;
+    const rate = +o.retention_rate > 0 ? +o.retention_rate : rateDefault;
+    const cost = +o.product_cost || 0;
+    const unsold = Math.max(0, base - est);
+    const mkt = (+o.ad_spend || 0) + (+o.promo_spend || 0) + extra.mkt;
+    const estPct = base ? est / base : 0;
+    const allAsins = (invBySku.get(sku) || []).map(a => a.asin);
+    const asins = (invBySku.get(sku) || []).map(a => ({...a, btr: a.asin === o.asin, after: after.get(a.asin) || {units:0, mkt:0}}))
+      .filter(a => a.btr || !(String(a.asin_status).toLowerCase() === 'inactive' && !(+a.salable_amz > 0)))
+      .sort((a, b) => (b.btr - a.btr) || (+b.salable_amz || 0) - (+a.salable_amz || 0));
+    const me = asins.find(a => a.btr) || {};
+    const y4a = asins.length ? +asins[0].salable_y4a || 0 : 0;
+    const amzBtr = +me.salable_amz || 0, amzOther = asins.filter(a => !a.btr).reduce((t, a) => t + Math.max(0, +a.salable_amz || 0), 0);
+    return {
+      o, sku, asin:o.asin, pic:k.pic || o.pic || '', pl:k.mainPL || '', name:String(o.product_title || k.productName || '').replace(/[​-‍﻿]/g, '').replace(/\s+/g, ' ').trim(),
+      stStart:o.st_start, stEnd:o.st_end, total, passed, daysLeft, pctDays:total ? passed / total : 0,
+      submitted:+o.submitted_qty || 0, base, sold, soldAmz:+o.sold_qty || 0, soldAfter:extra.units, soldPct:base ? sold / base : 0,
+      est, estPct, unsold, cost, rate, rateFromFile:+o.retention_rate > 0, estRet:unsold * cost * rate, retPerUnit:cost * rate,
+      mkt, mktPerUnit:sold ? mkt / sold : null, needPerDay:daysLeft ? Math.max(0, base - sold) / daysLeft : null, ratePerDay:passed ? sold / passed : 0,
+      alert:estPct >= 0.8 ? 'OK' : estPct >= 0.5 ? 'Medium' : 'High',
+      asins, allAsins, y4a, amzBtr, amzOther, stockTotal:Math.max(0, y4a) + Math.max(0, amzBtr) + amzOther, remaining:Math.max(0, base - sold),
+    };
+  });
+}
+V3.renderBtr = async function(){
+  const host = document.getElementById('view-btr'); if(!host) return;
+  const h = H();
+  if(!host.dataset.built){
+    host.dataset.built = '1';
+    host.innerHTML = `<div class="filterbar">
+        <div class="fld"><label for="btrPic">PIC</label><select id="btrPic"><option value="">All</option></select></div>
+        <div class="fld"><label for="btrAlert">Mức cảnh báo</label><select id="btrAlert"><option value="">All</option><option value="High">High (Est % &lt; 50%)</option><option value="Medium">Medium (50–80%)</option><option value="OK">OK (≥ 80%)</option></select></div>
+        <div class="fld"><label for="btrQ">Tìm SKU / ASIN / tên</label><input id="btrQ" type="search" placeholder="VD: CKKG, B0HCZ…"></div>
+        <div class="fld"><label>&nbsp;</label><button class="btn small" id="btrReload" type="button">↻ Tải lại số</button></div>
+      </div>
+      <div class="btr-src" id="btrSrc"></div>
+      <div class="kpis btr-kpis" id="btrKpis"></div>
+      <div class="btr-grid">
+        <div class="card"><h3>Tiến độ bán so với thời gian</h3><div class="hint">% số lượng cam kết (Vendor responsible qty) đã bán, và ước tính tới ST End theo run-rate. Hình thoi = % thời gian đã trôi qua: thanh cam ngắn hơn hình thoi là đang chậm.</div><div id="btrProg" class="plot"></div></div>
+        <div class="card"><h3>Tồn kho hiện có vs số còn phải bán</h3><div class="hint">Tồn AMZ trên ASIN BTR, trên các ASIN khác của cùng SKU, và tồn Y4A. Hình thoi đỏ = số còn phải bán để hết cam kết.</div><div id="btrInv" class="plot"></div></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><h3 style="margin:0">SKU Breakdown</h3>
+          <button class="btn small" id="btrExport" type="button">&#128190; Export to Excel</button></div>
+        <div class="hint">Đánh giá theo SKU (ASIN được submit BTR, viền cam). Dòng xám bên dưới là các ASIN khác của SKU — chỉ để theo dõi tồn, không tính vào số bán BTR; ASIN inactive không còn tồn được ẩn. Run-rate = Sold ÷ số ngày đã chạy; Est End Qty = run-rate × tổng số ngày ST. Est. Retention = (Vendor responsible qty − Est End Qty) × giá vốn × tỷ lệ phí từ file Amazon. Bấm tiêu đề cột để sắp xếp.</div>
+        <div class="tablewrap" style="max-height:640px"><table id="btrTable"><thead><tr>
+          <th data-k="pic">PIC</th><th data-k="sku">SKU</th><th data-k="asin">ASIN</th><th data-k="name">Product Name</th><th data-k="pl">Product Line</th>
+          <th data-k="stStart">ST Start</th><th data-k="stEnd">ST End</th><th data-k="daysLeft" class="num">Days Left</th>
+          <th data-k="submitted" class="num" title="Submitted quantity (Vendor responsible qty bên dưới)">Submitted Qty</th><th data-k="sold" class="num">Sold</th>
+          <th data-k="pctDays" class="num">% Days</th><th data-k="est" class="num" title="Số bán ước tính tới ST End theo run-rate">Est End Qty</th><th data-k="estPct" class="num">Est %</th>
+          <th data-k="estRet" class="num">Est. Retention</th><th data-k="mkt" class="num">Current MKT fee</th>
+          <th data-k="mktPerUnit" class="num" title="MKT fee ÷ số đã bán">MKT / unit bán</th><th data-k="retPerUnit" class="num" title="Phí retention cho mỗi unit không bán được = giá vốn × tỷ lệ phí">Retention / unit</th>
+          <th data-k="amzBtr" class="num">Tồn AMZ</th><th data-k="y4a" class="num">Tồn Y4A</th><th data-k="alert">Cảnh báo</th>
+        </tr></thead><tbody id="btrBody"></tbody></table></div>
+      </div>`;
+    const rer = () => btrRender();
+    host.querySelector('#btrPic').onchange = e => { BT.pic = e.target.value; rer(); };
+    host.querySelector('#btrAlert').onchange = e => { BT.alert = e.target.value; rer(); };
+    host.querySelector('#btrQ').oninput = e => { BT.q = e.target.value.trim().toLowerCase(); rer(); };
+    host.querySelector('#btrReload').onclick = () => { BT.data = null; V3.renderBtr(); };
+    host.querySelector('#btrExport').onclick = btrExport;
+    host.querySelectorAll('#btrTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(BT.sort === k) BT.dir *= -1; else { BT.sort = k; BT.dir = typeof (BT.rows[0] || {})[k] === 'string' ? 1 : -1; } btrRender(); });
+  }
+  if(!BT.data){
+    host.querySelector('#btrBody').innerHTML = '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Đang tải…</td></tr>';
+    try { BT.data = await btrLoad(); }
+    catch(e){ BT.data = null; host.querySelector('#btrBody').innerHTML = `<tr><td colspan="20" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng BTR: chạy <b>supabase_btr.sql</b> rồi file <b>17_btr_offers.sql</b> / <b>18_asin_inventory.sql</b> trong SQL Editor.' : 'Không tải được số BTR: ' + h.esc(e.message || e)}</td></tr>`; return; }
+    BT.rows = btrCompute(BT.data);
+    const pics = [...new Set(BT.rows.map(r => r.pic).filter(Boolean))].sort();
+    host.querySelector('#btrPic').innerHTML = '<option value="">All</option>' + pics.map(p => `<option ${p === BT.pic ? 'selected' : ''}>${h.esc(p)}</option>`).join('');
+  }
+  btrRender();
+};
+function btrFiltered(){
+  return BT.rows.filter(r => (!BT.pic || r.pic === BT.pic) && (!BT.alert || r.alert === BT.alert) &&
+    (!BT.q || [r.sku, r.asin, r.name, r.pl, ...r.allAsins].join(' ').toLowerCase().includes(BT.q)));
+}
+function btrRender(){
+  const h = H(), D = BT.data || {offers:[]};
+  const fm = v => '$' + Math.round(v).toLocaleString('en-US'), fi = v => Math.round(v).toLocaleString('en-US'), fp = v => (v * 100).toFixed(1) + '%';
+  const dmy = iso => iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '—';
+  if(!D.offers.length){
+    document.getElementById('btrKpis').innerHTML = ''; document.getElementById('btrSrc').innerHTML = '';
+    document.getElementById('btrBody').innerHTML = '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Chưa có offer BTR nào. Chạy file <b>17_btr_offers.sql</b> (tạo từ file "Born-to-run Alert").</td></tr>';
+    return;
+  }
+  const rows = btrFiltered();
+  // sources
+  const o0 = D.offers[0], invAt = (D.inv || []).map(r => r.snapshot_at).filter(Boolean).sort().pop();
+  const asOf = D.offers.map(o => o.as_of).sort().pop();
+  document.getElementById('btrSrc').innerHTML = `<span>File Amazon BTR: <b>${o0.file_updated_at ? String(o0.file_updated_at).slice(0, 16).replace('T', ' ') : '—'}</b> (số bán tới hết ${dmy(asOf)})</span>` +
+    `<span>Số bán theo ASIN sau đó: <b>${D.lastDay && D.lastDay > asOf ? 'tới ' + (D.lastTs && D.lastTs.slice(0, 10) === D.lastDay ? D.lastTs.slice(11, 13) + ':59 ' : '') + dmy(D.lastDay) : 'chưa có'}</b> (file hourly, tự cập nhật mỗi giờ)</span>` +
+    `<span>Tồn kho: <b>${invAt ? String(invAt).slice(0, 16).replace('T', ' ') : 'chưa có'}</b></span>`;
+  // KPIs
+  const S = k => rows.reduce((t, r) => t + (r[k] || 0), 0);
+  const base = S('base'), sold = S('sold'), est = S('est'), mkt = S('mkt'), ret = S('estRet');
+  const days = rows.length ? rows.reduce((t, r) => t + r.pctDays * r.base, 0) / (base || 1) : 0;
+  document.getElementById('btrKpis').innerHTML = [
+    ['SKU đang chạy BTR', rows.length, `${rows.filter(r => r.alert === 'High').length} High · ${rows.filter(r => r.alert === 'Medium').length} Medium`],
+    ['Cam kết (Vendor resp.)', fi(base), `Submitted ${fi(S('submitted'))}`],
+    ['Đã bán', fi(sold), `${fp(base ? sold / base : 0)} cam kết · thời gian đã qua ${fp(days)}`],
+    ['Est % tới ST End', fp(base ? est / base : 0), `≈ ${fi(est)} units theo run-rate`],
+    ['Est. Retention', fm(ret), `≈ ${fi(S('unsold'))} units không bán được`],
+    ['MKT đã chi (ST)', fm(mkt), sold ? `${fm(mkt / sold)} / unit bán · retention TB ${fm(ret / (S('unsold') || 1))} / unit` : ''],
+  ].map(([k, v, s]) => `<div class="kpi"><div class="lbl">${k}</div><div class="val">${v}</div><div class="sub">${s}</div></div>`).join('');
+  // charts (one bar per SKU, worst first)
+  const cr = [...rows].sort((a, b) => b.estPct - a.estPct);
+  const lab = cr.map(r => r.sku + ' · ' + (r.name.match(/\d+\s*lbs?/i) || [r.pl])[0]);
+  const lay = (extra) => h.lay(Object.assign({margin:{l:110, r:24, t:6, b:40}, barmode:'overlay', bargap:.35, showlegend:true, legend:{orientation:'h', y:-0.16, x:0, font:{size:11}}, hovermode:'y unified'}, extra));
+  h.draw('btrProg', [
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.min(r.estPct, 1.5) * 100), name:'Est % tới ST End', marker:{color:BTR_C.est}, customdata:cr.map(r => [r.est, r.base]), hovertemplate:'Est: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => r.soldPct * 100), name:'Đã bán', marker:{color:BTR_C.sold}, width:0.45, customdata:cr.map(r => [r.sold, r.base]), hovertemplate:'Đã bán: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
+    {type:'scatter', mode:'markers', y:lab, x:cr.map(r => r.pctDays * 100), name:'% thời gian đã qua', marker:{symbol:'diamond', size:11, color:BTR_C.pace, line:{color:'#fff', width:1.5}}, hovertemplate:'Thời gian: %{x:.1f}%<extra></extra>'},
+  ], lay({xaxis:h.ax({ticksuffix:'%', range:[0, Math.max(105, ...cr.map(r => Math.min(r.estPct, 1.5) * 100 + 5))]}), yaxis:h.ax({automargin:false}),
+    shapes:[{type:'line', x0:100, x1:100, yref:'paper', y0:0, y1:1, line:{color:'#A3ACB8', width:1, dash:'dot'}}]}));
+  h.draw('btrInv', [
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.max(0, r.amzBtr)), name:'AMZ · ASIN BTR', marker:{color:BTR_C.amzBtr}, hovertemplate:'AMZ ASIN BTR: %{x:,.0f}<extra></extra>'},
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => r.amzOther), name:'AMZ · ASIN khác', marker:{color:BTR_C.amzOther}, hovertemplate:'AMZ ASIN khác: %{x:,.0f}<extra></extra>'},
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.max(0, r.y4a)), name:'Y4A', marker:{color:BTR_C.y4a}, hovertemplate:'Y4A: %{x:,.0f}<extra></extra>'},
+    {type:'scatter', mode:'markers', y:lab, x:cr.map(r => r.remaining), name:'Còn phải bán', marker:{symbol:'diamond', size:11, color:BTR_C.need, line:{color:'#fff', width:1.5}}, hovertemplate:'Còn phải bán: %{x:,.0f}<extra></extra>'},
+  ], lay({barmode:'stack', xaxis:h.ax({ticksuffix:' u'}), yaxis:h.ax({automargin:false}), legend:{orientation:'h', y:-0.14, x:0, font:{size:11}, traceorder:'normal'}}));
+  // table
+  const tr = [...rows].sort((a, b) => { const va = a[BT.sort], vb = b[BT.sort]; return typeof va === 'string' ? BT.dir * String(va).localeCompare(String(vb)) : BT.dir * ((va ?? -1e18) - (vb ?? -1e18)); });
+  const badge = a => `<span class="badge ${a === 'High' ? 'red' : a === 'Medium' ? 'amber' : 'green'}">${a}</span>`;
+  const pctCls = (v, ref) => v >= ref ? 'green' : v >= ref * 0.6 ? 'amber' : 'red';
+  document.getElementById('btrBody').innerHTML = tr.map(r => {
+    const cheaper = r.mktPerUnit !== null && r.mktPerUnit < r.retPerUnit;
+    const main = `<tr class="main">
+      <td>${h.esc(r.pic)}</td><td><b>${h.esc(r.sku)}</b></td>
+      <td><a href="https://www.amazon.com/dp/${encodeURIComponent(r.asin)}" target="_blank" rel="noopener noreferrer" style="color:var(--navy);font-weight:700">${r.asin}</a><span class="asin-tag">BTR</span></td>
+      <td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}</td>
+      <td>${dmy(r.stStart)}</td><td>${dmy(r.stEnd)}</td><td class="num">${Math.round(r.daysLeft)}</td>
+      <td class="num">${fi(r.submitted)}${r.base !== r.submitted ? `<span class="vs">VR ${fi(r.base)}</span>` : ''}</td>
+      <td class="num" title="Amazon ${fi(r.soldAmz)} tới ${dmy(r.o.as_of)}${r.soldAfter ? ' + ' + fi(r.soldAfter) + ' từ file hourly' : ''}"><b>${fi(r.sold)}</b>${r.soldAfter ? `<span class="vs">+${fi(r.soldAfter)} sau ${dmy(r.o.as_of)}</span>` : ''}</td>
+      <td class="num">${fp(r.pctDays)}</td>
+      <td class="num">${fi(r.est)}<span class="vs">${r.ratePerDay.toFixed(1)}/ngày${r.needPerDay !== null ? ' · cần ' + r.needPerDay.toFixed(1) : ''}</span></td>
+      <td class="num"><span class="badge ${pctCls(r.estPct, 0.8)}">${fp(r.estPct)}</span></td>
+      <td class="num" title="${fi(r.unsold)} units × giá vốn $${r.cost.toFixed(2)} × ${(r.rate * 100).toFixed(1)}%${r.rateFromFile ? '' : ' (tỷ lệ trung vị, file không có)'}">${fm(r.estRet)}</td>
+      <td class="num">${fm(r.mkt)}</td>
+      <td class="num">${r.mktPerUnit === null ? '—' : '$' + r.mktPerUnit.toFixed(2)}</td>
+      <td class="num">$${r.retPerUnit.toFixed(2)}<span class="vs" style="color:${cheaper ? 'var(--green)' : 'var(--red)'}">${r.mktPerUnit === null ? '' : cheaper ? 'đẩy bán rẻ hơn' : 'MKT/unit cao hơn'}</span></td>
+      <td class="num">${fi(r.amzBtr)}</td><td class="num">${fi(r.y4a)}</td><td>${badge(r.alert)}</td></tr>`;
+    const subs = r.asins.filter(a => !a.btr).map(a => `<tr class="sub"><td></td><td class="sub">↳ ${h.esc(r.sku)}</td>
+      <td class="sub"><a href="https://www.amazon.com/dp/${encodeURIComponent(a.asin)}" target="_blank" rel="noopener noreferrer" style="color:inherit">${a.asin}</a><span class="asin-tag off">${h.esc(a.asin_status || '?')}</span></td>
+      <td class="sub" colspan="6">ASIN khác của SKU — không tính vào BTR</td>
+      <td class="sub num" title="Bán trên ASIN này sau ${dmy(r.o.as_of)} (không tính BTR)">${a.after.units ? '(' + fi(a.after.units) + ')' : ''}</td>
+      <td class="sub" colspan="7"></td><td class="sub num">${fi(+a.salable_amz || 0)}</td><td class="sub"></td><td class="sub"></td></tr>`).join('');
+    return main + subs;
+  }).join('') || '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc.</td></tr>';
+  document.querySelectorAll('#btrTable thead th[data-k]').forEach(th => th.setAttribute('aria-sort', th.dataset.k === BT.sort ? (BT.dir > 0 ? 'ascending' : 'descending') : 'none'));
+}
+function btrExport(){
+  const rows = btrFiltered(); if(!rows.length || typeof XLSX === 'undefined') return;
+  const data = [];
+  rows.forEach(r => {
+    data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':r.asin, 'ASIN role':'BTR', 'Product Name':r.name, 'Product Line':r.pl, 'ST Start':r.stStart, 'ST End':r.stEnd,
+      'Days Left':Math.round(r.daysLeft), 'Submitted Qty':r.submitted, 'Vendor responsible qty':r.base, 'Sold':Math.round(r.sold), 'Sold (Amazon file)':r.soldAmz, 'Sold after file':r.soldAfter,
+      '% Days':+(r.pctDays * 100).toFixed(1), 'Est End Qty':Math.round(r.est), 'Est %':+(r.estPct * 100).toFixed(1), 'Est. Retention':+r.estRet.toFixed(2),
+      'Current MKT fee':+r.mkt.toFixed(2), 'MKT / unit sold':r.mktPerUnit === null ? '' : +r.mktPerUnit.toFixed(2), 'Retention / unit':+r.retPerUnit.toFixed(2),
+      'Product cost':r.cost, 'Retention rate':+r.rate.toFixed(4), 'Inv AMZ (ASIN)':r.amzBtr, 'Inv Y4A (SKU)':r.y4a, 'Alert':r.alert});
+    r.asins.filter(a => !a.btr).forEach(a => data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':a.asin, 'ASIN role':a.asin_status || '', 'Product Name':r.name, 'Product Line':r.pl,
+      'Sold after file':a.after.units, 'Inv AMZ (ASIN)':+a.salable_amz || 0, 'Inv Y4A (SKU)':r.y4a}));
+  });
+  const ws = XLSX.utils.json_to_sheet(data), wb = XLSX.utils.book_new();
+  ws['!cols'] = Object.keys(data[0]).map(k => ({wch:Math.max(k.length, 11)}));
+  XLSX.utils.book_append_sheet(wb, ws, 'BTR Tracking');
+  XLSX.writeFile(wb, `Yes4All_BTR_Tracking_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
 // first paint and month changes (afterLoadMonth does not go through onTab)
 { const base = V2.afterLoadMonth; V2.afterLoadMonth = async function(){ await base.apply(this, arguments); if(V2.activeTab === 'sales') V3.renderLive().catch(e => console.warn(e)); }; }
 
-V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); if(tab === 'sales') V3.renderLive(); };
+V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); if(tab === 'sales') V3.renderLive(); if(tab === 'btr') V3.renderBtr(); };
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildChat); else buildChat();
 V3.parseProject = parseProject;
 })();

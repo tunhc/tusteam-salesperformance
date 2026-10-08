@@ -20,6 +20,7 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `ingest_v2.py` | Bulk loader: turns the source Excel/HTML files into numbered `.sql` files to paste into the SQL Editor (see below). |
 | `supabase/functions/ai-recommend/` | Edge Function behind the “Hỏi AI” buttons (Claude API). |
 | `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
+| `supabase_btr.sql` | BTR Tracking tab (Amazon Born To Run): `btr_offers`, `asin_inventory`, `sales_asin_daily` + `replace_sales_asin_days`. Safe to re-run. |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
 | `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
 
@@ -91,3 +92,20 @@ that writes nothing. The file has no `ordered_gmv`; GMV is taken from `ordered_n
 5. Check: `select * from ingest_runs order by ran_at desc limit 20;` — `ok` = loaded, `skipped` = file unchanged, `error` = message says why.
 
 Each run replaces exactly the days present in the file (one transaction); days before `data_locks.lock_before` are never touched.
+
+## BTR Tracking tab (Amazon Born To Run)
+
+1. Run `supabase_btr.sql` once.
+2. Turn the two exports into SQL (files land in the `--out` folder; paste them in the SQL Editor, never commit them):
+   `python ingest_v2.py --out sql_out --btr "Born-to-run Alert - SSO.xlsx" --asin-inventory Yes4All_US_Inventory_<date>.xlsx`
+   → `18_asin_inventory.sql` (run first: it also maps BTR ASINs to SKUs) and `17_btr_offers.sql`.
+   Re-run with a newer alert file / inventory file whenever they change.
+3. Redeploy `pull-hourly`: from then on every hourly load also writes sales per ASIN (`product_id`) to `sales_asin_daily`.
+
+How the tab counts:
+- **Sold** = Amazon's sold quantity up to the alert file's day (`as_of` = ST end − Days Remaining) + units sold on the BTR ASIN after that day (hourly export). Sales on the SKU's other ASINs are shown for reference, not counted.
+- **Run-rate** as in Amazon's file: Est End Qty = Sold ÷ days passed × ST days; Est % = Est End Qty ÷ Vendor responsible qty.
+- **Est. Retention** = (Vendor responsible qty − Est End Qty) × product cost × retention rate; the rate per offer is taken from Amazon's own estimate in the alert file (median of the other offers when missing).
+- **Current MKT fee** = ad + promo spend in the ST window from the file + ads/promo on the BTR ASIN after that day.
+- One row per SKU (its BTR ASIN); the SKU's other ASINs are listed under it for their stock. Inactive ASINs without stock are hidden.
+
