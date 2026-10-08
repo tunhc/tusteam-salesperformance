@@ -4,6 +4,8 @@
 // the export has a time of day) and replaces exactly the days present in the file:
 //   sales_daily  via replace_sales_days (one transaction, other days untouched)
 //   sales_hourly via replace_sales_hours (live race on the Tracking tab)
+//   sales_asin_daily via replace_sales_asin_days (BTR tab), when the export has an ASIN column;
+//   skipped with a note if supabase_btr.sql has not been run yet
 // Exports understood (see hourly.ts): "SSO Data Extraction Hourly",
 // "usa_amz_sso_hourly -- usa" (hourly, Power Automate every hour) and the
 // tusteam daily export ("Yes4All_data_tusteam_<year>_daily", Power Automate daily).
@@ -169,7 +171,7 @@ Deno.serve(async (req) => {
     }
     const info = { sheet: found.sheet, kind: layout.kind, dateColumn: layout.dateKey, gmvColumn: layout.gmvKey,
       rowsIn: res.rowsIn, skipped: res.skipped, skippedWhy: res.why, keptLockedDays: lockedDays.length ? `${lockedDays[0]} → ${lockedDays.at(-1)}` : null,
-      keptDailyDays: dailyDays, skuDays: out.length, hourRows: res.hours.length, days: perDay(out) };
+      keptDailyDays: dailyDays, skuDays: out.length, hourRows: res.hours.length, asinDayRows: res.asinDays.length, days: perDay(out) };
     if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, columns: layout.columns, sampleSkipped: res.sample, ...info });
     if (!res.out.length) {
       const w = res.why;
@@ -185,14 +187,20 @@ Deno.serve(async (req) => {
       if (h.error) throw new Error("sales_hourly: " + h.error.message);
       hourRows = h.data as number;
     }
+    // ASIN-days (BTR tab): never blocks the sales load
+    let asinRows: number | string = 0;
+    if (res.asinDays.length) {
+      const a = await db.rpc("replace_sales_asin_days", { p_rows: res.asinDays, p_source: source });
+      asinRows = a.error ? "chưa ghi (" + a.error.message.slice(0, 120) + ")" : a.data as number;
+    }
     if (!out.length) {
       await db.from("ingest_runs").insert({ source, status: "ok", file_hash: hash, rows_in: 0, rows_loaded: 0,
-        message: `sales_hourly ${hourRows} dòng; sales_daily giữ nguyên (ngày đã có từ file daily / đã khóa)` });
-      return json({ ok: true, ...info, hourRows });
+        message: `sales_hourly ${hourRows} dòng; sales_asin_daily ${asinRows}; sales_daily giữ nguyên (ngày đã có từ file daily / đã khóa)` });
+      return json({ ok: true, ...info, hourRows, asinRows });
     }
     const { data, error } = await db.rpc("replace_sales_days", { p_rows: out, p_source: source, p_hash: hash });
     if (error) throw new Error(error.message);
-    return json({ ok: true, ...info, hourRows, ...data });
+    return json({ ok: true, ...info, hourRows, asinRows, ...data });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logError(msg);

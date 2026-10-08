@@ -21,6 +21,8 @@ export type DayRow = {
 };
 export type HourRow = { sku: string; ts: string; date: string; hour: number; units: number; gmv: number; ads: number; promo: number;
   ads_gmv: number; clicks: number; impressions: number; glance_views: number };
+// Sales per ASIN per day (BTR tracking), when the export has an ASIN column (product_id / asin)
+export type AsinRow = { asin: string; date: string; sku: string; units: number; gmv: number; ads: number; promo: number; glance_views: number };
 
 const n = (v: unknown): number => {
   if (v === null || v === undefined || v === "") return 0;
@@ -75,7 +77,7 @@ const TIME_KEYS = ["date_time_local", "datetime", "date_time"];
 
 // Header names (normalized) the aggregator reads; other columns are not parsed.
 const USED_KEYS = new Set([
-  "sku", "country", "main_category", "product_line", "ordered_units", "ordered_gmv", "ordered_revenue_gmv", "ordered_nmv",
+  "sku", "product_id", "asin", "country", "main_category", "product_line", "ordered_units", "ordered_gmv", "ordered_revenue_gmv", "ordered_nmv",
   "ordered_revenue", "total_ads", "total_promo", "glance_views", "glance_view",
   "sb_ordered_nmv", "sd_ordered_nmv", "sp_ordered_nmv", "sb_ordered_units", "sd_ordered_units", "sp_ordered_units",
   "sb_clicks", "sd_clicks", "sp_clicks", "sb_impressions", "sd_impressions", "sp_impressions",
@@ -84,7 +86,7 @@ const USED_KEYS = new Set([
 ]);
 
 export type Layout = {
-  kind: "hourly" | "daily"; dateKey: string; timeKey: string | null; gmvKey: string;
+  kind: "hourly" | "daily"; dateKey: string; timeKey: string | null; gmvKey: string; asinKey: string | null;
   hasTotals: { ads: boolean; promo: boolean }; hasCountry: boolean; columns: string[];
 };
 
@@ -99,7 +101,8 @@ export function layoutOf(keys: string[]): Layout | { missing: string[] } {
   if (missing.length) return { missing };
   // the tusteam daily export: a "day" column and the product_line / ordered_revenue columns
   const kind = !timeKey && has("day") && (has("product_line") || has("ordered_revenue")) ? "daily" : "hourly";
-  return { kind, dateKey: dateKey!, timeKey, gmvKey: gmvKey!, hasCountry: has("country"),
+  const asinKey = ["asin", "product_id"].find(has) ?? null;
+  return { kind, dateKey: dateKey!, timeKey, gmvKey: gmvKey!, asinKey, hasCountry: has("country"),
     hasTotals: { ads: has("total_ads"), promo: has("total_promo") }, columns: keys };
 }
 
@@ -115,6 +118,7 @@ export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string
   for (const s of managedSkus) if (!managed.has(skuKey(s))) managed.set(skuKey(s), s);
   const days = new Map<string, DayRow>();
   const hours = new Map<string, HourRow>();
+  const asins = new Map<string, AsinRow>();
   let rowsIn = 0, skipped = 0;
   const why = { notUsa: 0, noSku: 0, noDate: 0, unmanagedSku: 0 };
   const sample: Record<string, Row> = {};
@@ -162,6 +166,16 @@ export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string
       a.promo_discount += n(r.price_discount_spend);
     }
 
+    if (L.asinKey) {
+      const asin = String(r[L.asinKey] ?? "").trim().toUpperCase();
+      if (/^B0[0-9A-Z]{8}$/.test(asin)) {
+        const ak = asin + "|" + date;
+        let x = asins.get(ak);
+        if (!x) { x = { asin, date: date!, sku: sku!, units: 0, gmv: 0, ads: 0, promo: 0, glance_views: 0 }; asins.set(ak, x); }
+        x.units += units; x.gmv += gmv; x.ads += ads; x.promo += promo; x.glance_views += gv;
+      }
+    }
+
     if (L.timeKey) {
       const hour = hourOf(r[L.timeKey]);
       if (hour === null) return;
@@ -182,6 +196,8 @@ export function makeAggregator(managedSkus: Iterable<string>, sourceFile: string
     out: [...days.values()].map(round),
     // hours with some activity only (impressions alone do not count), as ingest_v2.hourly_hour_sql
     hours: [...hours.values()].filter((h) => h.units || h.gmv || h.ads || h.promo || h.clicks || h.glance_views).map(round),
+    // ASIN-days with some activity only
+    asinDays: [...asins.values()].filter((a) => a.units || a.gmv || a.ads || a.promo || a.glance_views).map(round),
     rowsIn, skipped, why, sample,
   });
   return { add, finish };

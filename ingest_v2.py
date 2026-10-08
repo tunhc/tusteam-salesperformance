@@ -37,7 +37,7 @@ import os
 import re
 import shutil
 import warnings
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -349,6 +349,81 @@ def load_inventory_report(path):
                 wk = pd.Timestamp(week_row[c]).date()
                 incoming.setdefault((sku, wk), [0.0, 0.0])[1] += q
     return snapshot_date, per_sku, incoming
+
+
+# ---------------------------------------------------------------------------
+# BTR tracking: Amazon "Born-to-run Alert" file and per-ASIN inventory
+# ---------------------------------------------------------------------------
+def asin_inventory_rows(path):
+    """Sheet "report" of Yes4All_US_Inventory_<date>.xlsx → one row per SKU × ASIN (SSO only)."""
+    raw = pd.read_excel(path, sheet_name="report", header=None)
+    head = [str(h).strip() if isinstance(h, str) else h for h in raw.iloc[3].tolist()]
+    m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2})", str(raw.iloc[0, 0]))
+    snap = m.group(1) + ":00" if m else None
+    col = {h: i for i, h in enumerate(head) if isinstance(h, str) and not h.startswith("incoming_")}
+    rows, seen = [], set()
+    for r in raw.iloc[4:].itertuples(index=False):
+        sku, asin = txt(r[col["SKU"]]), txt(r[col["ASIN"]])
+        if not sku or not re.fullmatch(r"B0[0-9A-Z]{8}", asin or "") or txt(r[col["DEP."]]) != "SSO" or (sku, asin) in seen:
+            continue
+        seen.add((sku, asin))
+        rows.append({"sku": sku, "asin": asin, "asin_status": txt(r[col["ASIN STATUS"]]) or None, "dep": "SSO",
+                     "salable_y4a": num(r[col["SALABLE Y4A"]]), "salable_amz": num(r[col["SALABLE AMZ"]]),
+                     "incoming_y4a": num(r[col["Incoming Y4A"]]), "incoming_amz": num(r[col["Incoming AMZ"]]), "snapshot_at": snap})
+    return rows
+
+
+def btr_rows(path, asin_to_sku):
+    """Born-to-run Alert export (header on row 2) → btr_offers rows."""
+    raw = pd.read_excel(path, header=None)
+    m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", str(raw.iloc[0, 0]))
+    updated = m.group(1) if m else None
+    head = [str(h).strip() if isinstance(h, str) else h for h in raw.iloc[1].tolist()]
+    col = {h: i for i, h in enumerate(head) if isinstance(h, str)}
+    need = ["Offer", "ASIN", "Sell-through start date", "Sell-through end date", "Days Remaining", "Submitted quantity", "Sold quantity"]
+    miss = [c for c in need if c not in col]
+    if miss:
+        raise SystemExit(f"BTR file thiếu cột: {miss}")
+    g = lambda r, c: r[col[c]] if c in col else None
+    out = []
+    for r in raw.iloc[2:].itertuples(index=False):
+        asin = txt(g(r, "ASIN"))
+        if not re.fullmatch(r"B0[0-9A-Z]{8}", asin or ""):
+            continue
+        st, en = pd.Timestamp(g(r, "Sell-through start date")).date(), pd.Timestamp(g(r, "Sell-through end date")).date()
+        vr, est, cost, ret = num(g(r, "Vendor responsible quantity")), num(g(r, "Est. Qty Sold by ST End")), num(g(r, "Product cost")), num(g(r, "Est. Retention End"))
+        unsold = vr - est
+        out.append({"offer_id": txt(g(r, "Offer")), "asin": asin, "sku": asin_to_sku.get(asin), "pic": txt(g(r, "Sales PIC")) or None,
+                    "product_title": txt(g(r, "Product Title")) or None, "offer_name": txt(g(r, "Offer name")) or None,
+                    "offer_state": txt(g(r, "Offer state")) or None, "status": txt(g(r, "Status")) or None,
+                    "st_start": st, "st_end": en, "as_of": en - timedelta(days=int(num(g(r, "Days Remaining")))),
+                    "submitted_qty": num(g(r, "Submitted quantity")), "accepted_qty": num(g(r, "Accepted quantity")), "vendor_resp_qty": vr,
+                    "product_cost": cost, "sold_qty": num(g(r, "Sold quantity")), "est_sold_end": est, "est_retention": ret,
+                    "retention_rate": round(ret / (unsold * cost), 6) if unsold > 0 and cost > 0 and ret > 0 else None,
+                    "ad_spend": num(g(r, "Ad Spend (ST window)")), "promo_spend": num(g(r, "Promo Spend (ST window)")),
+                    "alert_level": txt(g(r, "Alert Level")) or None, "action_code": txt(g(r, "Action Code")) or None,
+                    "link": txt(g(r, "Link")) or None, "file_updated_at": updated})
+    return out
+
+
+BTR_COLS = ["offer_id", "asin", "sku", "pic", "product_title", "offer_name", "offer_state", "status", "st_start", "st_end", "as_of",
+            "submitted_qty", "accepted_qty", "vendor_resp_qty", "product_cost", "sold_qty", "est_sold_end", "est_retention",
+            "retention_rate", "ad_spend", "promo_spend", "alert_level", "action_code", "link", "file_updated_at"]
+INV_COLS = ["sku", "asin", "asin_status", "dep", "salable_y4a", "salable_amz", "incoming_y4a", "incoming_amz", "snapshot_at"]
+
+
+def write_btr(out_dir, btr_path, inv_path):
+    inv = asin_inventory_rows(inv_path) if inv_path else []
+    if inv:
+        body = "delete from asin_inventory;\n\n" + upsert_sql("asin_inventory", INV_COLS, inv, ["sku", "asin"])
+        write_split(out_dir, "18_asin_inventory", body, header=f"-- {len(inv)} SKU × ASIN rows (SSO) · snapshot {inv[0]['snapshot_at']} · needs supabase_btr.sql")
+    if btr_path:
+        a2s = {r["asin"]: r["sku"] for r in inv}
+        rows = btr_rows(btr_path, a2s)
+        body = upsert_sql("btr_offers", BTR_COLS, rows, ["offer_id"]) + "\n\nupdate btr_offers set loaded_at = now();"
+        if not inv:  # map ASIN → SKU from what is already loaded
+            body += "\n\nupdate btr_offers b set sku = i.sku from asin_inventory i where b.sku is null and i.asin = b.asin;"
+        write(out_dir, "17_btr_offers.sql", body, header=f"-- {len(rows)} BTR offers · file {rows[0]['file_updated_at'] if rows else '?'} · needs supabase_btr.sql")
 
 
 def load_target(path, team):
@@ -829,6 +904,8 @@ def main():
     ap.add_argument("--hourly", help="SSO Data Extraction Hourly export: overwrite one month of sales_daily (see --overwrite-month)")
     ap.add_argument("--overwrite-month", help="YYYY-MM to replace with the --hourly file, e.g. 2026-09 (deletes the whole month first)")
     ap.add_argument("--max-part-kb", type=int, default=600, help="max size of each sales history file (SQL Editor limit)")
+    ap.add_argument("--btr", help="Born-to-run Alert export (.xlsx) → 17_btr_offers.sql")
+    ap.add_argument("--asin-inventory", help="Yes4All_US_Inventory_<date>.xlsx (sheet report) → 18_asin_inventory.sql (per SKU × ASIN)")
     ap.add_argument("--known-skus", help="with --hourly only: 01_skus.sql (or a text file, one SKU per line) listing the managed SKUs")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -856,6 +933,9 @@ def main():
                 write_split(a.out, name[:-4].replace("12_sales", "12b_sales_hourly"), hsql, header=f"-- {hn} SKU-hour rows (activity only) · needs sales_hourly (16_auto_ingest.sql)")
         if not a.followup:
             return
+    if (a.btr or a.asin_inventory) and not a.followup:
+        write_btr(a.out, a.btr, a.asin_inventory)  # BTR tab files only
+        return
     if a.market_dir and not a.followup:
         write_market(a.out, a.market_dir)  # market files only
         return
