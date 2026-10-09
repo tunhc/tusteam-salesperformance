@@ -917,7 +917,13 @@ function btrCompute(D){
     const daysLeft = Math.max(0, total - passed);
     const base = +o.submitted_qty || +o.vendor_resp_qty || 0;   // progress against the submitted quantity
     const vr = +o.vendor_resp_qty || base;                         // the retention fee applies to Vendor responsible qty
-    const est = passed > 0 ? sold / passed * total : sold;
+    const est = passed > 0 ? sold / passed * total : sold;            // run-rate of the whole ST window so far
+    // recent pace: last 7 days of data (part of the current day counts), projected over the days left
+    const from7 = Math.max(start, Math.min(through, end) - 7 * DAY), d7 = (Math.min(through, end) - from7) / DAY;
+    const f7 = new Date(from7), iso7 = `${f7.getFullYear()}-${String(f7.getMonth() + 1).padStart(2, '0')}-${String(f7.getDate()).padStart(2, '0')}`;
+    const sold7 = act.filter(d => d.date >= iso7).reduce((t, d) => t + (+d.units || 0), 0);
+    const rate7 = d7 > 0 ? sold7 / d7 : 0;
+    const est7 = sold + rate7 * Math.max(0, (end - Math.min(through, end)) / DAY);
     const rate = +o.retention_rate > 0 ? +o.retention_rate : rateDefault;
     const cost = +o.product_cost || 0;
     const unsold = Math.max(0, vr - est);
@@ -933,7 +939,7 @@ function btrCompute(D){
       o, sku, asin:o.asin, pic:k.pic || o.pic || '', pl:k.mainPL || '', name:String(o.product_title || k.productName || '').replace(/[​-‍﻿]/g, '').replace(/\s+/g, ' ').trim(),
       stStart:o.st_start, stEnd:o.st_end, total, passed, daysLeft, pctDays:total ? passed / total : 0,
       submitted:+o.submitted_qty || 0, base, sold, vr, btrUnits, asinFrom, soldPct:base ? sold / base : 0,
-      est, estPct, unsold, cost, rate, rateFromFile:+o.retention_rate > 0, estRet:unsold * cost * rate, retPerUnit:cost * rate,
+      est, estPct, rate7, est7, est7Pct:base ? est7 / base : 0, unsold, cost, rate, rateFromFile:+o.retention_rate > 0, estRet:unsold * cost * rate, retPerUnit:cost * rate,
       mkt, mktPerUnit:sold ? mkt / sold : null, needPerDay:daysLeft ? Math.max(0, base - sold) / daysLeft : null, ratePerDay:passed ? sold / passed : 0,
       alert:estPct >= 0.8 ? 'OK' : estPct >= 0.5 ? 'Medium' : 'High',
       asins, allAsins, y4a, amzBtr, amzOther, stockTotal:Math.max(0, y4a) + Math.max(0, amzBtr) + amzOther, remaining:Math.max(0, base - sold),
@@ -954,13 +960,13 @@ V3.renderBtr = async function(){
       <div class="btr-src" id="btrSrc"></div>
       <div class="kpis btr-kpis" id="btrKpis"></div>
       <div class="btr-grid">
-        <div class="card"><h3>Tiến độ bán so với thời gian</h3><div class="hint">% số lượng submit đã bán (số bán thực tế của SKU), và ước tính tới ST End theo run-rate. Hình thoi = % thời gian đã trôi qua: thanh cam ngắn hơn hình thoi là đang chậm.</div><div id="btrProg" class="plot"></div></div>
+        <div class="card"><h3>Tiến độ bán so với thời gian</h3><div class="hint">% số lượng submit đã bán (số bán thực tế của SKU), và ước tính tới ST End theo run-rate. Hình thoi = % thời gian đã trôi qua: thanh cam ngắn hơn hình thoi là đang chậm. Vạch cam = ước tính nếu giữ nhịp bán 7 ngày gần nhất.</div><div id="btrProg" class="plot"></div></div>
         <div class="card"><h3>Tồn kho hiện có vs số còn phải bán</h3><div class="hint">Tồn AMZ trên ASIN BTR, trên các ASIN khác của cùng SKU, và tồn Y4A. Hình thoi đỏ = số còn phải bán để hết số lượng submit (Submitted − Sold).</div><div id="btrInv" class="plot"></div></div>
       </div>
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><h3 style="margin:0">SKU Breakdown</h3>
           <button class="btn small" id="btrExport" type="button">&#128190; Export to Excel</button></div>
-        <div class="hint">Đánh giá theo SKU (ASIN được submit BTR, viền cam). File Amazon chỉ dùng cho thông tin chiến dịch (ST Start / ST End, số lượng submit, giá vốn, tỷ lệ retention). Sold = số bán thực tế của SKU (sales daily / hourly, mọi ASIN) từ ST Start tới nay, tối đa tới ST End, cập nhật mỗi giờ; số nhỏ bên dưới là phần bán trên ASIN BTR. Tồn kho là tồn thực tế của mình. Dòng xám là ASIN khác của SKU (lỗi listing của Amazon) để theo dõi tồn và số bán; ASIN inactive không còn tồn được ẩn. Est % = Est End Qty ÷ Submitted Qty. Run-rate = Sold ÷ số ngày đã chạy; Est End Qty = run-rate × tổng số ngày ST. Est. Retention = (Vendor responsible qty − Est End Qty) × giá vốn × tỷ lệ phí từ file Amazon. Ngày dạng mm/dd. Bấm tiêu đề cột để sắp xếp.</div>
+        <div class="hint">Đánh giá theo SKU (ASIN được submit BTR, viền cam). File Amazon chỉ dùng cho thông tin chiến dịch (ST Start / ST End, số lượng submit, giá vốn, tỷ lệ retention). Sold = số bán thực tế của SKU (sales daily / hourly, mọi ASIN) từ ST Start tới nay, tối đa tới ST End, cập nhật mỗi giờ; số nhỏ bên dưới là phần bán trên ASIN BTR. Tồn kho là tồn thực tế của mình. Dòng xám là ASIN khác của SKU (lỗi listing của Amazon) để theo dõi tồn và số bán; ASIN inactive không còn tồn được ẩn. Est % = Est End Qty ÷ Submitted Qty. Run-rate = Sold ÷ số ngày đã chạy; Est End Qty = run-rate × tổng số ngày ST. "7N" = ước tính nếu giữ nhịp bán 7 ngày gần nhất (Sold + nhịp 7 ngày × số ngày còn lại). Est. Retention = (Vendor responsible qty − Est End Qty) × giá vốn × tỷ lệ phí từ file Amazon. Ngày dạng mm/dd. Bấm tiêu đề cột để sắp xếp.</div>
         <div class="tablewrap" style="max-height:640px"><table id="btrTable"><thead><tr>
           <th data-k="pic">PIC</th><th data-k="sku">SKU</th><th data-k="asin">ASIN</th><th data-k="name">Product Name</th><th data-k="pl">Product Line</th>
           <th data-k="stStart">ST Start</th><th data-k="stEnd">ST End</th><th data-k="daysLeft" class="num">Days Left</th>
@@ -1017,7 +1023,7 @@ function btrRender(){
     ['SKU đang chạy BTR', rows.length, `${rows.filter(r => r.alert === 'High').length} High · ${rows.filter(r => r.alert === 'Medium').length} Medium`],
     ['Submitted Qty', fi(base), `Vendor responsible ${fi(S('vr'))}`],
     ['Đã bán', fi(sold), `${fp(base ? sold / base : 0)} số submit · thời gian đã qua ${fp(days)}`],
-    ['Est % tới ST End', fp(base ? est / base : 0), `≈ ${fi(est)} units theo run-rate`],
+    ['Est % tới ST End', fp(base ? est / base : 0), `≈ ${fi(est)} units theo run-rate cả kỳ · nhịp 7 ngày: ${fp(base ? S('est7') / base : 0)}`],
     ['Est. Retention', fm(ret), `≈ ${fi(S('unsold'))} units không bán được`],
     ['MKT đã chi (ST)', fm(mkt), sold ? `${fm(mkt / sold)} / unit bán · retention TB ${fm(ret / (S('unsold') || 1))} / unit` : ''],
   ].map(([k, v, s]) => `<div class="kpi"><div class="lbl">${k}</div><div class="val">${v}</div><div class="sub">${s}</div></div>`).join('');
@@ -1028,8 +1034,9 @@ function btrRender(){
   h.draw('btrProg', [
     {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.min(r.estPct, 1.5) * 100), name:'Est % tới ST End', marker:{color:BTR_C.est}, customdata:cr.map(r => [r.est, r.base]), hovertemplate:'Est: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
     {type:'bar', orientation:'h', y:lab, x:cr.map(r => r.soldPct * 100), name:'Đã bán', marker:{color:BTR_C.sold}, width:0.45, customdata:cr.map(r => [r.sold, r.base]), hovertemplate:'Đã bán: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
+    {type:'scatter', mode:'markers', y:lab, x:cr.map(r => Math.min(r.est7Pct, 1.5) * 100), name:'Est theo nhịp 7 ngày gần nhất', marker:{symbol:'line-ns', size:16, color:BTR_C.sold, line:{color:BTR_C.sold, width:3}}, customdata:cr.map(r => [r.est7, r.rate7]), hovertemplate:'Nhịp 7 ngày: %{x:.1f}% (≈ %{customdata[0]:,.0f} units, %{customdata[1]:.1f}/ngày)<extra></extra>'},
     {type:'scatter', mode:'markers', y:lab, x:cr.map(r => r.pctDays * 100), name:'% thời gian đã qua', marker:{symbol:'diamond', size:11, color:BTR_C.pace, line:{color:'#fff', width:1.5}}, hovertemplate:'Thời gian: %{x:.1f}%<extra></extra>'},
-  ], lay({xaxis:h.ax({ticksuffix:'%', range:[0, Math.max(105, ...cr.map(r => Math.min(r.estPct, 1.5) * 100 + 5))]}), yaxis:h.ax({automargin:false}),
+  ], lay({xaxis:h.ax({ticksuffix:'%', range:[0, Math.max(105, ...cr.map(r => Math.min(Math.max(r.estPct, r.est7Pct), 1.5) * 100 + 5))]}), yaxis:h.ax({automargin:false}),
     shapes:[{type:'line', x0:100, x1:100, yref:'paper', y0:0, y1:1, line:{color:'#A3ACB8', width:1, dash:'dot'}}]}));
   h.draw('btrInv', [
     {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.max(0, r.amzBtr)), name:'AMZ · ASIN BTR', marker:{color:BTR_C.amzBtr}, hovertemplate:'AMZ ASIN BTR: %{x:,.0f}<extra></extra>'},
@@ -1051,8 +1058,8 @@ function btrRender(){
       <td class="num">${fi(r.submitted)}${r.vr !== r.submitted ? `<span class="vs" title="Vendor responsible qty: số unit Amazon tính retention">VR ${fi(r.vr)}</span>` : ''}</td>
       <td class="num" title="Số bán thực tế của SKU (mọi ASIN) từ ${dmy(r.stStart)}${r.btrUnits !== null ? '; riêng ASIN BTR ' + fi(r.btrUnits) : ''}."><b>${fi(r.sold)}</b>${r.btrUnits !== null ? `<span class="vs">ASIN BTR ${fi(r.btrUnits)}</span>` : ''}</td>
       <td class="num">${fp(r.pctDays)}</td>
-      <td class="num">${fi(r.est)}<span class="vs">${r.ratePerDay.toFixed(1)}/ngày${r.needPerDay !== null ? ' · cần ' + r.needPerDay.toFixed(1) : ''}</span></td>
-      <td class="num"><span class="badge ${pctCls(r.estPct, 0.8)}">${fp(r.estPct)}</span></td>
+      <td class="num" title="Cả kỳ: ${r.ratePerDay.toFixed(1)} units/ngày → ${fi(r.est)}. Nhịp 7 ngày gần nhất: ${r.rate7.toFixed(1)} units/ngày → ${fi(r.est7)} (${fp(r.est7Pct)}). Cần ${r.needPerDay === null ? '—' : r.needPerDay.toFixed(1)}/ngày để hết số submit.">${fi(r.est)}<span class="vs">${r.ratePerDay.toFixed(1)}/ngày · 7N ${r.rate7.toFixed(1)} · cần ${r.needPerDay === null ? '—' : r.needPerDay.toFixed(1)}</span></td>
+      <td class="num"><span class="badge ${pctCls(r.estPct, 0.8)}">${fp(r.estPct)}</span><span class="vs" title="Ước tính theo nhịp 7 ngày gần nhất">7N: ${fp(r.est7Pct)}</span></td>
       <td class="num" title="${fi(r.unsold)} units × giá vốn $${r.cost.toFixed(2)} × ${(r.rate * 100).toFixed(1)}%${r.rateFromFile ? '' : ' (tỷ lệ trung vị, file không có)'}">${fm(r.estRet)}</td>
       <td class="num" title="Ads + promo thực tế của SKU từ ${dmy(r.stStart)}.">${fm(r.mkt)}</td>
       <td class="num">${r.mktPerUnit === null ? '—' : '$' + r.mktPerUnit.toFixed(2)}</td>
@@ -1073,7 +1080,7 @@ function btrExport(){
   rows.forEach(r => {
     data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':r.asin, 'ASIN role':'BTR', 'Product Name':r.name, 'Product Line':r.pl, 'ST Start':r.stStart, 'ST End':r.stEnd,
       'Days Left':Math.round(r.daysLeft), 'Submitted Qty':r.submitted, 'Vendor responsible qty':r.vr, 'Sold':Math.round(r.sold), 'Sold on BTR ASIN':r.btrUnits === null ? '' : Math.round(r.btrUnits),
-      '% Days':+(r.pctDays * 100).toFixed(1), 'Est End Qty':Math.round(r.est), 'Est %':+(r.estPct * 100).toFixed(1), 'Est. Retention':+r.estRet.toFixed(2),
+      '% Days':+(r.pctDays * 100).toFixed(1), 'Est End Qty':Math.round(r.est), 'Est %':+(r.estPct * 100).toFixed(1), 'Rate / day (ST)':+r.ratePerDay.toFixed(2), 'Rate / day (7 days)':+r.rate7.toFixed(2), 'Est End Qty (7-day pace)':Math.round(r.est7), 'Est % (7-day pace)':+(r.est7Pct * 100).toFixed(1), 'Est. Retention':+r.estRet.toFixed(2),
       'Current MKT fee':+r.mkt.toFixed(2), 'MKT / unit sold':r.mktPerUnit === null ? '' : +r.mktPerUnit.toFixed(2), 'Retention / unit':+r.retPerUnit.toFixed(2),
       'Product cost':r.cost, 'Retention rate':+r.rate.toFixed(4), 'Inv AMZ (ASIN)':r.amzBtr, 'Inv Y4A (SKU)':r.y4a, 'Alert':r.alert});
     r.asins.filter(a => !a.btr).forEach(a => data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':a.asin, 'ASIN role':a.asin_status || '', 'Product Name':r.name, 'Product Line':r.pl,
