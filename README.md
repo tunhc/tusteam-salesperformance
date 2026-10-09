@@ -100,12 +100,12 @@ Each run replaces exactly the days present in the file (one transaction); days b
    `python ingest_v2.py --out sql_out --btr "Born-to-run Alert - SSO.xlsx" --asin-inventory Yes4All_US_Inventory_<date>.xlsx`
    → `18_asin_inventory.sql` (run first: it also maps BTR ASINs to SKUs) and `17_btr_offers.sql`.
    Re-run with a newer alert file / inventory file whenever they change.
-3. Redeploy `pull-hourly`: from then on every hourly load also writes sales per ASIN (`product_id`) to `sales_asin_daily`.
+3. Redeploy `pull-hourly`: every hourly load then also writes sales per ASIN (`product_id`) to `sales_asin_daily`, shown per ASIN under each SKU.
 
 How the tab counts:
-- **Sold** = Amazon's sold quantity up to the alert file's day (`as_of` = ST end − Days Remaining) + units sold on the BTR ASIN after that day (hourly export). Sales on the SKU's other ASINs are shown for reference, not counted.
-- **Run-rate** as in Amazon's file: Est End Qty = Sold ÷ days passed × ST days; Est % = Est End Qty ÷ Vendor responsible qty.
+- **Sold** = actual units of the SKU (all its ASINs, `sales_daily`) from ST Start to ST End, refreshed every hour. Amazon's "Sold quantity" from the alert file is shown under it for reference only.
+- **Run-rate**: Est End Qty = Sold ÷ days passed × ST days (both inclusive; the current day counts by the hours loaded); Est % = Est End Qty ÷ Vendor responsible qty.
 - **Est. Retention** = (Vendor responsible qty − Est End Qty) × product cost × retention rate; the rate per offer is taken from Amazon's own estimate in the alert file (median of the other offers when missing).
-- **Current MKT fee** = ad + promo spend in the ST window from the file + ads/promo on the BTR ASIN after that day.
+- **Current MKT fee** = actual ads + promo of the SKU (`sales_daily`) in the same window; the alert file's figure is in the tooltip.
 - One row per SKU (its BTR ASIN); the SKU's other ASINs are listed under it for their stock. Inactive ASINs without stock are hidden.
 
