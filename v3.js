@@ -863,8 +863,9 @@ function liveReplay(){
 // =====================================================================
 // BTR Tracking (Amazon Born To Run)
 //  - btr_offers: Amazon's alert file (ST window, quantities, cost, retention estimate)
-//  - sales_daily: actual sales of the SKU from ST Start to ST End (Amazon's "Sold quantity" is shown for reference only)
-//  - sales_asin_daily: the same split per ASIN, where the hourly export has it
+//  - sales_asin_daily: actual sales per ASIN; Sold / MKT count the BTR (active) ASIN only, from ST Start to ST End
+//    (a SKU can carry a second, older ASIN through an Amazon listing error: its sales are shown, not counted)
+//  - sales_daily: the SKU total, for reference and to spot days without ASIN data
 //  - asin_inventory: salable stock per SKU × ASIN (Y4A per SKU, AMZ per ASIN)
 // Evaluated per SKU (the BTR ASIN); the other ASINs of the SKU are listed for their stock.
 // Run-rate: Est. sold by ST End = Sold ÷ days passed × ST days (both counted inclusive of ST Start / ST End).
@@ -885,8 +886,11 @@ async function btrLoad(){
     h.selectAll('sales_asin_daily', q => q.in('sku', skus).gte('date', start).lte('date', end)).catch(() => []),
     sb.from('sales_hourly').select('ts').order('ts', {ascending:false}).limit(1).then(r => r.data && r.data[0] ? String(r.data[0].ts).replace(' ', 'T').slice(0, 19) : null, () => null),
   ]);
-  const lastDay = daily.reduce((m, d) => d.date > m ? d.date : m, '');
-  return {offers, inv, daily, asin, lastTs, lastDay};
+  const lastDay = asin.reduce((m, d) => d.date > m ? d.date : m, '');
+  // days with sales in sales_daily but no ASIN rows at all: Sold would miss them
+  const asinDays = new Set(asin.map(d => d.date));
+  const gaps = [...new Set(daily.filter(d => +d.units && d.date <= lastDay && !asinDays.has(d.date)).map(d => d.date))].sort();
+  return {offers, inv, daily, asin, lastTs, lastDay, gaps};
 }
 // one row per BTR offer, with the other ASINs of the SKU attached
 function btrCompute(D){
@@ -898,11 +902,12 @@ function btrCompute(D){
   return D.offers.map(o => {
     const sku = o.sku || asinOf.get(o.asin) || '';
     const k = h.skuInfo(sku) || {};
-    // actual sales of the SKU in the ST window (sales_daily), split per ASIN where the hourly export gives it
+    // actual sales in the ST window: Sold / MKT on the BTR ASIN only; the SKU total for reference
     const win = d => d.date >= o.st_start && d.date <= o.st_end;
-    const act = (D.daily || []).filter(d => d.sku === sku && win(d));
-    const sold = act.reduce((t, d) => t + (+d.units || 0), 0);
-    const mkt = act.reduce((t, d) => t + (+d.ads || 0) + (+d.promo || 0), 0);
+    const skuUnits = (D.daily || []).filter(d => d.sku === sku && win(d)).reduce((t, d) => t + (+d.units || 0), 0);
+    const mine = (D.asin || []).filter(x => x.asin === o.asin && win(x));
+    const sold = mine.reduce((t, d) => t + (+d.units || 0), 0);
+    const mkt = mine.reduce((t, d) => t + (+d.ads || 0) + (+d.promo || 0), 0);
     const byAsin = new Map(); (D.asin || []).forEach(x => { if(x.sku === sku && win(x)){ const a = byAsin.get(x.asin) || {units:0, mkt:0}; a.units += +x.units || 0; a.mkt += (+x.ads || 0) + (+x.promo || 0); byAsin.set(x.asin, a); } });
     const asinFrom = (D.asin || []).filter(x => x.sku === sku && win(x)).reduce((m, x) => !m || x.date < m ? x.date : m, '');
     // days: ST Start .. last day with data (part of a day counts, from the hourly export), inclusive; ST length inclusive
@@ -928,7 +933,7 @@ function btrCompute(D){
     return {
       o, sku, asin:o.asin, pic:k.pic || o.pic || '', pl:k.mainPL || '', name:String(o.product_title || k.productName || '').replace(/[​-‍﻿]/g, '').replace(/\s+/g, ' ').trim(),
       stStart:o.st_start, stEnd:o.st_end, total, passed, daysLeft, pctDays:total ? passed / total : 0,
-      submitted:+o.submitted_qty || 0, base, sold, soldAmz:+o.sold_qty || 0, soldBtrAsin:byAsin.has(o.asin) ? byAsin.get(o.asin).units : null, asinFrom, soldPct:base ? sold / base : 0,
+      submitted:+o.submitted_qty || 0, base, sold, soldAmz:+o.sold_qty || 0, skuUnits, asinFrom, soldPct:base ? sold / base : 0,
       est, estPct, unsold, cost, rate, rateFromFile:+o.retention_rate > 0, estRet:unsold * cost * rate, retPerUnit:cost * rate,
       mkt, mktAmz:(+o.ad_spend || 0) + (+o.promo_spend || 0), mktPerUnit:sold ? mkt / sold : null, needPerDay:daysLeft ? Math.max(0, base - sold) / daysLeft : null, ratePerDay:passed ? sold / passed : 0,
       alert:estPct >= 0.8 ? 'OK' : estPct >= 0.5 ? 'Medium' : 'High',
@@ -956,7 +961,7 @@ V3.renderBtr = async function(){
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><h3 style="margin:0">SKU Breakdown</h3>
           <button class="btn small" id="btrExport" type="button">&#128190; Export to Excel</button></div>
-        <div class="hint">Đánh giá theo SKU (ASIN được submit BTR, viền cam). Sold = số bán thực tế của SKU từ ST Start tới nay (tối đa tới ST End), cập nhật mỗi giờ; số nhỏ bên dưới là Sold trong file Amazon để đối chiếu. Dòng xám là các ASIN khác của SKU để theo dõi tồn; ASIN inactive không còn tồn được ẩn. Run-rate = Sold ÷ số ngày đã chạy; Est End Qty = run-rate × tổng số ngày ST. Est. Retention = (Vendor responsible qty − Est End Qty) × giá vốn × tỷ lệ phí từ file Amazon. Ngày dạng mm/dd. Bấm tiêu đề cột để sắp xếp.</div>
+        <div class="hint">Đánh giá theo SKU (ASIN được submit BTR, viền cam). Sold = số bán thực tế trên ASIN BTR (ASIN active) từ ST Start tới nay (tối đa tới ST End), cập nhật mỗi giờ; số nhỏ bên dưới là Sold trong file Amazon và tổng cả SKU để đối chiếu. Dòng xám là ASIN khác của SKU (do lỗi listing của Amazon) — chỉ theo dõi tồn và số bán, không tính BTR; ASIN inactive không còn tồn được ẩn. Run-rate = Sold ÷ số ngày đã chạy; Est End Qty = run-rate × tổng số ngày ST. Est. Retention = (Vendor responsible qty − Est End Qty) × giá vốn × tỷ lệ phí từ file Amazon. Ngày dạng mm/dd. Bấm tiêu đề cột để sắp xếp.</div>
         <div class="tablewrap" style="max-height:640px"><table id="btrTable"><thead><tr>
           <th data-k="pic">PIC</th><th data-k="sku">SKU</th><th data-k="asin">ASIN</th><th data-k="name">Product Name</th><th data-k="pl">Product Line</th>
           <th data-k="stStart">ST Start</th><th data-k="stEnd">ST End</th><th data-k="daysLeft" class="num">Days Left</th>
@@ -1002,7 +1007,8 @@ function btrRender(){
   // sources
   const o0 = D.offers[0], invAt = (D.inv || []).map(r => r.snapshot_at).filter(Boolean).sort().pop();
   const partial = D.lastTs && D.lastTs.slice(0, 10) === D.lastDay;
-  document.getElementById('btrSrc').innerHTML = `<span>Số bán thực tế (sales_daily, cả SKU) từ ST Start: <b>${D.lastDay ? 'tới ' + (partial ? D.lastTs.slice(11, 13) + ':59 ' : '') + dmy(D.lastDay) : 'chưa có'}</b> · tự cập nhật mỗi giờ</span>` +
+  document.getElementById('btrSrc').innerHTML = `<span>Số bán thực tế trên ASIN BTR từ ST Start: <b>${D.lastDay ? 'tới ' + (partial ? D.lastTs.slice(11, 13) + ':59 ' : '') + dmy(D.lastDay) : 'chưa có'}</b> · tự cập nhật mỗi giờ</span>` +
+    (D.gaps && D.gaps.length ? `<span style="color:var(--red)"><b>Thiếu số theo ASIN ${D.gaps.length} ngày</b> (${D.gaps.slice(0, 4).map(dmy).join(', ')}${D.gaps.length > 4 ? '…' : ''}): Sold đang thiếu các ngày này</span>` : '') +
     `<span>File Amazon BTR: <b>${o0.file_updated_at ? dmy(String(o0.file_updated_at).slice(0, 10)) + ' ' + String(o0.file_updated_at).slice(11, 16) : '—'}</b> (ST window, số cam kết, giá vốn, tỷ lệ retention)</span>` +
     `<span>Tồn kho: <b>${invAt ? dmy(String(invAt).slice(0, 10)) + ' ' + String(invAt).slice(11, 16) : 'chưa có'}</b></span>`;
   // KPIs
@@ -1045,19 +1051,19 @@ function btrRender(){
       <td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}</td>
       <td>${dmy(r.stStart)}</td><td>${dmy(r.stEnd)}</td><td class="num">${Math.round(r.daysLeft)}</td>
       <td class="num">${fi(r.submitted)}${r.base !== r.submitted ? `<span class="vs">VR ${fi(r.base)}</span>` : ''}</td>
-      <td class="num" title="Số bán thực tế của SKU (mọi ASIN) từ ${dmy(r.stStart)}${r.soldBtrAsin !== null ? '; riêng ASIN BTR ' + fi(r.soldBtrAsin) + ' từ ' + dmy(r.asinFrom) : ''}. File Amazon ghi Sold ${fi(r.soldAmz)} tới ${dmy(r.o.as_of)}."><b>${fi(r.sold)}</b><span class="vs">Amazon file: ${fi(r.soldAmz)}</span></td>
+      <td class="num" title="Số bán thực tế trên ASIN ${r.asin} từ ${dmy(r.stStart)}. Cả SKU (mọi ASIN): ${fi(r.skuUnits)}. File Amazon ghi Sold ${fi(r.soldAmz)} tới ${dmy(r.o.as_of)}."><b>${fi(r.sold)}</b><span class="vs">Amazon file: ${fi(r.soldAmz)} · cả SKU ${fi(r.skuUnits)}</span></td>
       <td class="num">${fp(r.pctDays)}</td>
       <td class="num">${fi(r.est)}<span class="vs">${r.ratePerDay.toFixed(1)}/ngày${r.needPerDay !== null ? ' · cần ' + r.needPerDay.toFixed(1) : ''}</span></td>
       <td class="num"><span class="badge ${pctCls(r.estPct, 0.8)}">${fp(r.estPct)}</span></td>
       <td class="num" title="${fi(r.unsold)} units × giá vốn $${r.cost.toFixed(2)} × ${(r.rate * 100).toFixed(1)}%${r.rateFromFile ? '' : ' (tỷ lệ trung vị, file không có)'}">${fm(r.estRet)}</td>
-      <td class="num" title="Ads + promo thực tế của SKU từ ${dmy(r.stStart)}. File Amazon: ${fm(r.mktAmz)}.">${fm(r.mkt)}</td>
+      <td class="num" title="Ads + promo thực tế trên ASIN ${r.asin} từ ${dmy(r.stStart)}. File Amazon: ${fm(r.mktAmz)}.">${fm(r.mkt)}</td>
       <td class="num">${r.mktPerUnit === null ? '—' : '$' + r.mktPerUnit.toFixed(2)}</td>
       <td class="num">$${r.retPerUnit.toFixed(2)}<span class="vs" style="color:${cheaper ? 'var(--green)' : 'var(--red)'}">${r.mktPerUnit === null ? '' : cheaper ? 'đẩy bán rẻ hơn' : 'MKT/unit cao hơn'}</span></td>
       <td class="num">${fi(r.amzBtr)}</td><td class="num">${fi(r.y4a)}</td><td>${badge(r.alert)}</td></tr>`;
     const subs = r.asins.filter(a => !a.btr).map(a => `<tr class="sub"><td></td><td class="sub">↳ ${h.esc(r.sku)}</td>
       <td class="sub"><a href="https://www.amazon.com/dp/${encodeURIComponent(a.asin)}" target="_blank" rel="noopener noreferrer" style="color:inherit">${a.asin}</a><span class="asin-tag off">${h.esc(a.asin_status || '?')}</span></td>
-      <td class="sub" colspan="6">ASIN khác của cùng SKU — theo dõi tồn kho</td>
-      <td class="sub num" title="Bán trên ASIN này từ ${dmy(r.asinFrom)} (file hourly, đã nằm trong số Sold của SKU)">${a.after.units ? '(' + fi(a.after.units) + ')' : ''}</td>
+      <td class="sub" colspan="6">ASIN khác của cùng SKU — chỉ theo dõi tồn, không tính BTR</td>
+      <td class="sub num" title="Bán trên ASIN này từ ${dmy(r.stStart)} — không tính vào BTR">${a.after.units ? '(' + fi(a.after.units) + ')' : ''}</td>
       <td class="sub" colspan="7"></td><td class="sub num">${fi(+a.salable_amz || 0)}</td><td class="sub"></td><td class="sub"></td></tr>`).join('');
     return main + subs;
   }).join('') || '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc.</td></tr>';
@@ -1068,12 +1074,12 @@ function btrExport(){
   const data = [];
   rows.forEach(r => {
     data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':r.asin, 'ASIN role':'BTR', 'Product Name':r.name, 'Product Line':r.pl, 'ST Start':r.stStart, 'ST End':r.stEnd,
-      'Days Left':Math.round(r.daysLeft), 'Submitted Qty':r.submitted, 'Vendor responsible qty':r.base, 'Sold':Math.round(r.sold), 'Sold (Amazon file)':r.soldAmz,
+      'Days Left':Math.round(r.daysLeft), 'Submitted Qty':r.submitted, 'Vendor responsible qty':r.base, 'Sold':Math.round(r.sold), 'Sold (Amazon file)':r.soldAmz, 'Sold whole SKU':Math.round(r.skuUnits),
       '% Days':+(r.pctDays * 100).toFixed(1), 'Est End Qty':Math.round(r.est), 'Est %':+(r.estPct * 100).toFixed(1), 'Est. Retention':+r.estRet.toFixed(2),
       'Current MKT fee':+r.mkt.toFixed(2), 'MKT fee (Amazon file)':+r.mktAmz.toFixed(2), 'MKT / unit sold':r.mktPerUnit === null ? '' : +r.mktPerUnit.toFixed(2), 'Retention / unit':+r.retPerUnit.toFixed(2),
       'Product cost':r.cost, 'Retention rate':+r.rate.toFixed(4), 'Inv AMZ (ASIN)':r.amzBtr, 'Inv Y4A (SKU)':r.y4a, 'Alert':r.alert});
     r.asins.filter(a => !a.btr).forEach(a => data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':a.asin, 'ASIN role':a.asin_status || '', 'Product Name':r.name, 'Product Line':r.pl,
-      'Sold on this ASIN (hourly)':a.after.units, 'Inv AMZ (ASIN)':+a.salable_amz || 0, 'Inv Y4A (SKU)':r.y4a}));
+      'Sold on this ASIN (not BTR)':a.after.units, 'Inv AMZ (ASIN)':+a.salable_amz || 0, 'Inv Y4A (SKU)':r.y4a}));
   });
   const ws = XLSX.utils.json_to_sheet(data), wb = XLSX.utils.book_new();
   ws['!cols'] = Object.keys(data[0]).map(k => ({wch:Math.max(k.length, 11)}));
