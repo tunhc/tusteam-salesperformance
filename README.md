@@ -100,12 +100,13 @@ Each run replaces exactly the days present in the file (one transaction); days b
    `python ingest_v2.py --out sql_out --btr "Born-to-run Alert - SSO.xlsx" --asin-inventory Yes4All_US_Inventory_<date>.xlsx`
    → `18_asin_inventory.sql` (run first: it also maps BTR ASINs to SKUs) and `17_btr_offers.sql`.
    Re-run with a newer alert file / inventory file whenever they change.
-3. Redeploy `pull-hourly`: from then on every hourly load also writes sales per ASIN (`product_id`) to `sales_asin_daily`.
+3. Redeploy `pull-hourly`: every hourly load then also writes sales per ASIN (`product_id`) to `sales_asin_daily`, shown per ASIN under each SKU.
 
 How the tab counts:
-- **Sold** = Amazon's sold quantity up to the alert file's day (`as_of` = ST end − Days Remaining) + units sold on the BTR ASIN after that day (hourly export). Sales on the SKU's other ASINs are shown for reference, not counted.
-- **Run-rate** as in Amazon's file: Est End Qty = Sold ÷ days passed × ST days; Est % = Est End Qty ÷ Vendor responsible qty.
+- **Sold** = actual units on the BTR (active) ASIN (`sales_asin_daily`) from ST Start to ST End, refreshed every hour. A SKU's second ASIN (an Amazon listing error) is shown for stock and sales but not counted. Amazon's "Sold quantity" and the whole-SKU total are shown under it for reference; the tab flags days that have SKU sales but no ASIN rows.
+  ASIN history before the hourly load started: `python ingest_v2.py --out sql_out --btr … --asin-inventory … --asin-backfill <daily export> <hourly files…> --asin-from 2026-08-22 --asin-to <last full day>` → `20_sales_asin_backfill.sql` (files oldest first; a later file wins for the days it covers).
+- **Run-rate**: Est End Qty = Sold ÷ days passed × ST days (both inclusive; the current day counts by the hours loaded); Est % = Est End Qty ÷ Vendor responsible qty.
 - **Est. Retention** = (Vendor responsible qty − Est End Qty) × product cost × retention rate; the rate per offer is taken from Amazon's own estimate in the alert file (median of the other offers when missing).
-- **Current MKT fee** = ad + promo spend in the ST window from the file + ads/promo on the BTR ASIN after that day.
+- **Current MKT fee** = actual ads + promo on the BTR ASIN in the same window; the alert file's figure is in the tooltip.
 - One row per SKU (its BTR ASIN); the SKU's other ASINs are listed under it for their stock. Inactive ASINs without stock are hidden.
 

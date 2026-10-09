@@ -406,6 +406,53 @@ def btr_rows(path, asin_to_sku):
     return out
 
 
+def asin_daily_rows(paths, skus, date_from, date_to=None):
+    """Sales per ASIN per day from exports that carry an ASIN column (daily / hourly / usa_amz_sso_hourly),
+    same mapping as pull-hourly. When two files cover the same day, the later file in `paths` wins."""
+    import openpyxl
+    want = {s.upper() for s in skus}
+    by_day = {}                                    # date -> {(asin): row}
+    for path in paths:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = next(w for w in wb.worksheets if any(str(c).strip().lower() == "sku" for c in next(w.iter_rows(max_row=1, values_only=True)) if c))
+        it = ws.iter_rows(values_only=True)
+        h = [re.sub(r"[\s-]+", "_", str(c).strip().lower()) if c is not None else "" for c in next(it)]
+        col = {k: i for i, k in enumerate(h) if k}
+        dk = next(k for k in ("date", "day", "date_time_local") if k in col)
+        ak = "asin" if "asin" in col else "product_id"
+        gk = next(k for k in ("ordered_gmv", "ordered_revenue_gmv", "ordered_nmv") if k in col)
+        g = lambda r, k: r[col[k]] if k in col and col[k] < len(r) else None
+        S = lambda r, *ks: sum(num(g(r, k)) for k in ks)
+        file_days = {}
+        for r in it:
+            sku = (txt(g(r, "sku")) or "").replace("\u200b", "").upper()
+            if sku not in want or ("country" in col and (txt(g(r, "country")) or "").upper() not in ("USA", "US")):
+                continue
+            d = g(r, dk)
+            if isinstance(d, (int, float)):
+                d = datetime(1899, 12, 30) + timedelta(days=float(d) + 1e-6)
+            elif isinstance(d, str):
+                try:
+                    d = datetime.fromisoformat(d.strip()[:10])
+                except ValueError:
+                    continue
+            if not hasattr(d, "date"):
+                continue
+            d = d.date()
+            asin = (txt(g(r, ak)) or "").upper()
+            if d < date_from or (date_to and d > date_to) or not re.fullmatch(r"B0[0-9A-Z]{8}", asin):
+                continue
+            ads = num(g(r, "total_ads")) if "total_ads" in col else S(r, "sb_spend", "sd_spend", "sp_spend")
+            promo = num(g(r, "total_promo")) if "total_promo" in col else S(r, "coupon_spend", "price_discount_spend", "lightning_deal_spend", "best_deal_spend", "vm_promo_spend")
+            x = file_days.setdefault(d, {}).setdefault(asin, {"asin": asin, "date": d.isoformat(), "sku": sku, "units": 0.0, "gmv": 0.0, "ads": 0.0, "promo": 0.0, "glance_views": 0.0})
+            x["units"] += num(g(r, "ordered_units")); x["gmv"] += num(g(r, gk)); x["ads"] += ads; x["promo"] += promo
+            x["glance_views"] += num(g(r, "glance_views")) + num(g(r, "glance_view"))
+        by_day.update(file_days)                   # later file replaces whole days
+        print(f"  {os.path.basename(path)}: {len(file_days)} days", flush=True)
+    rows = [dict(v, **{k: round(v[k], 4) for k in ("units", "gmv", "ads", "promo", "glance_views")}) for d in sorted(by_day) for v in by_day[d].values()]
+    return [r for r in rows if r["units"] or r["gmv"] or r["ads"] or r["promo"] or r["glance_views"]]
+
+
 BTR_COLS = ["offer_id", "asin", "sku", "pic", "product_title", "offer_name", "offer_state", "status", "st_start", "st_end", "as_of",
             "submitted_qty", "accepted_qty", "vendor_resp_qty", "product_cost", "sold_qty", "est_sold_end", "est_retention",
             "retention_rate", "ad_spend", "promo_spend", "alert_level", "action_code", "link", "file_updated_at"]
@@ -906,6 +953,10 @@ def main():
     ap.add_argument("--max-part-kb", type=int, default=600, help="max size of each sales history file (SQL Editor limit)")
     ap.add_argument("--btr", help="Born-to-run Alert export (.xlsx) → 17_btr_offers.sql")
     ap.add_argument("--asin-inventory", help="Yes4All_US_Inventory_<date>.xlsx (sheet report) → 18_asin_inventory.sql (per SKU × ASIN)")
+    ap.add_argument("--asin-backfill", nargs="+", help="exports with an ASIN column, oldest first → 20_sales_asin_backfill.sql (sales_asin_daily)")
+    ap.add_argument("--asin-skus", help="with --asin-backfill: comma-separated SKUs (default: the SKUs in --btr)")
+    ap.add_argument("--asin-from", default="2026-08-01", help="with --asin-backfill: first day to load")
+    ap.add_argument("--asin-to", help="with --asin-backfill: last day to load (leave out a partial last day; pull-hourly fills the recent days)")
     ap.add_argument("--known-skus", help="with --hourly only: 01_skus.sql (or a text file, one SKU per line) listing the managed SKUs")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -933,8 +984,15 @@ def main():
                 write_split(a.out, name[:-4].replace("12_sales", "12b_sales_hourly"), hsql, header=f"-- {hn} SKU-hour rows (activity only) · needs sales_hourly (16_auto_ingest.sql)")
         if not a.followup:
             return
-    if (a.btr or a.asin_inventory) and not a.followup:
-        write_btr(a.out, a.btr, a.asin_inventory)  # BTR tab files only
+    if (a.btr or a.asin_inventory or a.asin_backfill) and not a.followup:
+        if a.btr or a.asin_inventory:
+            write_btr(a.out, a.btr, a.asin_inventory)  # BTR tab files only
+        if a.asin_backfill:
+            skus = [x.strip() for x in (a.asin_skus or "").split(",") if x.strip()] or \
+                [r["sku"] for r in btr_rows(a.btr, {r["asin"]: r["sku"] for r in asin_inventory_rows(a.asin_inventory)}) if r["sku"]]
+            rows = asin_daily_rows(a.asin_backfill, skus, date.fromisoformat(a.asin_from), date.fromisoformat(a.asin_to) if a.asin_to else None)
+            body = f"select replace_sales_asin_days({lit(json.dumps(rows))}::jsonb, 'backfill');"
+            write(a.out, "20_sales_asin_backfill.sql", body, header=f"-- {len(rows)} ASIN-day rows · {len(set(r['sku'] for r in rows))} SKUs · {rows[0]['date'] if rows else ''} → {rows[-1]['date'] if rows else ''} · needs supabase_btr.sql")
         return
     if a.market_dir and not a.followup:
         write_market(a.out, a.market_dir)  # market files only
