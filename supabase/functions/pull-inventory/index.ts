@@ -14,9 +14,10 @@
 //      Optional headers: x-file-name, x-dry-run: 1 (parse only, write nothing), x-force: 1 (load an unchanged file).
 //   2. Empty body: download INVENTORY_FILE_URL (pg_cron, see supabase_inventory_auto.sql).
 //
-// Deploy with "Verify JWT" OFF; every request must send x-pull-secret = PULL_SECRET.
+// Deploy with "Verify JWT" OFF; every request must send x-pull-secret = INVENTORY_SECRET
+// (falls back to PULL_SECRET of pull-hourly when INVENTORY_SECRET is not set).
 // Secrets:
-//   PULL_SECRET          same secret as pull-hourly
+//   INVENTORY_SECRET     random string, own secret so the hourly sales flow keeps its PULL_SECRET
 //   INVENTORY_FILE_URL   only for mode 2: SharePoint/OneDrive sharing link ("Anyone with the link",
 //                        or MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET with Files.Read.All),
 //                        or a Google Sheets link shared "Anyone with the link" (exported as .xlsx)
@@ -100,7 +101,7 @@ function bodyFile(b: Uint8Array): Uint8Array | null {
 const ALL_COLUMNS = Array.from({ length: 400 }, (_, i) => i); // header is on row 4, so read every column
 
 Deno.serve(async (req) => {
-  const secret = Deno.env.get("PULL_SECRET");
+  const secret = Deno.env.get("INVENTORY_SECRET") || Deno.env.get("PULL_SECRET");
   if (!secret || req.headers.get("x-pull-secret") !== secret) return json({ error: "Unauthorized" }, 401);
   const flag = (h: string) => ["1", "true", "yes"].includes((req.headers.get(h) ?? "").trim().toLowerCase());
   const dryRun = flag("x-dry-run");
@@ -142,7 +143,7 @@ Deno.serve(async (req) => {
     // Managed SKUs only (the RPC also filters); match ignoring case / invisible chars, write the stored spelling
     const { data: skus, error: skuErr } = await db.from("skus").select("sku").limit(100000);
     if (skuErr) throw new Error(skuErr.message);
-    const key = (s: string) => s.replace(/[​-‍﻿\s]/g, "").toUpperCase();
+    const key = (s: string) => s.replace(/[\u200b-\u200d\ufeff\s]/g, "").toUpperCase();
     const managed = new Map((skus ?? []).map((s: { sku: string }) => [key(s.sku), s.sku]));
     const canon = <T extends { sku: string }>(rows: T[]) => rows.flatMap((r) => { const s = managed.get(key(r.sku)); return s ? [{ ...r, sku: s }] : []; });
     const skuRows = canon(inv.skus), incRows = canon(inv.incoming);

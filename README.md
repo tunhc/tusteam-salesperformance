@@ -101,10 +101,15 @@ Parsing matches `ingest_v2.py --inventory` / `--asin-inventory`, so automatic an
 
 1. Run `supabase_inventory_auto.sql` in the SQL Editor (creates `replace_inventory_snapshot`; needs `ingest_runs` from `supabase_auto_ingest.sql`).
 2. Deploy `supabase/functions/pull-inventory/` (all three files) as Edge Function `pull-inventory` with **Verify JWT off**.
-3. Secrets: `PULL_SECRET`, and for pull mode `INVENTORY_FILE_URL` (SharePoint/OneDrive link "Anyone with the link", or the
-   `MS_*` Graph secrets above; a Google Sheets link shared "Anyone with the link" also works). Optional `INVENTORY_SHEET` (default `report`).
-4. Schedule: the pg_cron block at the end of `supabase_inventory_auto.sql` (daily 07:15 VN time), or a Power Automate flow
-   (Recurrence → *Get file content* → HTTP POST with `x-pull-secret`, body = *File Content*). Test first with header `x-dry-run: 1`.
+3. Secret `INVENTORY_SECRET` (any long random string; Edge Functions → Secrets). Pull mode only: `INVENTORY_FILE_URL`
+   (SharePoint/OneDrive "Anyone with the link", the `MS_*` Graph secrets above, or a public Google Sheets link). Optional `INVENTORY_SHEET` (default `report`).
+4. Schedule — the company link needs a login, so Power Automate pushes the file, **twice a day**:
+   *Recurrence* (Frequency Day, Interval 1, Time zone SE Asia Standard Time, At these hours `8,16`, minutes `0`)
+   → SharePoint *Get file content using path* (the inventory workbook)
+   → *HTTP* POST `https://zlksfonvnxqxdumwlysf.supabase.co/functions/v1/pull-inventory`, headers
+   `x-pull-secret: <INVENTORY_SECRET>`, `x-file-name: Yes4All_US_Inventory.xlsx`, Body = *File Content*.
+   Test once with header `x-dry-run: 1` (parses and returns totals, writes nothing), then remove it.
+   (With a public link, the pg_cron block at the end of `supabase_inventory_auto.sql` does the same without Power Automate.)
 
 Each run writes, for managed SKUs only: `inventory_snapshot` (one row per SKU per day, so stock history builds up),
 the current `skus.salable_y4a / salable_amz / asin_status / inventory_as_of` (what the dashboard shows), `incoming_weekly`

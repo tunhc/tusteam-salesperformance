@@ -22,7 +22,7 @@ const n = (v: unknown): number => {
   return Number.isFinite(x) ? x : 0;
 };
 const t = (v: unknown): string | null => {
-  const s = String(v ?? "").replace(/ /g, " ").trim();
+  const s = String(v ?? "").replace(/\u00a0/g, " ").trim();
   return s && s !== "<NA>" ? s : null;
 };
 
