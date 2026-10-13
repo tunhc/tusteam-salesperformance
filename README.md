@@ -20,6 +20,7 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `ingest_v2.py` | Bulk loader: turns the source Excel/HTML files into numbered `.sql` files to paste into the SQL Editor (see below). |
 | `supabase/functions/ai-recommend/` | Edge Function behind the “Hỏi AI” buttons (Claude API). |
 | `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
+| `supabase/functions/pull-inventory/` + `supabase_inventory_auto.sql` | Daily auto-load of the Yes4All_US_Inventory Excel (sheet `report`): salable stock Y4A/AMZ and weekly incoming Y4A/AMZ (pg_cron or Power Automate → Edge Function → `replace_inventory_snapshot`). |
 | `supabase_btr.sql` | BTR Tracking tab (Amazon Born To Run): `btr_offers`, `asin_inventory`, `sales_asin_daily` + `replace_sales_asin_days`. Safe to re-run. |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
 | `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
@@ -92,6 +93,22 @@ that writes nothing. The file has no `ordered_gmv`; GMV is taken from `ordered_n
 5. Check: `select * from ingest_runs order by ran_at desc limit 20;` — `ok` = loaded, `skipped` = file unchanged, `error` = message says why.
 
 Each run replaces exactly the days present in the file (one transaction); days before `data_locks.lock_before` are never touched.
+
+## Automatic daily inventory (stock + incoming)
+
+Same pattern as the hourly sales load, for the `Yes4All_US_Inventory` workbook (sheet `report`, the file the source refreshes hourly).
+Parsing matches `ingest_v2.py --inventory` / `--asin-inventory`, so automatic and manual loads give the same numbers.
+
+1. Run `supabase_inventory_auto.sql` in the SQL Editor (creates `replace_inventory_snapshot`; needs `ingest_runs` from `supabase_auto_ingest.sql`).
+2. Deploy `supabase/functions/pull-inventory/` (all three files) as Edge Function `pull-inventory` with **Verify JWT off**.
+3. Secrets: `PULL_SECRET`, and for pull mode `INVENTORY_FILE_URL` (SharePoint/OneDrive link "Anyone with the link", or the
+   `MS_*` Graph secrets above; a Google Sheets link shared "Anyone with the link" also works). Optional `INVENTORY_SHEET` (default `report`).
+4. Schedule: the pg_cron block at the end of `supabase_inventory_auto.sql` (daily 07:15 VN time), or a Power Automate flow
+   (Recurrence → *Get file content* → HTTP POST with `x-pull-secret`, body = *File Content*). Test first with header `x-dry-run: 1`.
+
+Each run writes, for managed SKUs only: `inventory_snapshot` (one row per SKU per day, so stock history builds up),
+the current `skus.salable_y4a / salable_amz / asin_status / inventory_as_of` (what the dashboard shows), `incoming_weekly`
+for that snapshot date (snapshots older than 90 days are pruned) and `asin_inventory` (BTR tab). An unchanged file is skipped.
 
 ## BTR Tracking tab (Amazon Born To Run)
 

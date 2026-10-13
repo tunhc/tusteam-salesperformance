@@ -171,7 +171,7 @@ export async function readSheetRows(
           header = Array.from(cells, (c) => (c === null || c === undefined ? "" : String(c)));
           const cols = accept(header);
           if (!cols) { rejected = true; return; }
-          need = new Uint8Array(header.length + 1);
+          need = new Uint8Array(Math.max(header.length, ...cols) + 1); // cols may lie past the header's last cell
           for (const c of cols) need[c] = 1;
         } else if (cells.length) onRow(cells);
       }
