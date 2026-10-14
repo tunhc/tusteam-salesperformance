@@ -727,6 +727,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let DATA = { asOfDate: null, daysElapsed: 0, daysInMonth: 30 };
 let ROWS = [];
 let PICS = [];
+// SKUs with lifecycle "Inactived" in the follow-up file: kept in the database,
+// left off every tab (loadMonth fills this, v2/v3 exclude their sales too).
+let HIDDEN_SKUS = new Set();
 
 function monthLabel(iso){
   const [y,m] = iso.split('-');
@@ -809,7 +812,9 @@ async function loadMonth(monthIso){
   const daysElapsed = +asOfDate.slice(8,10);
   const daysInMonth = daysInMonthOf(monthIso);
 
-  const rows = (skus||[]).map(sk=>{
+  const isInactive = sk => /^inactiv/i.test(String(sk.lifecycle || '').trim());
+  HIDDEN_SKUS = new Set((skus||[]).filter(isInactive).map(sk=>sk.sku));
+  const rows = (skus||[]).filter(sk=>!isInactive(sk)).map(sk=>{
     const t = targetBySku[sk.sku] || {};
     const dailyRows = (salesBySku[sk.sku] || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
     const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0, clicks:d.total_clicks||0, impressions:d.total_impressions||0, glanceViews:d.glance_views||0}));

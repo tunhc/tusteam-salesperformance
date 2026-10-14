@@ -650,12 +650,13 @@ async function liveLoad(){
     const key = 'mtd|' + d0;
     if(LV.key !== key){
       LV.rows = (await h.selectAll('sales_daily', q => q.gte('date', liveMonthStart(d0)).lte('date', d0)))
+        .filter(r => !HIDDEN_SKUS.has(r.sku))
         .map(r => ({sku:r.sku, date:r.date, units:r.units, gmv:r.gmv, ads:r.ads, promo:r.promo, clicks:r.total_clicks, glance_views:r.glance_views}));
       LV.key = key;
     }
   } else {
     const want = [d0, addDaysIso(d0, -1), addDaysIso(d0, -7)], key = 'day|' + want.join('|');
-    if(LV.key !== key){ LV.rows = await h.selectAll('sales_hourly', q => q.in('date', want)); LV.key = key; }
+    if(LV.key !== key){ LV.rows = (await h.selectAll('sales_hourly', q => q.in('date', want))).filter(r => !HIDDEN_SKUS.has(r.sku)); LV.key = key; }
   }
   await liveLastHour(d0);
   return true;

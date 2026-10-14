@@ -107,6 +107,9 @@ const RATE_KEYS = ['mktGmv','tacos','acos','promoGmv','cr','ctr','adShare','cm3P
 // SKU master (from ROWS built by loadMonth) -------------------------------
 function master(){ return ROWS; }
 function skuInfo(sku){ return ROWS.find(r => r.sku === sku); }
+// p_skus for the trend RPCs: null (= every SKU) only when the scope is all of
+// ROWS and no inactive SKU is hidden, else the explicit list.
+function skuParam(rows){ return rows.length === ROWS.length && !HIDDEN_SKUS.size ? null : rows.map(r => r.sku); }
 function stockOf(r){ return (r.salableY4A || 0) + (r.salableAMZ || 0); }
 function withCm3(sku, row){
   const k = skuInfo(sku);
@@ -590,7 +593,7 @@ async function spTiles(scope){
   // sparklines: last 12 months for the same scope
   try {
     const to = SP.to, from = addMonths(to.slice(0, 8) + '01', -11);
-    const skus = scope.length === ROWS.length ? null : scope.map(r => r.sku);
+    const skus = skuParam(scope);
     const tr = await rpcAll('sales_trend', {p_from: from, p_to: to, p_grain: 'month', p_skus: skus});
     const rows = tr.map(r => derive(addInto(emptyAgg(), withCm3Trend(r, scope))));
     $$('#spTiles .spk').forEach(el => { el.innerHTML = spark(rows.map(a => a[el.dataset.k]), '#2a78d6'); });
@@ -623,7 +626,7 @@ async function spTrend(){
   chipRow($('#spAbs'), ABS_KEYS.map(k => ({k, l:M[k].l})), m => m.k === SP.abs, m => { SP.abs = m.k; spTrend(); });
   chipRow($('#spRates'), RATE_KEYS.map(k => ({k, l:M[k].l})), m => SP.rates.includes(m.k), m => { if(SP.rates.includes(m.k)) SP.rates = SP.rates.filter(x => x !== m.k); else { SP.rates.push(m.k); if(SP.rates.length > 3) SP.rates.shift(); } spTrend(); }, m => rateColors[SP.rates.indexOf(m.k)]);
   const scope = spScope(); const g = spGrain();
-  const skus = scope.length === ROWS.length ? null : scope.map(r => r.sku);
+  const skus = skuParam(scope);
   const [pf, pt] = spComparePeriod();
   let cur, prev;
   try { [cur, prev] = await Promise.all([rpcAll('sales_trend', {p_from: SP.from, p_to: SP.to, p_grain: g, p_skus: skus}), rpcAll('sales_trend', {p_from: pf, p_to: pt, p_grain: g, p_skus: skus})]); }
@@ -1278,7 +1281,7 @@ async function renderAdsV2(){
   adsBuild(); if(!$('#adsV2')) return;
   $$('#adWeeks .cv-btn').forEach(b => b.classList.toggle('active', +b.dataset.w === AD.weeks));
   const rows = adsGetFilteredRows().filter(matchGS);
-  const skus = rows.length === ROWS.length ? null : rows.map(r => r.sku);
+  const skus = skuParam(rows);
   const mx = V2.state.maxDate || todayISO();
   const lastFullSun = addDaysIso(sundayOf(mx), dowOf(mx) === 6 ? 0 : -7);
   const from = addDaysIso(lastFullSun, -7 * (AD.weeks - 1));
