@@ -142,7 +142,38 @@ function lay(extra){
   }, extra || {});
 }
 const divScale = [[0, PAL.neg], [.5, PAL.mid], [1, PAL.pos]];
-function draw(el, data, layout){ if(typeof Plotly === 'undefined'){ (typeof el === 'string' ? document.getElementById(el) : el).innerHTML = '<div class="notice">Không tải được thư viện biểu đồ (Plotly).</div>'; return; } const g = typeof el === 'string' ? document.getElementById(el) : el; if(g && g._fullLayout && !g.querySelector('.main-svg')) Plotly.purge(g); Plotly.react(g, data, layout, PCFG); }
+// Value labels on every line / bar trace (the user wants the numbers on the
+// chart, not only in the hover). Format follows the trace's value axis: % axes
+// → 0.0%, $ axes → $1.2k, else 1.2k. Long series are thinned to ~24 labels
+// (always keeping the last point). Traces that already set text/texttemplate,
+// markers-only scatters, hidden helpers and pies/treemaps are left alone.
+function valueLabels(data, layout){
+  const L = layout || {}, stacked = /stack|relative/.test(L.barmode || '');
+  const axisOf = (t, dir) => L[dir + 'axis' + String(t[dir + 'axis'] || dir).slice(1)] || {};
+  const linesOn = new Map(); // lines sharing a panel alternate above / below the point
+  const isLine = t => t && (t.type || 'scatter') === 'scatter' && (t.mode || 'lines').includes('lines');
+  const lineAxes = new Set((data || []).filter(isLine).map(t => t.yaxis || 'y'));
+  return (data || []).map(t => {
+    if(!t || t.text != null || t.texttemplate != null || t.visible === false || t.visible === 'legendonly' || t.hoverinfo === 'skip' || t.hoverinfo === 'none') return t;
+    const type = t.type || 'scatter', mode = t.mode || 'lines';
+    if(type !== 'bar' && !(type === 'scatter' && mode.includes('lines'))) return t;
+    const dir = type === 'bar' && t.orientation === 'h' ? 'x' : 'y', vals = t[dir] || [];
+    const n = vals.length; if(!n) return t;
+    const axis = axisOf(t, dir), tf = String(axis.tickformat || '');
+    const fmt = tf.includes('%') ? '.1%' : /f$/.test(tf) ? tf : '.3~s';
+    const tpl = '%{' + dir + ':' + (axis.tickprefix === '$' && !tf.includes('%') ? '$' : '') + fmt + '}' + (axis.ticksuffix || '');
+    const step = Math.ceil(n / 24), last = vals.reduce((k, v, i) => (v == null || v === '' ? k : i), -1);
+    const texttemplate = vals.map((v, i) => v == null || v === '' || (type === 'bar' && +v === 0) || (i % step && i !== last) ? '' : tpl);
+    const color = (t.line && typeof t.line.color === 'string' && t.line.color) || (t.marker && typeof t.marker.color === 'string' && t.marker.color) || PAL.muted;
+    // bars stacked or sharing their axis with a line: label inside the bar (Plotly picks a contrasting colour)
+    const inside = type === 'bar' && (stacked || (t.orientation !== 'h' && lineAxes.has(t.yaxis || 'y')));
+    const o = {...t, texttemplate, textfont:{size:9, ...(inside ? {} : {color}), ...(t.textfont || {})}, cliponaxis:false};
+    if(type === 'bar'){ o.textposition = inside ? 'inside' : 'outside'; o.constraintext = 'none'; if(inside) o.insidetextanchor = stacked ? 'middle' : 'end'; }
+    else { const k = t.yaxis || 'y', i = linesOn.get(k) || 0; linesOn.set(k, i + 1); o.mode = mode + '+text'; o.textposition = i % 2 ? 'bottom center' : 'top center'; }
+    return o;
+  });
+}
+function draw(el, data, layout){ data = valueLabels(data, layout); if(typeof Plotly === 'undefined'){ (typeof el === 'string' ? document.getElementById(el) : el).innerHTML = '<div class="notice">Không tải được thư viện biểu đồ (Plotly).</div>'; return; } const g = typeof el === 'string' ? document.getElementById(el) : el; if(g && g._fullLayout && !g.querySelector('.main-svg')) Plotly.purge(g); Plotly.react(g, data, layout, PCFG); }
 function chipRow(el, items, isOn, onClick, swatch){
   el.querySelectorAll('.cv-btn').forEach(c => c.remove());
   items.forEach(m => {
