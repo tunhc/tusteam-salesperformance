@@ -308,8 +308,11 @@ def write_split(out_dir, stem, body, header="", max_bytes=600_000):
 def load_tracking(path, sheet):
     t = pd.read_excel(path, sheet_name=sheet, header=3)
     t = t[t["SKU"].notna()].copy()
-    t["SKU"] = t["SKU"].astype(str).str.strip()
-    return t.drop_duplicates("SKU")
+    # some SKUs carry a zero-width space ("XVH2\u200b"), which made a second skus row
+    t["SKU"] = t["SKU"].astype(str).str.replace(r"[\u200b-\u200d\ufeff]", "", regex=True).str.strip()
+    # one row per ASIN: keep the SKU's active ASIN row when it has one
+    active = t["ASIN status"].astype(str).str.lower().eq("active") if "ASIN status" in t else False
+    return t.assign(_active=active).sort_values("_active", ascending=False, kind="stable").drop_duplicates("SKU").drop(columns="_active")
 
 
 def load_inventory_report(path):

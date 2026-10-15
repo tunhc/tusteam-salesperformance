@@ -107,6 +107,9 @@ const RATE_KEYS = ['mktGmv','tacos','acos','promoGmv','cr','ctr','adShare','cm3P
 // SKU master (from ROWS built by loadMonth) -------------------------------
 function master(){ return ROWS; }
 function skuInfo(sku){ return ROWS.find(r => r.sku === sku); }
+// p_skus for the trend RPCs: null (= every SKU) only when the scope is all of
+// ROWS and no inactive SKU is hidden, else the explicit list.
+function skuParam(rows){ return rows.length === ROWS.length && !HIDDEN_SKUS.size ? null : rows.map(r => r.sku); }
 function stockOf(r){ return (r.salableY4A || 0) + (r.salableAMZ || 0); }
 function withCm3(sku, row){
   const k = skuInfo(sku);
@@ -139,7 +142,38 @@ function lay(extra){
   }, extra || {});
 }
 const divScale = [[0, PAL.neg], [.5, PAL.mid], [1, PAL.pos]];
-function draw(el, data, layout){ if(typeof Plotly === 'undefined'){ (typeof el === 'string' ? document.getElementById(el) : el).innerHTML = '<div class="notice">Không tải được thư viện biểu đồ (Plotly).</div>'; return; } const g = typeof el === 'string' ? document.getElementById(el) : el; if(g && g._fullLayout && !g.querySelector('.main-svg')) Plotly.purge(g); Plotly.react(g, data, layout, PCFG); }
+// Value labels on every line / bar trace (the user wants the numbers on the
+// chart, not only in the hover). Format follows the trace's value axis: % axes
+// → 0.0%, $ axes → $1.2k, else 1.2k. Long series are thinned to ~24 labels
+// (always keeping the last point). Traces that already set text/texttemplate,
+// markers-only scatters, hidden helpers and pies/treemaps are left alone.
+function valueLabels(data, layout){
+  const L = layout || {}, stacked = /stack|relative/.test(L.barmode || '');
+  const axisOf = (t, dir) => L[dir + 'axis' + String(t[dir + 'axis'] || dir).slice(1)] || {};
+  const linesOn = new Map(); // lines sharing a panel alternate above / below the point
+  const isLine = t => t && (t.type || 'scatter') === 'scatter' && (t.mode || 'lines').includes('lines');
+  const lineAxes = new Set((data || []).filter(isLine).map(t => t.yaxis || 'y'));
+  return (data || []).map(t => {
+    if(!t || t.text != null || t.texttemplate != null || t.visible === false || t.visible === 'legendonly' || t.hoverinfo === 'skip' || t.hoverinfo === 'none') return t;
+    const type = t.type || 'scatter', mode = t.mode || 'lines';
+    if(type !== 'bar' && !(type === 'scatter' && mode.includes('lines'))) return t;
+    const dir = type === 'bar' && t.orientation === 'h' ? 'x' : 'y', vals = t[dir] || [];
+    const n = vals.length; if(!n) return t;
+    const axis = axisOf(t, dir), tf = String(axis.tickformat || '');
+    const fmt = tf.includes('%') ? '.1%' : /f$/.test(tf) ? tf : '.3~s';
+    const tpl = '%{' + dir + ':' + (axis.tickprefix === '$' && !tf.includes('%') ? '$' : '') + fmt + '}' + (axis.ticksuffix || '');
+    const step = Math.ceil(n / 24), last = vals.reduce((k, v, i) => (v == null || v === '' ? k : i), -1);
+    const texttemplate = vals.map((v, i) => v == null || v === '' || (type === 'bar' && +v === 0) || (i % step && i !== last) ? '' : tpl);
+    const color = (t.line && typeof t.line.color === 'string' && t.line.color) || (t.marker && typeof t.marker.color === 'string' && t.marker.color) || PAL.muted;
+    // bars stacked or sharing their axis with a line: label inside the bar (Plotly picks a contrasting colour)
+    const inside = type === 'bar' && (stacked || (t.orientation !== 'h' && lineAxes.has(t.yaxis || 'y')));
+    const o = {...t, texttemplate, textfont:{size:9, ...(inside ? {} : {color}), ...(t.textfont || {})}, cliponaxis:false};
+    if(type === 'bar'){ o.textposition = inside ? 'inside' : 'outside'; o.constraintext = 'none'; if(inside) o.insidetextanchor = stacked ? 'middle' : 'end'; }
+    else { const k = t.yaxis || 'y', i = linesOn.get(k) || 0; linesOn.set(k, i + 1); o.mode = mode + '+text'; o.textposition = i % 2 ? 'bottom center' : 'top center'; }
+    return o;
+  });
+}
+function draw(el, data, layout){ data = valueLabels(data, layout); if(typeof Plotly === 'undefined'){ (typeof el === 'string' ? document.getElementById(el) : el).innerHTML = '<div class="notice">Không tải được thư viện biểu đồ (Plotly).</div>'; return; } const g = typeof el === 'string' ? document.getElementById(el) : el; if(g && g._fullLayout && !g.querySelector('.main-svg')) Plotly.purge(g); Plotly.react(g, data, layout, PCFG); }
 function chipRow(el, items, isOn, onClick, swatch){
   el.querySelectorAll('.cv-btn').forEach(c => c.remove());
   items.forEach(m => {
@@ -590,7 +624,7 @@ async function spTiles(scope){
   // sparklines: last 12 months for the same scope
   try {
     const to = SP.to, from = addMonths(to.slice(0, 8) + '01', -11);
-    const skus = scope.length === ROWS.length ? null : scope.map(r => r.sku);
+    const skus = skuParam(scope);
     const tr = await rpcAll('sales_trend', {p_from: from, p_to: to, p_grain: 'month', p_skus: skus});
     const rows = tr.map(r => derive(addInto(emptyAgg(), withCm3Trend(r, scope))));
     $$('#spTiles .spk').forEach(el => { el.innerHTML = spark(rows.map(a => a[el.dataset.k]), '#2a78d6'); });
@@ -623,7 +657,7 @@ async function spTrend(){
   chipRow($('#spAbs'), ABS_KEYS.map(k => ({k, l:M[k].l})), m => m.k === SP.abs, m => { SP.abs = m.k; spTrend(); });
   chipRow($('#spRates'), RATE_KEYS.map(k => ({k, l:M[k].l})), m => SP.rates.includes(m.k), m => { if(SP.rates.includes(m.k)) SP.rates = SP.rates.filter(x => x !== m.k); else { SP.rates.push(m.k); if(SP.rates.length > 3) SP.rates.shift(); } spTrend(); }, m => rateColors[SP.rates.indexOf(m.k)]);
   const scope = spScope(); const g = spGrain();
-  const skus = scope.length === ROWS.length ? null : scope.map(r => r.sku);
+  const skus = skuParam(scope);
   const [pf, pt] = spComparePeriod();
   let cur, prev;
   try { [cur, prev] = await Promise.all([rpcAll('sales_trend', {p_from: SP.from, p_to: SP.to, p_grain: g, p_skus: skus}), rpcAll('sales_trend', {p_from: pf, p_to: pt, p_grain: g, p_skus: skus})]); }
@@ -1278,7 +1312,7 @@ async function renderAdsV2(){
   adsBuild(); if(!$('#adsV2')) return;
   $$('#adWeeks .cv-btn').forEach(b => b.classList.toggle('active', +b.dataset.w === AD.weeks));
   const rows = adsGetFilteredRows().filter(matchGS);
-  const skus = rows.length === ROWS.length ? null : rows.map(r => r.sku);
+  const skus = skuParam(rows);
   const mx = V2.state.maxDate || todayISO();
   const lastFullSun = addDaysIso(sundayOf(mx), dowOf(mx) === 6 ? 0 : -7);
   const from = addDaysIso(lastFullSun, -7 * (AD.weeks - 1));

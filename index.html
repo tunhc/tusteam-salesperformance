@@ -727,6 +727,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let DATA = { asOfDate: null, daysElapsed: 0, daysInMonth: 30 };
 let ROWS = [];
 let PICS = [];
+// SKUs with lifecycle "Inactived" in the follow-up file: kept in the database,
+// left off every tab (loadMonth fills this, v2/v3 exclude their sales too).
+let HIDDEN_SKUS = new Set();
 
 function monthLabel(iso){
   const [y,m] = iso.split('-');
@@ -809,7 +812,9 @@ async function loadMonth(monthIso){
   const daysElapsed = +asOfDate.slice(8,10);
   const daysInMonth = daysInMonthOf(monthIso);
 
-  const rows = (skus||[]).map(sk=>{
+  const isInactive = sk => /^inactiv/i.test(String(sk.lifecycle || '').trim());
+  HIDDEN_SKUS = new Set((skus||[]).filter(isInactive).map(sk=>sk.sku));
+  const rows = (skus||[]).filter(sk=>!isInactive(sk)).map(sk=>{
     const t = targetBySku[sk.sku] || {};
     const dailyRows = (salesBySku[sk.sku] || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
     const daily = dailyRows.map(d=>({date:d.date, units:d.units, gmv:d.gmv, ads:d.ads, promo:d.promo, mkt:+(d.ads+d.promo).toFixed(2), adsGmv:d.ads_gmv||0, adsUnits:d.ads_units||0, clicks:d.total_clicks||0, impressions:d.total_impressions||0, glanceViews:d.glance_views||0}));
@@ -964,6 +969,46 @@ const gaugeMarkerPlugin = {
   }
 };
 Chart.register(gaugeMarkerPlugin);
+
+// ---------------- value labels on every bar / line point ----------------
+// Format follows the dataset's axis title: "%" → 1.2%, "$" → $1.2k, else 1.2k.
+// Stacked bars get the label inside (when the bar is tall enough), others above.
+const fmtCompact = n => { const a = Math.abs(n); return a >= 1e6 ? (n/1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M' : a >= 1e3 ? (n/1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : (+n.toFixed(a >= 100 ? 0 : 1)).toString(); };
+const valueLabelPlugin = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart){
+    if(chart.config.type === 'doughnut' || chart.config.type === 'pie') return;
+    const {ctx} = chart;
+    ctx.save();
+    ctx.font = '700 9px Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    chart.data.datasets.forEach((ds, di)=>{
+      const meta = chart.getDatasetMeta(di);
+      if(meta.hidden || !chart.isDatasetVisible(di)) return;
+      const scale = chart.scales[ds.yAxisID || 'y'] || {};
+      const title = String((scale.options && scale.options.title && scale.options.title.text) || ds.label || '');
+      const fmt = title.includes('%') ? v => v.toFixed(1) + '%' : title.includes('$') ? v => (v < 0 ? '-$' : '$') + fmtCompact(Math.abs(v)) : fmtCompact;
+      const isBar = meta.type === 'bar', stacked = isBar && !!ds.stack;
+      const color = typeof ds.borderColor === 'string' && !isBar ? ds.borderColor : (ds.backgroundColor === COLOR.grey ? '#5B6573' : ds.backgroundColor);
+      meta.data.forEach((el, i)=>{
+        const v = ds.data[i];
+        if(v === null || v === undefined || isNaN(v) || (isBar && !v)) return;
+        const {x, y} = el.getProps(['x', 'y'], true);
+        if(stacked){
+          const {base} = el.getProps(['base'], true);
+          if(Math.abs(base - y) < 12) return;
+          ctx.fillStyle = color === COLOR.orange ? '#fff' : '#1B2733'; ctx.textBaseline = 'middle';
+          ctx.fillText(fmt(v), x, (y + base) / 2);
+        } else {
+          ctx.fillStyle = color; ctx.textBaseline = 'bottom';
+          ctx.fillText(fmt(v), x, y - (isBar ? 2 : 5));
+        }
+      });
+    });
+    ctx.restore();
+  }
+};
+Chart.register(valueLabelPlugin);
 
 // ---------------- header ----------------
 document.getElementById('hdrAsOf').textContent = 'As of ' + DATA.asOfDate + ' (day ' + DATA.daysElapsed + '/' + DATA.daysInMonth + ' of month)';
@@ -1607,7 +1652,7 @@ function renderDailyChart(){
 
   charts.daily = new Chart(document.getElementById('chartDaily'), {
     data:{ labels, datasets },
-    options:{ responsive:true, maintainAspectRatio:false,
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:14}},
       plugins:{ legend:{position:'bottom', labels:{boxWidth:10,font:{size:10.5,family:'Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif'}}} },
       scales
     }
