@@ -761,10 +761,11 @@ function liveRenderDay(d0, lastHour, T){
   document.getElementById('lvCumT').textContent = 'GMV cộng dồn theo giờ';
   document.getElementById('lvCumH').textContent = 'Đường cam = ngày đang xem · nét đứt = hôm trước · chấm = cùng ngày tuần trước.';
   document.getElementById('lvLeg').innerHTML = `<span style="--c:${LIVE_C.gmv2}">Ngày ${h.dm(d0)}</span><span style="--c:${LIVE_C.y}">Hôm trước</span><span style="--c:${LIVE_C.w}">Tuần trước</span>`;
+  // no value labels on this chart (too busy): texttemplate:'' opts out of draw()'s valueLabels
   h.draw('lvCum', [
-    {type:'scatter', mode:'lines', x, y:liveCum(lw, 23), name:'Tuần trước', line:{color:LIVE_C.w, width:1.6, dash:'dot'}, hovertemplate:'Tuần trước %{x}h: %{y:$,.0f}<extra></extra>'},
-    {type:'scatter', mode:'lines', x, y:liveCum(yday, 23), name:'Hôm trước', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Hôm trước %{x}h: %{y:$,.0f}<extra></extra>'},
-    {type:'scatter', mode:'lines+markers', x, y:liveCum(today, upto), name:'Ngày đang xem', line:{color:LIVE_C.gmv2, width:3, shape:'spline'}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)', hovertemplate:'%{x}h: %{y:$,.0f}<extra></extra>'},
+    {type:'scatter', texttemplate:'', mode:'lines', x, y:liveCum(lw, 23), name:'Tuần trước', line:{color:LIVE_C.w, width:1.6, dash:'dot'}, hovertemplate:'Tuần trước %{x}h: %{y:$,.0f}<extra></extra>'},
+    {type:'scatter', texttemplate:'', mode:'lines', x, y:liveCum(yday, 23), name:'Hôm trước', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Hôm trước %{x}h: %{y:$,.0f}<extra></extra>'},
+    {type:'scatter', texttemplate:'', mode:'lines+markers', x, y:liveCum(today, upto), name:'Ngày đang xem', line:{color:LIVE_C.gmv2, width:3, shape:'spline'}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)', hovertemplate:'%{x}h: %{y:$,.0f}<extra></extra>'},
   ], liveLay({xaxis:liveAx({range:[-0.3, 23.3], dtick:3, ticksuffix:'h'}), yaxis:liveAx({tickprefix:'$', tickformat:'~s', rangemode:'tozero'}), hovermode:'x unified'}));
   document.getElementById('lvTopGH').textContent = `Ngày ${h.dm(d0)}, tới ${hh}h. Rê chuột để xem SKU bán chạy nhất.`;
   liveTops(cur);
@@ -791,8 +792,8 @@ function liveRenderMtd(d0, lastHour, T){
   const x = Array.from({length:dim}, (_, i) => i + 1);
   const tr = [];
   const xEnd = Math.min(dim, Math.max(upto + 3, 7)), xt = x.slice(0, xEnd);
-  if(T.ok) tr.push({type:'scatter', mode:'lines', x:xt, y:xt.map(d => T.gmv * d / dim), name:'Target', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Target tới ngày %{x}: %{y:$,.0f}<extra></extra>'});
-  tr.push({type:'scatter', mode:'lines+markers', x:xt, y:act.slice(0, xEnd), name:'Thực tế', line:{color:LIVE_C.gmv2, width:3}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)',
+  if(T.ok) tr.push({type:'scatter', texttemplate:'', mode:'lines', x:xt, y:xt.map(d => T.gmv * d / dim), name:'Target', line:{color:LIVE_C.y, width:1.8, dash:'dash'}, hovertemplate:'Target tới ngày %{x}: %{y:$,.0f}<extra></extra>'});
+  tr.push({type:'scatter', texttemplate:'', mode:'lines+markers', x:xt, y:act.slice(0, xEnd), name:'Thực tế', line:{color:LIVE_C.gmv2, width:3}, marker:{size:6, color:LIVE_C.gmv2, line:{color:'#0B1220', width:2}}, fill:'tozeroy', fillcolor:'rgba(217,89,38,.12)',
     customdata:by.slice(0, xEnd).map((v, i) => i < upto ? v : null), hovertemplate:'Ngày %{x}: %{y:$,.0f} (trong ngày %{customdata:$,.0f})<extra></extra>'});
   document.getElementById('lvCumT').textContent = 'GMV cộng dồn theo ngày (MTD)';
   document.getElementById('lvCumH').textContent = T.ok ? `Đường cam = thực tế · nét đứt = target chia đều theo ngày (cả tháng ${liveMoney(T.gmv)}). Cam nằm trên nét đứt là đang vượt target.` : 'Chưa có target cho tháng này (chọn đúng tháng ở bộ lọc Tháng bên dưới để so target).';
