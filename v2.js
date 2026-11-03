@@ -485,7 +485,7 @@ async function askAI(scope, key, context, outEl, force){
 // SALES PERFORMANCE tab
 // =====================================================================
 let SPdirty = true, SPbuilt = false;
-const SP = { from:null, to:null, compare:'yoy', pic:'', mpl:'', spl:'', ch:'', exSpt:false, grain:'auto', abs:'gmv', rates:['mktGmv','tacos','cr'],
+const SP = { from:null, to:null, compare:'yoy', pic:'', mpl:'', spl:'', ch:'', lc:'', q:'', exSpt:false, grain:'auto', abs:'gmv', rates:['mktGmv','tacos','cr'],
   relLevel:'mpl', preset:'promoAds', x:'promo', y:'ads', s:'gmv', h:12, invSel:null, sortKey:'gmv', sortDir:-1, cur:new Map(), prev:new Map(), key:'' };
 function spBuild(){
   const v = $('#view-sp');
@@ -501,6 +501,8 @@ function spBuild(){
     <div class="fld"><label for="spMpl">Main PL</label><select id="spMpl"><option value="">All</option></select></div>
     <div class="fld"><label for="spSpl">Old Product Line</label><select id="spSpl"><option value="">All</option></select></div>
     <div class="fld"><label for="spCh">Channel</label><select id="spCh"><option value="">All</option></select></div>
+    <div class="fld"><label for="spLc">Lifecycle</label><select id="spLc"><option value="">All</option></select></div>
+    <div class="fld"><label for="spQ">Tìm SKU / tên / ASIN</label><input type="search" id="spQ" placeholder="VD: DAT7, dumbbell, B0..." style="min-width:190px"></div>
     <div class="fld"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;padding:7px 0"><input type="checkbox" id="spExSpt"> Exclude SPT</label></div>
     <button class="btn" id="spReset" type="button">Reset</button>
     <span class="result-count" id="spCount"></span>
@@ -547,7 +549,7 @@ function spBuild(){
   $('#spFrom').value = SP.from; $('#spTo').value = SP.to;
   const fill = (id, vals) => { const el = $(id); vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); }); };
   const uq = k => [...new Set(ROWS.map(r => r[k]).filter(Boolean))].sort();
-  fill('#spPic', uq('pic')); fill('#spMpl', uq('mainPL')); fill('#spSpl', uq('subPL')); fill('#spCh', uq('channel'));
+  fill('#spPic', uq('pic')); fill('#spMpl', uq('mainPL')); fill('#spSpl', uq('subPL')); fill('#spCh', uq('channel')); fill('#spLc', uq('lifecycle'));
   ['#spCx','#spCy','#spCs'].forEach(id => { const el = $(id); ['gmv','units','asp','mkt','ads','promo','ads_units','glance_views','cm3','mktGmv','tacos','acos','promoGmv','cr','cm3Pct','cm3Unit','mktUnit','gmvYoy'].forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = M[k].l; el.appendChild(o); }); });
   const onDates = () => { SP.from = $('#spFrom').value || SP.from; SP.to = $('#spTo').value || SP.to; if(SP.from > SP.to){ [SP.from, SP.to] = [SP.to, SP.from]; $('#spFrom').value = SP.from; $('#spTo').value = SP.to; } renderSP(); };
   $('#spFrom').onchange = onDates; $('#spTo').onchange = onDates;
@@ -561,9 +563,10 @@ function spBuild(){
     else if(b.dataset.p === '12m') f = addDaysIso(addMonths(mx2, -12), 1);
     SP.from = f; SP.to = t; $('#spFrom').value = f; $('#spTo').value = t; renderSP(); };
   $('#spCompare').onchange = () => { SP.compare = $('#spCompare').value; renderSP(); };
-  [['#spPic','pic'],['#spMpl','mpl'],['#spSpl','spl'],['#spCh','ch']].forEach(([id, k]) => $(id).onchange = () => { SP[k] = $(id).value; SP.invSel = null; renderSP(false); });
+  [['#spPic','pic'],['#spMpl','mpl'],['#spSpl','spl'],['#spCh','ch'],['#spLc','lc']].forEach(([id, k]) => $(id).onchange = () => { SP[k] = $(id).value; SP.invSel = null; renderSP(false); });
   $('#spExSpt').onchange = () => { SP.exSpt = $('#spExSpt').checked; SP.invSel = null; renderSP(false); };
-  $('#spReset').onclick = () => { SP.pic = SP.mpl = SP.spl = SP.ch = ''; SP.exSpt = false; $('#spExSpt').checked = false; ['#spPic','#spMpl','#spSpl','#spCh'].forEach(id => $(id).value = ''); SP.invSel = null; renderSP(false); };
+  let spQt = null; $('#spQ').oninput = () => { clearTimeout(spQt); spQt = setTimeout(() => { SP.q = $('#spQ').value.trim().toLowerCase(); SP.invSel = null; renderSP(false); }, 250); };
+  $('#spReset').onclick = () => { SP.pic = SP.mpl = SP.spl = SP.ch = SP.lc = SP.q = ''; SP.exSpt = false; $('#spExSpt').checked = false; ['#spPic','#spMpl','#spSpl','#spCh','#spLc','#spQ'].forEach(id => $(id).value = ''); SP.invSel = null; renderSP(false); };
   $('#spGrain').onclick = e => { const b = e.target.closest('[data-g]'); if(!b) return; SP.grain = b.dataset.g; spTrend(); };
   $('#spLevel').onclick = e => { const b = e.target.closest('[data-l]'); if(!b) return; SP.relLevel = b.dataset.l; spRel(); };
   $('#spH').onclick = e => { const b = e.target.closest('[data-h]'); if(!b) return; SP.h = +b.dataset.h; spInv(); };
@@ -576,7 +579,7 @@ function spComparePeriod(){
   const n = daysBetweenInclusive(SP.from, SP.to); return [addDaysIso(SP.from, -n), addDaysIso(SP.from, -1)];
 }
 function spScope(ignore){
-  return ROWS.filter(r => (!SP.pic || r.pic === SP.pic) && (!SP.mpl || r.mainPL === SP.mpl) && (ignore === 'spl' || !SP.spl || r.subPL === SP.spl) && (!SP.ch || r.channel === SP.ch) && (!SP.exSpt || !(r.channel || '').toUpperCase().includes('SPT')) && matchGS(r));
+  return ROWS.filter(r => (!SP.pic || r.pic === SP.pic) && (!SP.mpl || r.mainPL === SP.mpl) && (ignore === 'spl' || !SP.spl || r.subPL === SP.spl) && (!SP.ch || r.channel === SP.ch) && (!SP.lc || (r.lifecycle || '') === SP.lc) && (!SP.q || [r.sku, r.productName, r.asin, r.mainPL, r.subPL, r.pic].join(' ').toLowerCase().includes(SP.q)) && (!SP.exSpt || !(r.channel || '').toUpperCase().includes('SPT')) && matchGS(r));
 }
 function aggFor(rows, map){ const a = emptyAgg(); rows.forEach(r => { const x = map.get(r.sku); if(x) addInto(a, x); }); return derive(a); }
 async function renderSP(refetch = true){
@@ -948,6 +951,9 @@ function wrBuild(){
   </div>
   <div class="v2-note" id="wrRule" style="margin:-4px 2px 10px"></div>
   <div class="lockbar" id="wrLock"></div>
+  <div class="card"><h3 style="margin:0 0 3px" id="wrTargetTitle">Target theo tuần</h3>
+    <div class="hint" id="wrTargetHint"></div>
+    <div class="tablewrap" style="max-height:340px"><table id="wrTarget"></table></div></div>
   <div class="review-layout">
     <div class="card" style="margin:0">
       <h3 style="margin:0 0 3px">Snapshot tuần theo Main PL</h3>
@@ -974,7 +980,7 @@ function wrBuild(){
   $('#wrRule').innerHTML = `Quy tắc: tuần bán hàng CN → T7, <b>hạn nhập diễn giải 17:00 thứ Ba tuần kế tiếp</b>. Trước 17:00 thứ Ba, tab mặc định mở tuần vừa kết thúc; sau đó chuyển sang tuần đang chạy (PIC được nhập sớm). Đổi tuần ở ô “Tuần review” khi cần nhập lại tuần khác.`;
   [...new Set([...PIC_LIST, ...ROWS.map(r => r.pic).filter(p => p && p !== 'Unassigned')])].sort().forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; $('#wrPic').appendChild(o); });
   sel.onchange = () => { WR.ws = sel.value; WR.pl = null; WR.open.clear(); renderWR(); };
-  $('#wrPic').onchange = () => { WR.pl = null; wrTable(); wrPlSelect(); wrEditor(); wrPanels(); };
+  $('#wrPic').onchange = () => { WR.pl = null; wrTable(); wrPlSelect(); wrEditor(); wrPanels(); wrTargetsDraw(); };
   $('#wrPlSel').onchange = () => { WR.pl = $('#wrPlSel').value || null; wrTable(); wrEditor(); const ed = $('#wrEditor'); if(ed) ed.scrollIntoView({behavior:'smooth', block:'nearest'}); };
   $('#wrFreeze').onclick = async () => { try { const {data, error} = await sb.rpc('freeze_review_week', {p_week_start: WR.ws}); if(error) throw error; toast(data ? `Đã chụp snapshot ${data} SKU` : 'Tuần này đã khóa hoặc chưa kết thúc'); renderWR(); } catch(e){ toast('Không chụp được: ' + (e.message || e)); } };
   WRbuilt = true;
@@ -984,14 +990,22 @@ const fdow = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + Strin
 function wrWeekLabel(w, act){
   const now = new Date(), due = dueOf(w), ended = now >= new Date(addDaysIso(w, 7) + 'T00:00:00');
   const st = w === act ? (ended ? '● đang nhập' : '● đang chạy, nhập sớm') : !ended ? 'chưa kết thúc · nhập sớm' : now < due ? 'đang nhập' : 'đã qua hạn';
-  return `W${String(weekNo(w)).padStart(2, '0')} · ${dm(w)} → ${dm(addDaysIso(w, 6))} · hạn ${fdow(due)} · ${st}`;
+  return `W${String(weekNo(w)).padStart(2, '0')} · ${dm(w)} → ${dm(weekEnd(w))} · hạn ${fdow(due)} · ${st}`;
 }
 function timingOf(iso, ws){ const t = new Date(iso); return t < new Date(addDaysIso(ws, 7) + 'T00:00:00') ? ['green', 'Nhập sớm'] : t <= dueOf(ws) ? ['green', 'Đúng hạn'] : ['red', 'Trễ']; }
-function weekNo(sun){ const sat = addDaysIso(sun, 6); const d = new Date(sat + 'T00:00:00'); const j1 = new Date(d.getFullYear(), 0, 1); return Math.ceil(((d - j1) / 864e5 + j1.getDay() + 1) / 7); }
+// Week number as the target files count it: W1 = the first full Sunday → Saturday week of the
+// year (first Sunday on or after 1 Jan), so 01/11/2026 → 07/11/2026 is W44.
+function weekNo(sun){
+  const first = y => { const j = new Date(y, 0, 1); return new Date(y, 0, 1 + (7 - j.getDay()) % 7); };
+  const d = new Date(sun + 'T00:00:00'); let f = first(d.getFullYear()); if(d < f) f = first(d.getFullYear() - 1);
+  return Math.floor(Math.round((d - f) / 864e5) / 7) + 1;
+}
+// Last day of a review week: Saturday, or the month end when the weekly targets cut the week there (W48 of Nov = 29 → 30/11).
+function weekEnd(ws){ return (WR.cut && WR.cut[ws]) || addDaysIso(ws, 6); }
 function dueOf(ws){ return new Date(addDaysIso(ws, 7 + WR.dueDow) + 'T' + WR.dueTime + ':00'); }
 function snapOf(ws){ return new Date(addDaysIso(ws, 8) + 'T06:00:00'); }
 async function loadWeek(ws){
-  const we = addDaysIso(ws, 6); const today = todayISO();
+  const we = weekEnd(ws); const today = todayISO();
   let frozen = null;
   try { const {data} = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = data && data[0] && data[0].frozen_at ? data[0] : null; } catch(e){}
   // auto-freeze once Monday after the week has data (weekend numbers have settled)
@@ -1008,11 +1022,7 @@ async function loadWeek(ws){
   }
   const to = we < (V2.state.maxDate || today) ? we : (V2.state.maxDate || today);
   const [cur, prev] = await Promise.all([rpcAll('sales_by_sku', {p_from: ws, p_to: to}), rpcAll('sales_by_sku', {p_from: addDaysIso(ws, -7), p_to: addDaysIso(ws, -1)})]);
-  const months = [...new Set([ws.slice(0, 7), we.slice(0, 7)])].map(m => m + '-01');
-  let tg = [];
-  try { tg = await selectAll('targets_monthly', q => q.in('month', months)); } catch(e){}
-  const tBy = new Map();
-  tg.forEach(t => { let f = 0; for(let i = 0; i < 7; i++){ const d = addDaysIso(ws, i); if(d.slice(0, 7) === t.month.slice(0, 7)) f += 1 / daysIn(d); } const o = tBy.get(t.sku) || {units:0, gmv:0, ads:0, promo:0}; o.units += (+t.target_units||0) * f; o.gmv += (+t.target_gmv||0) * f; o.ads += (+t.ads_target||0) * f; o.promo += (+t.promo_target||0) * f; tBy.set(t.sku, o); });
+  const tBy = await weekTargets(ws, we);
   const pBy = new Map(prev.map(r => [r.sku, r]));
   const keys = new Set([...cur.map(r => r.sku), ...prev.map(r => r.sku), ...tBy.keys()]);
   const cBy = new Map(cur.map(r => [r.sku, r]));
@@ -1021,8 +1031,32 @@ async function loadWeek(ws){
       p:{units:+p.units||0, gmv:+p.gmv||0, ads:+p.ads||0, promo:+p.promo||0, ads_gmv:+p.ads_gmv||0, glance_views:+p.glance_views||0, clicks:+p.clicks||0}, t:tBy.get(sku) || {units:0, gmv:0, ads:0, promo:0}, stock: k ? stockOf(k) : 0}); });
   return {frozen:null, bySku, live:true, liveTo:to};
 }
+// Targets of the review week ws..we per SKU: the weekly split of the target file (targets_weekly)
+// when this week has one, else the monthly target prorated per day.
+async function weekTargets(ws, we){
+  const tBy = new Map(); const put = (sku, o) => tBy.set(sku, o);
+  let wk = [];
+  try { wk = await selectAll('targets_weekly', q => q.eq('week_start', ws)); } catch(e){ wk = []; }
+  if(wk.length){ wk.forEach(t => { const o = tBy.get(t.sku) || {units:0, gmv:0, ads:0, promo:0}; o.units += +t.target_units||0; o.gmv += +t.target_gmv||0; o.ads += +t.ads_target||0; o.promo += +t.promo_target||0; put(t.sku, o); }); return tBy; }
+  const months = [...new Set([ws.slice(0, 7), we.slice(0, 7)])].map(m => m + '-01');
+  let tg = [];
+  try { tg = await selectAll('targets_monthly', q => q.in('month', months)); } catch(e){}
+  const nd = Math.round((new Date(we + 'T00:00:00') - new Date(ws + 'T00:00:00')) / 864e5) + 1;
+  tg.forEach(t => { let f = 0; for(let i = 0; i < nd; i++){ const d = addDaysIso(ws, i); if(d.slice(0, 7) === t.month.slice(0, 7)) f += 1 / daysIn(d); } const o = tBy.get(t.sku) || {units:0, gmv:0, ads:0, promo:0}; o.units += (+t.target_units||0) * f; o.gmv += (+t.target_gmv||0) * f; o.ads += (+t.ads_target||0) * f; o.promo += (+t.promo_target||0) * f; tBy.set(t.sku, o); });
+  return tBy;
+}
+// Weeks whose weekly targets end before Saturday (cut at the month end): {week_start: period_end}
+async function loadCuts(){
+  WR.cut = WR.cut || {};
+  try {
+    const rows = await selectAll('targets_weekly', q => q.gte('week_start', addDaysIso(WR.weeks[WR.weeks.length - 1], -7)).lte('week_start', addDaysIso(WR.weeks[0], 35)));
+    const end = {}; rows.forEach(r => { if(!end[r.week_start] || r.period_end > end[r.week_start]) end[r.week_start] = r.period_end; });
+    Object.entries(end).forEach(([w, e]) => { if(e < addDaysIso(w, 6)) WR.cut[w] = e; });
+  } catch(e){}
+  const act = activeWeek(); [...$('#wrWeek').options].forEach(o => o.textContent = wrWeekLabel(o.value, act));
+}
 async function renderWR(){
-  if(!WRbuilt) wrBuild();
+  if(!WRbuilt){ wrBuild(); await loadCuts(); }
   $('#wrStatus').textContent = 'Đang tải…';
   try { WR.data = await loadWeek(WR.ws); }
   catch(e){ $('#wrStatus').textContent = ''; $('#wrTable').innerHTML = missingSchema(e) ? '<tr><td>' + schemaHint + '</td></tr>' : '<tr><td>Không tải được: ' + esc(e.message || e) + '</td></tr>'; return; }
@@ -1034,9 +1068,67 @@ async function renderWR(){
   $('#wrStatus').innerHTML = WR.data.frozen ? `<span class="badge green">Đã khóa ${new Date(WR.data.frozen.frozen_at).toLocaleString('vi-VN')}</span>` : `<span class="badge amber">Chưa khóa · số liệu live tới ${dm(WR.data.liveTo)}</span>`;
   $('#wrFreeze').disabled = !!WR.data.frozen || !(V2.state.maxDate > addDaysIso(WR.ws, 7));
   wrLock(); wrTable(); wrPlSelect(); wrEditor(); wrHub(); wrPanels(); WRdirty = false;
+  wrTargets().catch(e => console.warn(e));
+}
+// Weekly targets of the month of the selected week: one row per calendar week (Sunday → Saturday,
+// cut at the month ends), targets from targets_weekly or the monthly target prorated per day,
+// actuals from sales_daily for the same days. Follows the PIC filter and the global search.
+async function wrTargets(){
+  const m0 = WR.ws.slice(0, 8) + '01';
+  if(!WR.tw || WR.tw.month !== m0){
+    const mEnd = addDaysIso(addMonths(m0, 1), -1);
+    const weeks = []; for(let w = sundayOf(m0); w <= mEnd; w = addDaysIso(w, 7)) weeks.push({ws:w, ps:w < m0 ? m0 : w, pe:addDaysIso(w, 6) > mEnd ? mEnd : addDaysIso(w, 6)});
+    let wk = [], mt = [];
+    try { wk = await selectAll('targets_weekly', q => q.gte('week_start', weeks[0].ws).lte('week_start', weeks[weeks.length - 1].ws)); } catch(e){ wk = []; }
+    try { mt = await selectAll('targets_monthly', q => q.eq('month', m0)); } catch(e){ mt = []; }
+    const dim = daysIn(m0), mx = V2.state.maxDate || todayISO();
+    for(const w of weeks){
+      const rows = wk.filter(t => t.week_start === w.ws && t.period_start >= w.ps && t.period_start <= w.pe);
+      const days = Math.round((new Date(w.pe + 'T00:00:00') - new Date(w.ps + 'T00:00:00')) / 864e5) + 1;
+      w.weekly = rows.length > 0;
+      w.t = new Map((rows.length ? rows.map(t => [t.sku, {gmv:+t.target_gmv||0, ads:+t.ads_target||0, promo:+t.promo_target||0, units:+t.target_units||0}])
+        : mt.map(t => [t.sku, {gmv:(+t.target_gmv||0) * days / dim, ads:(+t.ads_target||0) * days / dim, promo:(+t.promo_target||0) * days / dim, units:(+t.target_units||0) * days / dim}])));
+      w.to = w.pe < mx ? w.pe : mx;
+      w.started = w.ps <= mx;
+      w.a = w.started ? new Map((await rpcAll('sales_by_sku', {p_from:w.ps, p_to:w.to})).map(r => [r.sku, r])) : new Map();
+    }
+    WR.tw = {month:m0, weeks, weeklyFile: weeks.some(w => w.weekly)};
+  }
+  wrTargetsDraw();
+}
+function wrTargetsDraw(){
+  if(!WR.tw || !$('#wrTarget')) return;
+  const pic = $('#wrPic').value;
+  const ok = sku => { const k = skuInfo(sku); return k ? (!pic || k.pic === pic) && matchGS(k) : !pic; };
+  const tot = {t:{gmv:0, ads:0, promo:0, units:0}, a:{gmv:0, ads:0, promo:0, units:0}};
+  const pctT = (a, t) => { const v = div(a, t); return isNum(v) ? `<span style="color:${v >= .95 ? 'var(--green)' : v >= .8 ? 'var(--amber)' : 'var(--red)'};font-weight:700">${fP(v, 0)}</span>` : '—'; };
+  const pctB = (a, t) => { const v = div(a, t); return isNum(v) ? `<span style="color:${v <= 1 ? 'var(--green)' : v <= 1.15 ? 'var(--amber)' : 'var(--red)'};font-weight:700">${fP(v, 0)}</span>` : '—'; };
+  const line = (attrs, lbl, dates, t, a, started) => `<tr ${attrs}><td><b>${lbl}</b></td><td>${dates}</td>
+    <td class="num g1">${f$(t.gmv)}</td><td class="num">${started ? f$(a.gmv) : '—'}</td><td class="num">${started ? pctT(a.gmv, t.gmv) : ''}</td>
+    <td class="num g1">${f$(t.ads)}</td><td class="num">${started ? f$(a.ads) : '—'}</td><td class="num">${started ? pctB(a.ads, t.ads) : ''}</td>
+    <td class="num g1">${f$(t.promo)}</td><td class="num">${started ? f$(a.promo) : '—'}</td><td class="num">${started ? pctB(a.promo, t.promo) : ''}</td>
+    <td class="num g1">${fN(t.units)}</td><td class="num">${started ? fN(a.units) : '—'}</td><td class="num">${started ? pctT(a.units, t.units) : ''}</td></tr>`;
+  const body = WR.tw.weeks.map(w => {
+    const t = {gmv:0, ads:0, promo:0, units:0}, a = {gmv:0, ads:0, promo:0, units:0};
+    w.t.forEach((v, sku) => { if(ok(sku)) ['gmv','ads','promo','units'].forEach(k => t[k] += v[k]); });
+    w.a.forEach((r, sku) => { if(ok(sku)){ a.gmv += +r.gmv||0; a.ads += +r.ads||0; a.promo += +r.promo||0; a.units += +r.units||0; } });
+    ['gmv','ads','promo','units'].forEach(k => { tot.t[k] += t[k]; tot.a[k] += a[k]; });
+    const partial = w.started && w.to < w.pe ? ` <span class="v2-note">(số tới ${dm(w.to)})</span>` : '';
+    return line(`data-ws="${w.ws}" class="clickable${w.ws === WR.ws ? ' sel' : ''}"`, 'W' + String(weekNo(w.ws)).padStart(2, '0'),
+      `${dm(w.ps)} → ${dm(w.pe)}${partial}${w.weekly ? '' : ' <span class="v2-note">· chia theo ngày</span>'}`, t, a, w.started);
+  }).join('');
+  const mLbl = WR.tw.month.slice(5, 7) + '/' + WR.tw.month.slice(0, 4);
+  $('#wrTargetTitle').textContent = `Target theo tuần · tháng ${mLbl}${pic ? ' · ' + pic : ''}`;
+  $('#wrTargetHint').innerHTML = (WR.tw.weeklyFile ? 'Target tuần lấy từ phân bổ theo tuần trong file target tháng (GMV phân bổ theo units tuần); ' : 'Tháng này chưa có target tuần: target tháng chia theo số ngày; ')
+    + 'tuần cuối cắt ở ngày cuối tháng. Thực tế = số bán trong đúng các ngày đó. Ads / Promo: dưới 100% budget là xanh. Bấm một dòng để mở tuần đó bên dưới.';
+  $('#wrTarget').innerHTML = `<thead><tr><th>Tuần</th><th>Ngày</th><th class="num g1">Target GMV</th><th class="num">GMV</th><th class="num">%</th><th class="num g1">Ads budget</th><th class="num">Ads</th><th class="num">%</th><th class="num g1">Promo budget</th><th class="num">Promo</th><th class="num">%</th><th class="num g1">Target units</th><th class="num">Units</th><th class="num">%</th></tr></thead><tbody>`
+    + body + line('class="total" style="border-top:2px solid var(--navy)"', 'Tổng tháng', '', tot.t, tot.a, true) + '</tbody>';
+  $$('#wrTarget tr[data-ws]').forEach(tr => tr.onclick = () => { const ws = tr.dataset.ws; const sel = $('#wrWeek');
+    if(![...sel.options].some(o => o.value === ws)){ toast('Tuần này chưa tới'); return; }
+    sel.value = ws; WR.ws = ws; WR.pl = null; WR.open.clear(); renderWR(); });
 }
 function wrLock(){
-  const ws = WR.ws, we = addDaysIso(ws, 6), snap = snapOf(ws), due = dueOf(ws), now = new Date();
+  const ws = WR.ws, we = weekEnd(ws), snap = snapOf(ws), due = dueOf(ws), now = new Date();
   const complete = (V2.state.maxDate || '') > addDaysIso(ws, 7);
   const phase = !complete ? 0 : !(WR.data && WR.data.frozen) ? 1 : now < due ? 2 : 3;
   const fdt = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -1061,15 +1153,27 @@ function reviewOf(ws, pl){ return WR.reviews.find(r => r.week_start === ws && r.
 function wrTable(){
   const stats = wrPlStats(); WR.stats = stats;
   if(!WR.pl || !stats.find(s => s.pl === WR.pl)) WR.pl = (stats.find(s => !reviewOf(WR.ws, s.pl) && autoSt(s.ach)[0] !== 'green') || stats[0] || {}).pl || null;
-  const row = (e, isSku) => { const c = e.c, p = e.p; const cover = (c.units || 0) ? e.stock / c.units : (e.stock > 0 ? Infinity : NaN);
-    return `<td class="num">${f$(c.gmv)}</td><td class="num">${deltaHtml(c.gmv, p.gmv)}</td><td class="num">${isNum(isSku ? div(c.gmv, e.t.gmv) : e.ach) ? fP(isSku ? div(c.gmv, e.t.gmv) : e.ach, 0) : '—'}</td><td class="num">${fN(c.units)}</td><td class="num">${f$2(div(c.gmv, c.units))}</td>
-      <td class="num">${f$(c.ads)}</td><td class="num">${fP(div(c.ads, c.ads_gmv), 0)}</td><td class="num">${fP(div(c.ads, c.gmv))}</td><td class="num">${f$(c.promo)}</td><td class="num">${fP(div(c.ads + c.promo, c.gmv))}</td>
-      <td class="num">${fN(c.glance_views)} ${deltaHtml(c.glance_views, p.glance_views)}</td><td class="num">${fP(div(c.units, c.glance_views), 1)}</td><td class="num">${fN(e.stock)}</td><td class="num">${isNum(cover) ? cover.toFixed(1) + 'w' : cover === Infinity ? '∞' : '—'}</td>`; };
-  $('#wrTable').innerHTML = `<thead><tr><th>Group / SKU</th><th>Diễn giải</th><th>Tự động</th><th class="num">GMV</th><th class="num">WoW</th><th class="num">% target tuần</th><th class="num">Units</th><th class="num">ASP</th><th class="num">Ads</th><th class="num">ACOS</th><th class="num">TACOS</th><th class="num">Promo</th><th class="num">%MKT/GMV</th><th class="num">Glance views</th><th class="num">CR</th><th class="num">Tồn</th><th class="num">Cover</th><th>Khuyến nghị</th><th>PIC</th></tr></thead><tbody>` +
+  // columns grouped by what they are measured against: GMV vs target, Ads vs ads budget, Promo vs promo budget
+  const pctT = (a, t) => { const v = div(a, t); return isNum(v) ? `<span style="color:${v >= .95 ? 'var(--green)' : v >= .8 ? 'var(--amber)' : 'var(--red)'};font-weight:700">${fP(v, 0)}</span>` : '—'; };
+  const pctB = (a, t) => { const v = div(a, t); return isNum(v) ? `<span style="color:${v <= 1 ? 'var(--green)' : v <= 1.15 ? 'var(--amber)' : 'var(--red)'};font-weight:700">${fP(v, 0)}</span>` : '—'; };
+  const row = (e) => { const c = e.c, p = e.p, t = e.t || {}; const cover = (c.units || 0) ? e.stock / c.units : (e.stock > 0 ? Infinity : NaN);
+    return `<td class="num g1">${t.gmv ? f$(t.gmv) : '—'}</td><td class="num">${f$(c.gmv)}</td><td class="num">${pctT(c.gmv, t.gmv)}</td><td class="num">${deltaHtml(c.gmv, p.gmv)}</td><td class="num">${fN(c.units)}${t.units ? `<span class="v2-note"> / ${fN(t.units)}</span>` : ''}</td><td class="num">${f$2(div(c.gmv, c.units))}</td>
+      <td class="num g1">${t.ads ? f$(t.ads) : '—'}</td><td class="num">${f$(c.ads)}</td><td class="num">${pctB(c.ads, t.ads)}</td><td class="num">${fP(div(c.ads, c.ads_gmv), 0)}</td><td class="num">${fP(div(c.ads, c.gmv))}</td>
+      <td class="num g1">${t.promo ? f$(t.promo) : '—'}</td><td class="num">${f$(c.promo)}</td><td class="num">${pctB(c.promo, t.promo)}</td>
+      <td class="num g1">${fP(div(c.ads + c.promo, c.gmv))}${t.gmv ? `<span class="v2-note"> / ${fP(div((t.ads || 0) + (t.promo || 0), t.gmv))}</span>` : ''}</td>
+      <td class="num g1">${fN(c.glance_views)} ${deltaHtml(c.glance_views, p.glance_views)}</td><td class="num">${fP(div(c.units, c.glance_views), 1)}</td><td class="num">${fN(e.stock)}</td><td class="num">${isNum(cover) ? cover.toFixed(1) + 'w' : cover === Infinity ? '∞' : '—'}</td>`; };
+  const G = (label, n, tip) => `<th colspan="${n}" class="grp" title="${tip}">${label}</th>`;
+  $('#wrTable').innerHTML = `<thead><tr class="grp-row"><th colspan="3"></th>${G('GMV · so với target tuần', 6, 'Target tuần = phân bổ theo tuần trong file target (hoặc target tháng chia theo ngày nếu tháng đó chưa có)')}${G('Ads · so với budget tuần', 5, '')}${G('Promo · so với budget tuần', 3, '')}${G('MKT', 1, '')}${G('Traffic & tồn kho', 4, '')}<th colspan="2"></th></tr>
+    <tr><th>Group / SKU</th><th>Diễn giải</th><th>Tự động</th>
+      <th class="num g1">Target</th><th class="num">GMV</th><th class="num">% target</th><th class="num">WoW</th><th class="num" title="Units thực tế / target units tuần">Units / target</th><th class="num">ASP</th>
+      <th class="num g1">Budget</th><th class="num">Ads</th><th class="num">% budget</th><th class="num">ACOS</th><th class="num">TACOS</th>
+      <th class="num g1">Budget</th><th class="num">Promo</th><th class="num">% budget</th>
+      <th class="num g1" title="(Ads + Promo) / GMV thực tế · sau dấu / là mức của target">%MKT/GMV</th>
+      <th class="num g1">Glance views</th><th class="num">CR</th><th class="num">Tồn</th><th class="num">Cover</th><th>Khuyến nghị</th><th>PIC</th></tr></thead><tbody>` +
     stats.map(e => { const rv = reviewOf(WR.ws, e.pl); const st = autoSt(e.ach); const open = WR.open.has(e.pl);
       const note = rv ? `<span class="badge ${rv.is_late ? 'amber' : 'green'}">${rv.is_late ? 'Late' : 'Đã nhập'}</span>` : (st[0] === 'green' ? '<span class="badge gray">Không bắt buộc</span>' : '<span class="badge red">Thiếu</span>');
-      const head = `<tr class="clickable${e.pl === WR.pl ? ' sel' : ''}" data-pl="${esc(e.pl)}"><td style="white-space:normal;min-width:170px"><span class="wr-tog" data-pl="${esc(e.pl)}" style="cursor:pointer;display:inline-block;width:14px">${open ? '▾' : '▸'}</span><b>${esc(e.pl)}</b> <span class="v2-note">${e.skus.length} SKU</span></td><td>${note}</td><td><span class="badge ${st[0]}">${st[1]}</span></td>${row(e, false)}<td>${e.recs.slice(0, 3).map(r => recChip(r)).join('')}${e.recs.length > 3 ? `<span class="v2-note">+${e.recs.length - 3}</span>` : ''}</td><td>${esc(e.pic)}</td></tr>`;
-      const subs = open ? e.skus.sort((a, b) => b.c.gmv - a.c.gmv).map(s => `<tr class="sub"><td style="white-space:normal">${s.k.asin ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(s.k.asin)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.sku)}</b></a>` : `<b>${esc(s.sku)}</b>`} <span class="v2-note">${esc((s.k.productName || '').slice(0, 42))}</span></td><td></td><td></td>${row({c:s.c, p:s.p, t:s.t, stock:s.stock}, true)}<td>${s.recs.map(r => recChip(r)).join('') || '<span class="v2-note">—</span>'}</td><td></td></tr>`).join('') : '';
+      const head = `<tr class="clickable${e.pl === WR.pl ? ' sel' : ''}" data-pl="${esc(e.pl)}"><td style="white-space:normal;min-width:170px"><span class="wr-tog" data-pl="${esc(e.pl)}" style="cursor:pointer;display:inline-block;width:14px">${open ? '▾' : '▸'}</span><b>${esc(e.pl)}</b> <span class="v2-note">${e.skus.length} SKU</span></td><td>${note}</td><td><span class="badge ${st[0]}">${st[1]}</span></td>${row(e)}<td>${e.recs.slice(0, 3).map(r => recChip(r)).join('')}${e.recs.length > 3 ? `<span class="v2-note">+${e.recs.length - 3}</span>` : ''}</td><td>${esc(e.pic)}</td></tr>`;
+      const subs = open ? e.skus.sort((a, b) => b.c.gmv - a.c.gmv).map(s => `<tr class="sub"><td style="white-space:normal">${s.k.asin ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(s.k.asin)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.sku)}</b></a>` : `<b>${esc(s.sku)}</b>`} <span class="v2-note">${esc((s.k.productName || '').slice(0, 42))}</span></td><td></td><td></td>${row({c:s.c, p:s.p, t:s.t, stock:s.stock})}<td>${s.recs.map(r => recChip(r)).join('') || '<span class="v2-note">—</span>'}</td><td></td></tr>`).join('') : '';
       return head + subs; }).join('') + '</tbody>';
   $$('#wrTable .wr-tog').forEach(t => t.onclick = ev => { ev.stopPropagation(); const pl = t.dataset.pl; WR.open.has(pl) ? WR.open.delete(pl) : WR.open.add(pl); wrTable(); });
   $$('#wrTable tr.clickable').forEach(tr => tr.onclick = () => { WR.pl = tr.dataset.pl; wrTable(); wrEditor(); });
@@ -1113,7 +1217,7 @@ function wrEditor(){
       V2.state.notes = WR.reviews; wrTable(); wrPlSelect(); wrEditor(); wrHub(); wrPanels();
     } catch(err){ toast('Không lưu được: ' + (err.message || err)); btn.disabled = false; btn.textContent = 'Lưu diễn giải'; }
   };
-  $('#edAI').onclick = async () => { await askAI('main_pl', e.pl + ' · ' + WR.ws, {week: {start: WR.ws, end: addDaysIso(WR.ws, 6), frozen: !!WR.data.frozen}, main_pl: e.pl, pic: e.pic,
+  $('#edAI').onclick = async () => { await askAI('main_pl', e.pl + ' · ' + WR.ws, {week: {start: WR.ws, end: weekEnd(WR.ws), frozen: !!WR.data.frozen}, main_pl: e.pl, pic: e.pic,
     totals: {current: pick(e.c), previous_week: pick(e.p), target_week: e.t, stock: e.stock},
     skus: e.skus.sort((a, b) => b.c.gmv - a.c.gmv).slice(0, 25).map(s => ({sku: s.sku, name: s.k.productName, rrp: s.k.rrp, current: pick(derive(addInto(emptyAgg(), s.c))), previous_week: pick(derive(addInto(emptyAgg(), s.p))), target_week: s.t, stock: s.stock, rule_recommendations: s.recs.map(r => r.text)})),
     pic_notes: {issues: $('#edIs').value, actions: $('#edAc').value}}, $('#edAIbox'));
@@ -1167,7 +1271,7 @@ function wrPanels(){
   const first = r => firstOf.get(r.id) || r.updated_at;
   const need = e => { const st = autoSt(e.ach)[0]; return st !== 'green' && st !== 'gray'; };
   const due = dueOf(ws), now = new Date();
-  $('#wrLogHint').innerHTML = `Tuần ${dm(ws)} → ${dm(addDaysIso(ws, 6))} · hạn ${fdow(due)} ${now > due ? '<span class="badge red">đã qua hạn</span>' : '<span class="badge amber">còn ' + Math.max(0, Math.ceil((due - now) / 36e5)) + ' giờ</span>'} · “Bắt buộc” = group chưa đạt tiến độ target tuần. Bấm một dòng để lọc theo PIC đó.`;
+  $('#wrLogHint').innerHTML = `Tuần ${dm(ws)} → ${dm(weekEnd(ws))} · hạn ${fdow(due)} ${now > due ? '<span class="badge red">đã qua hạn</span>' : '<span class="badge amber">còn ' + Math.max(0, Math.ceil((due - now) / 36e5)) + ' giờ</span>'} · “Bắt buộc” = group chưa đạt tiến độ target tuần. Bấm một dòng để lọc theo PIC đó.`;
   // summary per PIC
   const pics = [...new Set([...PIC_LIST, ...all.map(e => e.pic), ...weekRv.map(ownerOf)].filter(p => p && p !== 'Unassigned'))].sort();
   const sum = pics.map(p => {
