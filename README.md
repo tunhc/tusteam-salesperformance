@@ -20,7 +20,7 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `ingest_v2.py` | Bulk loader: turns the source Excel/HTML files into numbered `.sql` files to paste into the SQL Editor (see below). |
 | `supabase/functions/ai-recommend/` | Edge Function behind the “Hỏi AI” buttons (Claude API). |
 | `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
-| `supabase_weekly_targets.sql` | Weekly targets for the Weekly Review (`targets_weekly`) and `freeze_review_week` using them (weeks cut at the month end). Safe to re-run. |
+| `supabase_weekly_targets.sql` | Weekly targets for the Weekly Review (`targets_weekly`) and `freeze_review_week` using them (the last week of a month runs to the month end). Safe to re-run. |
 | `supabase_btr.sql` | BTR Tracking tab (Amazon Born To Run): `btr_offers`, `asin_inventory`, `sales_asin_daily` + `replace_sales_asin_days`. Safe to re-run. |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
 | `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
@@ -120,6 +120,6 @@ How the tab counts:
    `22_targets_<yyyy_mm>.sql` (columns AD units / AE GMV / AF Ads / AG Promo; replaces the month),
    `23_targets_weekly_<yyyy_mm>.sql` (the file's weekly split of units / Ads / Promo; weekly GMV follows weekly units).
    Run them in that order.
-- Weeks are Sunday → Saturday, numbered from the first full week of the year (01/11/2026 → W44). The last week of a month is cut at the month end (Nov 2026: W48 = 29/11 → 30/11); a file column that covers several calendar weeks ("W47 (incl 29&30/11)") is split by number of days.
+- Weeks are Sunday → Saturday, numbered from the first full week of the year (01/11/2026 → W44). The last week of a month runs to the month end, as in the file ("W47 (incl 29&30/11)": W47 = 22/11 → 30/11); the week after it starts the next day (01/12). Due date and auto-freeze follow the week's last day.
 - Weekly Review: the "Target theo tuần" table lists the month's weeks with target vs actual GMV / Ads / Promo / units; the weekly snapshot groups its columns by what they are measured against (GMV vs target, Ads vs ads budget, Promo vs promo budget). Months without weekly targets fall back to the monthly target prorated per day.
 

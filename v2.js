@@ -988,11 +988,11 @@ function wrBuild(){
 function activeWeek(){ const last = addDaysIso(sundayOf(todayISO()), -7); return new Date() < dueOf(last) ? last : sundayOf(todayISO()); }
 const fdow = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 function wrWeekLabel(w, act){
-  const now = new Date(), due = dueOf(w), ended = now >= new Date(addDaysIso(w, 7) + 'T00:00:00');
+  const now = new Date(), due = dueOf(w), ended = now >= new Date(addDaysIso(weekEnd(w), 1) + 'T00:00:00');
   const st = w === act ? (ended ? '● đang nhập' : '● đang chạy, nhập sớm') : !ended ? 'chưa kết thúc · nhập sớm' : now < due ? 'đang nhập' : 'đã qua hạn';
-  return `W${String(weekNo(w)).padStart(2, '0')} · ${dm(w)} → ${dm(weekEnd(w))} · hạn ${fdow(due)} · ${st}`;
+  return `W${String(weekNo(w)).padStart(2, '0')} · ${dm(weekFrom(w))} → ${dm(weekEnd(w))} · hạn ${fdow(due)} · ${st}`;
 }
-function timingOf(iso, ws){ const t = new Date(iso); return t < new Date(addDaysIso(ws, 7) + 'T00:00:00') ? ['green', 'Nhập sớm'] : t <= dueOf(ws) ? ['green', 'Đúng hạn'] : ['red', 'Trễ']; }
+function timingOf(iso, ws){ const t = new Date(iso); return t < new Date(addDaysIso(weekEnd(ws), 1) + 'T00:00:00') ? ['green', 'Nhập sớm'] : t <= dueOf(ws) ? ['green', 'Đúng hạn'] : ['red', 'Trễ']; }
 // Week number as the target files count it: W1 = the first full Sunday → Saturday week of the
 // year (first Sunday on or after 1 Jan), so 01/11/2026 → 07/11/2026 is W44.
 function weekNo(sun){
@@ -1000,16 +1000,21 @@ function weekNo(sun){
   const d = new Date(sun + 'T00:00:00'); let f = first(d.getFullYear()); if(d < f) f = first(d.getFullYear() - 1);
   return Math.floor(Math.round((d - f) / 864e5) / 7) + 1;
 }
-// Last day of a review week: Saturday, or the month end when the weekly targets cut the week there (W48 of Nov = 29 → 30/11).
+// Days of a review week: Sunday → Saturday, except where the weekly targets say otherwise: the last
+// week of a month runs to the month end (Nov 2026: W47 = 22/11 → 30/11) and the week after it
+// starts the day after (01/12).
 function weekEnd(ws){ return (WR.cut && WR.cut[ws]) || addDaysIso(ws, 6); }
-function dueOf(ws){ return new Date(addDaysIso(ws, 7 + WR.dueDow) + 'T' + WR.dueTime + ':00'); }
-function snapOf(ws){ return new Date(addDaysIso(ws, 8) + 'T06:00:00'); }
+function weekFrom(ws){ return (WR.from && WR.from[ws]) || ws; }
+// data is complete once the second day after the week has data (Monday for a Saturday end)
+function weekDone(ws){ const e = addDaysIso(weekEnd(ws), 1), m = addDaysIso(ws, 7); return (V2.state.maxDate || '') > (e > m ? e : m); }
+function dueOf(ws){ return new Date(addDaysIso(weekEnd(ws), 1 + WR.dueDow) + 'T' + WR.dueTime + ':00'); }
+function snapOf(ws){ return new Date(addDaysIso(weekEnd(ws), 2) + 'T06:00:00'); }
 async function loadWeek(ws){
-  const we = weekEnd(ws); const today = todayISO();
+  const we = weekEnd(ws), wf = weekFrom(ws); const today = todayISO();
   let frozen = null;
   try { const {data} = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = data && data[0] && data[0].frozen_at ? data[0] : null; } catch(e){}
   // auto-freeze once Monday after the week has data (weekend numbers have settled)
-  if(!frozen && ((V2.state.maxDate && V2.state.maxDate > addDaysIso(ws, 7)) || new Date() >= snapOf(ws))){
+  if(!frozen && (weekDone(ws) || new Date() >= snapOf(ws))){
     try { const {data} = await sb.rpc('freeze_review_week', {p_week_start: ws}); if(data){ const r = await sb.from('review_weeks').select('*').eq('week_start', ws); frozen = r.data && r.data[0]; } } catch(e){}
   }
   const bySku = new Map();
@@ -1021,8 +1026,8 @@ async function loadWeek(ws){
     return {frozen, bySku, live:false};
   }
   const to = we < (V2.state.maxDate || today) ? we : (V2.state.maxDate || today);
-  const [cur, prev] = await Promise.all([rpcAll('sales_by_sku', {p_from: ws, p_to: to}), rpcAll('sales_by_sku', {p_from: addDaysIso(ws, -7), p_to: addDaysIso(ws, -1)})]);
-  const tBy = await weekTargets(ws, we);
+  const [cur, prev] = await Promise.all([rpcAll('sales_by_sku', {p_from: wf, p_to: to}), rpcAll('sales_by_sku', {p_from: addDaysIso(ws, -7), p_to: addDaysIso(ws, -1)})]);
+  const tBy = await weekTargets(ws, we, wf);
   const pBy = new Map(prev.map(r => [r.sku, r]));
   const keys = new Set([...cur.map(r => r.sku), ...prev.map(r => r.sku), ...tBy.keys()]);
   const cBy = new Map(cur.map(r => [r.sku, r]));
@@ -1033,16 +1038,17 @@ async function loadWeek(ws){
 }
 // Targets of the review week ws..we per SKU: the weekly split of the target file (targets_weekly)
 // when this week has one, else the monthly target prorated per day.
-async function weekTargets(ws, we){
+async function weekTargets(ws, we, wf){
+  wf = wf || ws;
   const tBy = new Map(); const put = (sku, o) => tBy.set(sku, o);
   let wk = [];
   try { wk = await selectAll('targets_weekly', q => q.eq('week_start', ws)); } catch(e){ wk = []; }
   if(wk.length){ wk.forEach(t => { const o = tBy.get(t.sku) || {units:0, gmv:0, ads:0, promo:0}; o.units += +t.target_units||0; o.gmv += +t.target_gmv||0; o.ads += +t.ads_target||0; o.promo += +t.promo_target||0; put(t.sku, o); }); return tBy; }
-  const months = [...new Set([ws.slice(0, 7), we.slice(0, 7)])].map(m => m + '-01');
+  const months = [...new Set([wf.slice(0, 7), we.slice(0, 7)])].map(m => m + '-01');
   let tg = [];
   try { tg = await selectAll('targets_monthly', q => q.in('month', months)); } catch(e){}
-  const nd = Math.round((new Date(we + 'T00:00:00') - new Date(ws + 'T00:00:00')) / 864e5) + 1;
-  tg.forEach(t => { let f = 0; for(let i = 0; i < nd; i++){ const d = addDaysIso(ws, i); if(d.slice(0, 7) === t.month.slice(0, 7)) f += 1 / daysIn(d); } const o = tBy.get(t.sku) || {units:0, gmv:0, ads:0, promo:0}; o.units += (+t.target_units||0) * f; o.gmv += (+t.target_gmv||0) * f; o.ads += (+t.ads_target||0) * f; o.promo += (+t.promo_target||0) * f; tBy.set(t.sku, o); });
+  const nd = Math.round((new Date(we + 'T00:00:00') - new Date(wf + 'T00:00:00')) / 864e5) + 1;
+  tg.forEach(t => { let f = 0; for(let i = 0; i < nd; i++){ const d = addDaysIso(wf, i); if(d.slice(0, 7) === t.month.slice(0, 7)) f += 1 / daysIn(d); } const o = tBy.get(t.sku) || {units:0, gmv:0, ads:0, promo:0}; o.units += (+t.target_units||0) * f; o.gmv += (+t.target_gmv||0) * f; o.ads += (+t.ads_target||0) * f; o.promo += (+t.promo_target||0) * f; tBy.set(t.sku, o); });
   return tBy;
 }
 // Weeks whose weekly targets end before Saturday (cut at the month end): {week_start: period_end}
@@ -1050,10 +1056,14 @@ async function loadCuts(){
   WR.cut = WR.cut || {};
   try {
     const rows = await selectAll('targets_weekly', q => q.gte('week_start', addDaysIso(WR.weeks[WR.weeks.length - 1], -7)).lte('week_start', addDaysIso(WR.weeks[0], 35)));
-    const end = {}; rows.forEach(r => { if(!end[r.week_start] || r.period_end > end[r.week_start]) end[r.week_start] = r.period_end; });
-    Object.entries(end).forEach(([w, e]) => { if(e < addDaysIso(w, 6)) WR.cut[w] = e; });
+    WR.from = WR.from || {};
+    const end = {}, beg = {};
+    rows.forEach(r => { if(!end[r.week_start] || r.period_end > end[r.week_start]) end[r.week_start] = r.period_end; if(!beg[r.week_start] || r.period_start < beg[r.week_start]) beg[r.week_start] = r.period_start; });
+    Object.entries(end).forEach(([w, e]) => { if(e !== addDaysIso(w, 6)) WR.cut[w] = e; if(e > addDaysIso(w, 6) && !beg[addDaysIso(w, 7)]) WR.from[addDaysIso(w, 7)] = addDaysIso(e, 1); });
+    Object.entries(beg).forEach(([w, b]) => { if(b > w) WR.from[w] = b; });
   } catch(e){}
   const act = activeWeek(); [...$('#wrWeek').options].forEach(o => o.textContent = wrWeekLabel(o.value, act));
+  WR.ws = act; $('#wrWeek').value = act;   // the default week depends on the week ends
 }
 async function renderWR(){
   if(!WRbuilt){ wrBuild(); await loadCuts(); }
@@ -1066,7 +1076,7 @@ async function renderWR(){
   catch(e){ const ids = WR.reviews.filter(r => r.week_start === WR.ws).map(r => r.id); try { WR.versions = ids.length ? await selectAll('weekly_review_versions', q => q.in('review_id', ids)) : []; } catch(_){ WR.versions = []; } }
   try { WR.ai = (await selectAll('ai_recommendations', q => q.eq('scope', 'main_pl').gte('as_of', WR.ws))).filter(a => String(a.scope_key).includes(' · ' + WR.ws)); } catch(e){ WR.ai = []; }
   $('#wrStatus').innerHTML = WR.data.frozen ? `<span class="badge green">Đã khóa ${new Date(WR.data.frozen.frozen_at).toLocaleString('vi-VN')}</span>` : `<span class="badge amber">Chưa khóa · số liệu live tới ${dm(WR.data.liveTo)}</span>`;
-  $('#wrFreeze').disabled = !!WR.data.frozen || !(V2.state.maxDate > addDaysIso(WR.ws, 7));
+  $('#wrFreeze').disabled = !!WR.data.frozen || !weekDone(WR.ws);
   wrLock(); wrTable(); wrPlSelect(); wrEditor(); wrHub(); wrPanels(); WRdirty = false;
   wrTargets().catch(e => console.warn(e));
 }
@@ -1079,11 +1089,15 @@ async function wrTargets(){
     const mEnd = addDaysIso(addMonths(m0, 1), -1);
     const weeks = []; for(let w = sundayOf(m0); w <= mEnd; w = addDaysIso(w, 7)) weeks.push({ws:w, ps:w < m0 ? m0 : w, pe:addDaysIso(w, 6) > mEnd ? mEnd : addDaysIso(w, 6)});
     let wk = [], mt = [];
-    try { wk = await selectAll('targets_weekly', q => q.gte('week_start', weeks[0].ws).lte('week_start', weeks[weeks.length - 1].ws)); } catch(e){ wk = []; }
+    try { wk = (await selectAll('targets_weekly', q => q.gte('period_start', m0).lte('period_start', mEnd))); } catch(e){ wk = []; }
+    if(wk.length){   // the file's weeks (the last one may run to the month end)
+      const per = new Map(); wk.forEach(t => { const k = t.period_start; if(!per.has(k)) per.set(k, {ws:t.week_start, ps:t.period_start, pe:t.period_end}); else if(t.period_end > per.get(k).pe) per.get(k).pe = t.period_end; });
+      weeks.length = 0; [...per.values()].sort((a, b) => a.ps < b.ps ? -1 : 1).forEach(w => weeks.push(w));
+    }
     try { mt = await selectAll('targets_monthly', q => q.eq('month', m0)); } catch(e){ mt = []; }
     const dim = daysIn(m0), mx = V2.state.maxDate || todayISO();
     for(const w of weeks){
-      const rows = wk.filter(t => t.week_start === w.ws && t.period_start >= w.ps && t.period_start <= w.pe);
+      const rows = wk.filter(t => t.period_start === w.ps);
       const days = Math.round((new Date(w.pe + 'T00:00:00') - new Date(w.ps + 'T00:00:00')) / 864e5) + 1;
       w.weekly = rows.length > 0;
       w.t = new Map((rows.length ? rows.map(t => [t.sku, {gmv:+t.target_gmv||0, ads:+t.ads_target||0, promo:+t.promo_target||0, units:+t.target_units||0}])
@@ -1120,7 +1134,7 @@ function wrTargetsDraw(){
   const mLbl = WR.tw.month.slice(5, 7) + '/' + WR.tw.month.slice(0, 4);
   $('#wrTargetTitle').textContent = `Target theo tuần · tháng ${mLbl}${pic ? ' · ' + pic : ''}`;
   $('#wrTargetHint').innerHTML = (WR.tw.weeklyFile ? 'Target tuần lấy từ phân bổ theo tuần trong file target tháng (GMV phân bổ theo units tuần); ' : 'Tháng này chưa có target tuần: target tháng chia theo số ngày; ')
-    + 'tuần cuối cắt ở ngày cuối tháng. Thực tế = số bán trong đúng các ngày đó. Ads / Promo: dưới 100% budget là xanh. Bấm một dòng để mở tuần đó bên dưới.';
+    + 'tuần cuối kéo tới ngày cuối tháng. Thực tế = số bán trong đúng các ngày đó. Ads / Promo: dưới 100% budget là xanh. Bấm một dòng để mở tuần đó bên dưới.';
   $('#wrTarget').innerHTML = `<thead><tr><th>Tuần</th><th>Ngày</th><th class="num g1">Target GMV</th><th class="num">GMV</th><th class="num">%</th><th class="num g1">Ads budget</th><th class="num">Ads</th><th class="num">%</th><th class="num g1">Promo budget</th><th class="num">Promo</th><th class="num">%</th><th class="num g1">Target units</th><th class="num">Units</th><th class="num">%</th></tr></thead><tbody>`
     + body + line('class="total" style="border-top:2px solid var(--navy)"', 'Tổng tháng', '', tot.t, tot.a, true) + '</tbody>';
   $$('#wrTarget tr[data-ws]').forEach(tr => tr.onclick = () => { const ws = tr.dataset.ws; const sel = $('#wrWeek');
@@ -1129,10 +1143,10 @@ function wrTargetsDraw(){
 }
 function wrLock(){
   const ws = WR.ws, we = weekEnd(ws), snap = snapOf(ws), due = dueOf(ws), now = new Date();
-  const complete = (V2.state.maxDate || '') > addDaysIso(ws, 7);
+  const complete = weekDone(ws);
   const phase = !complete ? 0 : !(WR.data && WR.data.frozen) ? 1 : now < due ? 2 : 3;
   const fdt = d => ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  const steps = [['Tuần bán hàng', dm(ws) + ' → ' + dm(we), 'Data còn cập nhật, số còn thay đổi'], ['Khóa số liệu (snapshot)', WR.data && WR.data.frozen ? fdt(new Date(WR.data.frozen.frozen_at)) : 'khi có data T2 ' + dm(addDaysIso(ws, 8)), 'Tự khóa khi đã có data thứ Hai tuần sau, để số T7/CN kịp cập nhật đủ (kiểm tra mỗi giờ)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
+  const steps = [['Tuần bán hàng', dm(weekFrom(ws)) + ' → ' + dm(we), 'Data còn cập nhật, số còn thay đổi'], ['Khóa số liệu (snapshot)', WR.data && WR.data.frozen ? fdt(new Date(WR.data.frozen.frozen_at)) : 'khi có data ' + dm(addDaysIso(we, 2)), 'Tự khóa khi đã có data ngày thứ 2 sau khi tuần kết thúc (thường là thứ Hai), để số các ngày cuối tuần kịp cập nhật đủ (kiểm tra mỗi giờ)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
   $('#wrLock').innerHTML = steps.map((s, i) => `<div class="step ${i < phase ? 'done' : ''} ${i === phase ? 'now' : ''}"><span class="lbl" style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase">${s[0]}</span><span class="when">${s[1]}</span><span class="v2-note">${s[2]}${i === phase ? ' · <b>đang ở bước này</b>' : ''}</span></div>`).join('');
 }
 function wrPlStats(picArg){
@@ -1271,7 +1285,7 @@ function wrPanels(){
   const first = r => firstOf.get(r.id) || r.updated_at;
   const need = e => { const st = autoSt(e.ach)[0]; return st !== 'green' && st !== 'gray'; };
   const due = dueOf(ws), now = new Date();
-  $('#wrLogHint').innerHTML = `Tuần ${dm(ws)} → ${dm(weekEnd(ws))} · hạn ${fdow(due)} ${now > due ? '<span class="badge red">đã qua hạn</span>' : '<span class="badge amber">còn ' + Math.max(0, Math.ceil((due - now) / 36e5)) + ' giờ</span>'} · “Bắt buộc” = group chưa đạt tiến độ target tuần. Bấm một dòng để lọc theo PIC đó.`;
+  $('#wrLogHint').innerHTML = `Tuần ${dm(weekFrom(ws))} → ${dm(weekEnd(ws))} · hạn ${fdow(due)} ${now > due ? '<span class="badge red">đã qua hạn</span>' : '<span class="badge amber">còn ' + Math.max(0, Math.ceil((due - now) / 36e5)) + ' giờ</span>'} · “Bắt buộc” = group chưa đạt tiến độ target tuần. Bấm một dòng để lọc theo PIC đó.`;
   // summary per PIC
   const pics = [...new Set([...PIC_LIST, ...all.map(e => e.pic), ...weekRv.map(ownerOf)].filter(p => p && p !== 'Unassigned'))].sort();
   const sum = pics.map(p => {

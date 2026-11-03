@@ -489,10 +489,10 @@ def followup_pic_rows(path, sheet):
 
 def month_target_rows(path, month):
     """Final target per SKU (columns AD units, AE GMV, AF Ads, AG Promo) and the weekly split
-    (AH.. units, then Ads, then Promo, one column per week; the last week column may cover the rest
-    of the month, e.g. "W47 (incl 29&30/11)"). Weekly GMV follows the weekly units.
-    Weeks are calendar weeks Sunday → Saturday cut at the month boundaries; a file week that spans
-    several calendar weeks is split by number of days."""
+    (AH.. units, then Ads, then Promo, one column per week; the last week column covers the rest
+    of the month, e.g. "W47 (incl 29&30/11)" = 22/11 → 30/11). Weekly GMV follows the weekly units.
+    Weeks are calendar weeks Sunday → Saturday starting at the month start; the last file week
+    runs to the month end."""
     import calendar
     import openpyxl
     ws = openpyxl.load_workbook(path, read_only=True, data_only=True).worksheets[0]
@@ -526,14 +526,12 @@ def month_target_rows(path, month):
                         "ads_target": round(ma, 4), "promo_target": round(mp, 4)})
         for k, grp in enumerate(groups):
             wu, wa, wp = num(r[units_c[k]]), num(r[ads_c[k]]), num(r[promo_c[k]])
-            days = [(g[2] - g[1]).days + 1 for g in grp]
-            for (wsun, ps, pe), d in zip(grp, days):
-                f = d / sum(days)
-                gmv = mg * (wu / mu) * f if mu else mg * d / last.day
-                weekly.append({"sku": sku, "week_start": wsun, "period_start": ps, "period_end": pe,
-                               "target_units": round(wu * f, 4), "target_gmv": round(gmv, 4),
-                               "ads_target": round(wa * f, 4), "promo_target": round(wp * f, 4),
-                               "source": os.path.basename(path)})
+            wsun, ps, pe = grp[0][0], grp[0][1], grp[-1][2]   # the last file week runs to the month end
+            gmv = mg * wu / mu if mu else mg * ((pe - ps).days + 1) / last.day
+            weekly.append({"sku": sku, "week_start": wsun, "period_start": ps, "period_end": pe,
+                           "target_units": round(wu, 4), "target_gmv": round(gmv, 4),
+                           "ads_target": round(wa, 4), "promo_target": round(wp, 4),
+                           "source": os.path.basename(path)})
     return monthly, weekly
 
 
