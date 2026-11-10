@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Born to Run (BTR) · Yes4All</title>
+<meta name="description" content="Amazon Born to Run (BTR): cách hoạt động, Sell-through Period, Retention Fee, Returns, Ad Spend Commitment và cách dashboard tính.">
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<meta name="theme-color" content="#002859">
+<style>
+:root{
+  --navy:#002859; --navy-2:#0B3E7A; --orange:#FF7000; --orange-dark:#E06400; --orange-bg:#FFF3EA;
+  --ink:#1B2733; --muted:#66707C; --line:#E4E5E6; --bg:#F6F7F8; --card:#FFFFFF;
+  --green:#1E8E5A; --green-bg:#E7F5EE; --red:#D64545; --red-bg:#FBEAEA; --amber:#8A6508; --amber-bg:#FBF3DF;
+  --shadow:0 2px 10px rgba(0,40,89,.07);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.6}
+header.top{background:linear-gradient(120deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;padding:22px 16px}
+header.top .in{max-width:1040px;margin:0 auto}
+header.top a.back{color:#FFD2AE;text-decoration:none;font-size:13px;font-weight:700}
+header.top h1{margin:6px 0 4px;font-size:28px;line-height:1.2}
+header.top p{margin:0;color:#D6E0EE;max-width:760px}
+.src{margin-top:12px;font-size:13px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 12px;display:inline-block;max-width:100%;overflow-wrap:anywhere}
+.src a{color:#fff;font-weight:700}
+.wrap{max-width:1040px;margin:0 auto;padding:20px 16px 40px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
+nav.toc{position:sticky;top:16px;align-self:start;font-size:13.5px}
+nav.toc b{display:block;color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+nav.toc a{display:block;color:var(--navy);text-decoration:none;padding:4px 0 4px 10px;border-left:2px solid var(--line)}
+nav.toc a:hover{border-left-color:var(--orange);color:var(--orange-dark)}
+main section{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;margin-bottom:16px;scroll-margin-top:12px}
+h2{margin:0 0 10px;color:var(--navy);font-size:20px}
+h3{margin:16px 0 6px;color:var(--navy);font-size:16px}
+p{margin:6px 0}
+ul,ol{margin:6px 0;padding-left:22px}
+li{margin:3px 0}
+code,.f{font-family:Consolas, "SFMono-Regular", Menlo, monospace;font-size:13px;background:#EEF1F5;border-radius:6px;padding:1px 6px}
+pre.f{display:block;padding:12px 14px;white-space:pre-wrap;line-height:1.55;overflow-x:auto;border-left:3px solid var(--orange)}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}
+th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+th{background:#F2F4F7;color:var(--navy);font-weight:700}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tw{overflow-x:auto}
+.note{border-radius:10px;padding:10px 14px;margin:10px 0;font-size:14px}
+.note.warn{background:var(--amber-bg);border-left:4px solid #B8860B}
+.note.info{background:#EAF2FB;border-left:4px solid var(--navy-2)}
+.note.ok{background:var(--green-bg);border-left:4px solid var(--green)}
+.note.bad{background:var(--red-bg);border-left:4px solid var(--red)}
+.pill{display:inline-block;font-size:12px;font-weight:800;padding:1px 8px;border-radius:10px;background:var(--orange-bg);color:var(--orange-dark)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.box{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.box h3{margin-top:0}
+.timeline{display:flex;gap:0;margin:10px 0;font-size:13px;flex-wrap:wrap}
+.timeline div{flex:1 1 120px;padding:8px 10px;border-top:4px solid var(--navy-2);background:#F7F9FC}
+.timeline div:nth-child(2){border-top-color:var(--orange)}
+.timeline div:nth-child(3){border-top-color:#B8860B}
+.timeline b{display:block;color:var(--navy)}
+.calc{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:10px 0}
+.calc label{display:block;font-size:12px;color:var(--muted);font-weight:700;margin-bottom:3px}
+.calc input{width:100%;padding:7px 8px;border:1px solid #CBD2DA;border-radius:8px;font:inherit}
+.calc input:focus{outline:2px solid var(--orange);outline-offset:1px}
+.out{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.out div{background:#F7F9FC;border-radius:10px;padding:10px 12px}
+.out small{display:block;color:var(--muted);font-size:12px}
+.out b{font-size:20px;color:var(--navy)}
+.out .tot b{color:var(--orange-dark)}
+footer{max-width:1040px;margin:0 auto;padding:0 16px 30px;color:var(--muted);font-size:13px}
+footer a{color:var(--navy);font-weight:700;overflow-wrap:anywhere}
+@media (max-width:820px){
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:static;background:var(--card);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow)}
+  .grid2{grid-template-columns:1fr}
+  .calc{grid-template-columns:1fr 1fr}
+  .out{grid-template-columns:1fr 1fr}
+  main section{padding:16px}
+}
+</style>
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="back" href="./#btr">← Về BTR Tracking</a>
+  <h1>Amazon Born to Run (BTR)</h1>
+  <p>Cách chương trình hoạt động, cách Amazon tính Sell-through Period, Retention Fee, Returns, Ad Spend Commitment, và cách dashboard dùng các con số này.</p>
+  <div class="src">Nguồn: Amazon Vendor Central · Born to Run Program Policy ·
+    <a href="https://vendorcentral.amazon.com/hz/vendor/members/support/help/node/G3UQ6PHPZRCUYHYS" target="_blank" rel="noopener noreferrer">vendorcentral.amazon.com/hz/vendor/members/support/help/node/G3UQ6PHPZRCUYHYS</a>
+    (bản đọc ngày 10/11/2026, cần đăng nhập Vendor Central)</div>
+</div></header>
+
+<div class="wrap">
+<nav class="toc" aria-label="Mục lục">
+  <b>Mục lục</b>
+  <a href="#tong-quan">1. BTR là gì</a>
+  <a href="#tier">2. Standard và Flex</a>
+  <a href="#offer">3. Offer và PO</a>
+  <a href="#sell-through">4. Sell-through Period</a>
+  <a href="#disposition">5. Disposition Path</a>
+  <a href="#retention">6. Retention Fee</a>
+  <a href="#calculator">7. Máy tính Retention</a>
+  <a href="#returns">8. Returns</a>
+  <a href="#ad-spend">9. Ad Spend Commitment</a>
+  <a href="#recommended">10. Recommended Quantity</a>
+  <a href="#dashboard">11. Cách dashboard tính</a>
+  <a href="#faq">12. FAQ</a>
+  <a href="#thuat-ngu">13. Thuật ngữ</a>
+</nav>
+
+<main>
+<section id="tong-quan">
+  <h2>1. BTR là gì</h2>
+  <p>Born to Run là chương trình của Amazon Vendor Central, <b>chỉ tham gia khi được mời</b>. Vendor chủ động đề nghị Amazon đặt PO khi cho rằng tồn kho Amazon đang có không đủ cho nhu cầu trong <b>10 tuần</b>, ví dụ lúc launch sản phẩm mới hoặc trước một chiến dịch marketing.</p>
+  <ul>
+    <li>Vendor gửi <b>Offer</b>: ASIN nào, bao nhiêu unit dự kiến bán hết trong 10 tuần (Sell-through Period).</li>
+    <li>Amazon duyệt và mua <b>tối đa</b> số unit đó.</li>
+    <li>Đổi lại, phần <b>không bán hết</b> sau Sell-through Period sẽ bị xử lý theo <b>Disposition Path</b> mà vendor đã chọn lúc gửi Offer: trả phí retention, nhận hàng trả về, hoặc (Flex) cam kết chi quảng cáo.</li>
+  </ul>
+  <div class="note info">Hiểu nhanh: BTR giúp có hàng sớm và nhiều trên Amazon, nhưng <b>rủi ro tồn kho chuyển về phía vendor</b>. Bán càng ít trong 70 ngày thì phí càng cao, và dưới 50% sell-through thì phí nhảy bậc.</div>
+</section>
+
+<section id="tier">
+  <h2>2. Hai tier: Standard và Flex</h2>
+  <div class="grid2">
+    <div class="box"><h3>Standard <span class="pill">mặc định</span></h3>
+      <ul><li>Mọi vendor được mời đều ở tier này.</li><li>Disposition Path: <b>Retention Fees</b> hoặc <b>Returns</b>.</li></ul></div>
+    <div class="box"><h3>Flex <span class="pill">theo lời mời</span></h3>
+      <ul><li>Có mọi tính năng Standard.</li><li>Thêm <b>Ad Spend Commitment</b> và <b>Recommended Quantity</b>, chỉ áp dụng cho <b>ASIN mới</b>.</li></ul></div>
+  </div>
+</section>
+
+<section id="offer">
+  <h2>3. Gửi Offer, duyệt và PO</h2>
+  <ul>
+    <li>Mỗi Offer có tối đa <b>50 ASIN</b>. Phải khai số lượng, Ship Window và Delivery Window mong muốn, và chọn Disposition Path.</li>
+    <li>Trước khi đưa ASIN vào Offer phải có <b>đủ hàng tại kho</b> và kho sẵn sàng xử lý PO ngay.</li>
+    <li>Không giới hạn số unit mỗi ASIN, nhưng Amazon có yêu cầu về vận hành và lợi nhuận nên có thể duyệt ít hơn.</li>
+    <li>Amazon có thể từ chối không cần lý do, duyệt một phần ASIN, hoặc duyệt số lượng khác số đề nghị.</li>
+    <li>PO được phát hành <b>trong 1 ngày làm việc</b> sau khi duyệt. Vendor nên confirm PO <b>trong 72 giờ</b>, và có thể confirm số thấp hơn (chỉ ship đúng số đã confirm).</li>
+    <li><b>Không sửa và không rút được Offer</b> sau khi đã gửi.</li>
+    <li>Mọi ASIN trong cùng một Offer dùng <b>cùng một Disposition Path</b>.</li>
+    <li>Độ dài Ship/Delivery Window giống PO replenishment thường, BTR không kéo dài được. Freight theo điều khoản hiện có của vendor.</li>
+    <li>Trong Sell-through Period, Amazon vẫn có thể đặt thêm PO thường (ngoài BTR) nếu nhu cầu tăng.</li>
+  </ul>
+</section>
+
+<section id="sell-through">
+  <h2>4. Sell-through Period</h2>
+  <p>Mỗi ASIN trong Offer có Sell-through Period riêng.</p>
+  <div class="timeline">
+    <div><b>Ngày nhận đầu tiên</b>Ngày FC nhận hàng sớm nhất của ASIN, xét mọi PO BTR của Offer</div>
+    <div><b>+7 ngày đệm</b>Bù cho trễ giao hàng giữa các lô</div>
+    <div><b>70 ngày bán</b>Sell-through Period. Hết kỳ thì tính Disposition Path</div>
+  </div>
+  <pre class="f">ST Start = ngày nhận đầu tiên + 7 ngày
+ST End   = ST Start + 70 ngày
+Nếu hàng về trước Street Date: ST Start = Street Date, kéo dài 77 ngày (70 + 7 đệm)</pre>
+  <p><b>Ví dụ (FAQ 11):</b> 5 PO nhận từ 01/06 đến 05/06, ngày nhận đầu tiên là 01/06, nên ST Start = 08/06 và ST End = 17/08.</p>
+  <p>Trên Vendor Central (Born to Run → Offer Details), ST Start hiện “TBD” tới khi có ngày nhận. Nếu một lô trễ hơn 7 ngày vì lý do ngoài tầm kiểm soát, mở case <i>Contact Us</i> để xin dời ngày bắt đầu.</p>
+</section>
+
+<section id="disposition">
+  <h2>5. Disposition Path: xử lý hàng không bán hết</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Lựa chọn</th><th>Tier</th><th>Vendor phải trả</th><th>Cách thu</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#retention">Retention Fees</a></td><td>Standard</td><td>Base Fee % × cost hàng tồn, cộng Surcharge nếu sell-through &lt; 50%</td><td>Trừ vào accounts payable qua COOP agreement tạo tự động</td></tr>
+      <tr><td><a href="#returns">Returns</a></td><td>Standard</td><td>Hoàn 100% cost hàng bị trả, cộng phí 10% cost</td><td>Amazon trả hàng về, vendor hoàn tiền</td></tr>
+      <tr><td><a href="#ad-spend">Ad Spend Commitment</a></td><td>Flex</td><td>Phần Ad Spend Amount chưa chi hết</td><td>Trừ vào accounts payable qua COOP</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="retention">
+  <h2>6. Retention Fee</h2>
+  <p>Retention Fee tính theo <b>% giá vốn (cost Amazon mua)</b> của số unit chưa bán khi hết Sell-through Period. Phí gồm hai phần:</p>
+  <ul>
+    <li><b>Base Fee</b>: áp lên cost của <b>toàn bộ</b> unit chưa bán.</li>
+    <li><b>Surcharge Fee</b>: chỉ áp khi sell-through <b>dưới 50%</b>.</li>
+  </ul>
+  <p>Tỷ lệ phí <b>bị khóa tại thời điểm gửi Offer</b>. Amazon có thể đổi biểu phí cho Offer sau, nhưng Offer đã gửi thì không đổi. Xem tỷ lệ của từng Offer ở BTR → Offer Details → Go to Details. COOP agreement đã tạo xem ở Offer Details, lọc “Completed Offers”.</p>
+
+  <h3>Công thức</h3>
+  <pre class="f">Q        = số unit Amazon tính trách nhiệm (Vendor responsible qty)
+Sold     = số unit bán trong Sell-through Period
+ST%      = Sold ÷ Q
+Unsold   = Q − Sold
+Cost     = giá vốn / unit
+
+Base Fee      = Base%  × Unsold × Cost
+Surcharge Fee = 0                                   nếu ST% ≥ 50%
+              = Surcharge% × min(Unsold, 50% × Q) × Cost   nếu ST% &lt; 50%
+                (= Surcharge% × 50% × Q × Cost, vì khi ST% &lt; 50% thì Unsold &gt; 50% × Q)
+Retention     = Base Fee + Surcharge Fee</pre>
+
+  <div class="note warn"><b>Lưu ý cách đọc Surcharge.</b> Câu chữ trong policy (“unsold units below the 50% sell-through threshold”) có thể hiểu là chỉ phần hụt so với mốc 50%. Nhưng <b>ví dụ của Amazon (FAQ 14)</b> và <b>số “Est. Retention” trong file Born-to-run Alert</b> đều tính Surcharge trên <b>50% × Q × Cost</b>. Đã đối chiếu: công thức trên cho ra đúng từng cent Est. Retention của toàn bộ offer đang chạy. Dashboard dùng cách tính này.</div>
+
+  <div class="note bad"><b>Vách 50%.</b> Phí không tăng đều mà nhảy bậc ngay dưới 50%. Bán thiếu 1 unit để chạm 50% thì cộng thêm khoảng Surcharge% × 50% × Q × Cost. Gần hết kỳ mà ST% đang ở 45–49% thì đẩy bán vài unit cuối thường rất có lời.</div>
+
+  <h3>Ví dụ của Amazon (FAQ 14): Base 20%, Surcharge 20%, tổng cost $4,000 mỗi ASIN</h3>
+  <div class="tw"><table>
+    <thead><tr><th>ASIN</th><th class="n">Sell-through</th><th class="n">Cost đã bán</th><th class="n">Cost chưa bán</th><th class="n">Base Fee</th><th class="n">Surcharge</th><th class="n">Tổng</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td class="n">75%</td><td class="n">$3,000</td><td class="n">$1,000</td><td class="n">$200</td><td class="n">$0</td><td class="n"><b>$200</b></td></tr>
+      <tr><td>B</td><td class="n">25%</td><td class="n">$1,000</td><td class="n">$3,000</td><td class="n">$600</td><td class="n">$400 (20% × ~$2,000)</td><td class="n"><b>$1,000</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>“Tỷ lệ retention” trong file Alert là tỷ lệ gộp</h3>
+  <p>Cột tỷ lệ phí mà dashboard suy ra từ file Alert (Est. Retention ÷ (Q − Est. Sold) × Cost) là <b>tỷ lệ gộp</b> tại mức sell-through Amazon dự báo, không phải Base%. Ví dụ với Base 20%, Surcharge 30%, Q = 100, dự báo bán 6: tỷ lệ gộp = 20% + 30% × 50/94 ≈ 36%. Nếu sau đó bán vượt 50% thì tỷ lệ thực chỉ còn 20%. Vì vậy không nên nhân tỷ lệ gộp này với số dự báo mới.</p>
+</section>
+
+<section id="calculator">
+  <h2>7. Máy tính Retention</h2>
+  <p>Nhập số của một ASIN để xem phí theo công thức ở mục 6.</p>
+  <div class="calc">
+    <div><label for="cQ">Vendor resp. qty (Q)</label><input id="cQ" type="number" min="0" value="100"></div>
+    <div><label for="cS">Đã bán trong kỳ</label><input id="cS" type="number" min="0" value="45"></div>
+    <div><label for="cC">Cost / unit ($)</label><input id="cC" type="number" min="0" step="0.01" value="20"></div>
+    <div><label for="cB">Base %</label><input id="cB" type="number" min="0" step="0.1" value="20"></div>
+    <div><label for="cU">Surcharge %</label><input id="cU" type="number" min="0" step="0.1" value="30"></div>
+  </div>
+  <div class="out">
+    <div><small>Sell-through</small><b id="oST">–</b></div>
+    <div><small>Base Fee</small><b id="oB">–</b></div>
+    <div><small>Surcharge Fee</small><b id="oU">–</b></div>
+    <div class="tot"><small>Tổng Retention</small><b id="oT">–</b></div>
+  </div>
+  <p id="oHint" style="color:var(--muted);font-size:13.5px;margin-top:8px"></p>
+</section>
+
+<section id="returns">
+  <h2>8. Returns</h2>
+  <ul>
+    <li>Vendor đồng ý nhận lại hàng BTR chưa bán, <b>hoàn Amazon 100% cost</b> và trả thêm <b>phí shipping &amp; handling bằng 10% cost</b> của số hàng bị trả.</li>
+    <li>Điều này <b>ghi đè</b> mọi giới hạn trả hàng đã thương lượng cho hàng ngoài BTR.</li>
+    <li>Amazon quyết định có trả hay không (dựa trên inventory health). Hàng có thể bắt đầu trả về từ ngày/tuần kế sau ST End, và trả tiếp chừng nào Amazon còn tồn.</li>
+    <li>Điều kiện để chọn được: có return address cùng quốc gia với vendor code, và không từ chối quá 2 lô hàng trả BTR trong 12 tháng.</li>
+    <li>Từ chối từ 3 lô trở lên trong 12 tháng thì bị khóa Returns 3 tháng. Tái phạm thì bị khóa vĩnh viễn (có thể appeal qua Contact Us). Không áp dụng cho vendor code Direct Imports.</li>
+  </ul>
+  <div class="note info">So sánh nhanh: Returns tốn 10% cost cộng chi phí nhận và xử lý lại hàng, nhưng lấy lại được hàng. Retention tốn 20–50% cost và hàng vẫn ở lại Amazon.</div>
+</section>
+
+<section id="ad-spend">
+  <h2>9. Ad Spend Commitment (Flex, chỉ ASIN mới)</h2>
+  <ul>
+    <li>Vendor cam kết chi một khoản do Amazon ấn định (<b>Ad Spend Amount</b>) cho Sponsored Products, Sponsored Brands, Sponsored Display, Sponsored TV, cho <b>từng ASIN</b>, trong Sell-through Period.</li>
+    <li>Chi chưa đủ thì <b>phần còn thiếu bị trừ vào accounts payable</b> qua COOP.</li>
+    <li>Tính riêng từng ASIN, phần chi dư không chuyển sang ASIN khác. Tiền chi trước hoặc sau kỳ không được tính.</li>
+    <li>Nếu Offer chọn path này mà có cả ASIN cũ thì ASIN cũ bị từ chối ngay.</li>
+    <li>Theo dõi bằng “Advertising Performance Tracker” trên BTR Offer Detail.</li>
+  </ul>
+  <p>Không chọn path này thì quảng cáo không bắt buộc, nhưng Amazon khuyến nghị chạy, và có tùy chọn tự bật Self-Service Performance Advertising cho ASIN BTR.</p>
+</section>
+
+<section id="recommended">
+  <h2>10. Recommended Quantity (Flex, chỉ ASIN mới)</h2>
+  <ul>
+    <li>Amazon dự báo số bán được trong kỳ dựa trên một <b>proxy ASIN</b>. Proxy ASIN phải thuộc cùng vendor code, cùng category/subcategory, và có cost chênh không quá 10%.</li>
+    <li>Đặt số lượng <b>≤ Recommended Quantity</b> thì ASIN <b>không chịu Disposition Path</b>.</li>
+    <li>Đặt vượt thì chỉ phần vượt (<b>Additional Quantity</b>) chịu phí. Số đã bán được trừ vào Recommended Quantity trước.</li>
+  </ul>
+  <p><b>Ví dụ (FAQ 22):</b> Recommended 1,500, đặt 2,000 (vượt 500), bán 1,700, nên còn 300 unit của phần vượt chịu Disposition Path. Nếu chỉ đặt 1,500 và bán 1,200 thì không mất phí.</p>
+  <p>Recommended Quantity chỉ là dự báo, không phải cam kết mua của Amazon.</p>
+</section>
+
+<section id="dashboard">
+  <h2>11. Cách tab BTR Tracking dùng các con số</h2>
+  <ul>
+    <li><b>Thông tin chiến dịch</b> lấy từ file Amazon “Born-to-run Alert”: ST Start / ST End, Submitted qty, Vendor responsible qty, Product cost, Est. Sold, Est. Retention.</li>
+    <li><b>Q (Vendor responsible qty)</b> là số Amazon dùng để tính phí, có thể thấp hơn Submitted qty.</li>
+    <li><b>Sold</b> là số bán thực tế của mình (sales daily / hourly) từ ST Start tới ST End, cập nhật mỗi giờ. Dashboard hiện cả số của toàn SKU và riêng ASIN BTR.</li>
+  </ul>
+  <div class="note warn"><b>Rủi ro chênh số bán.</b>
+    <ul style="margin:4px 0 0">
+      <li>File Amazon đo sell-through trên <b>ASIN được submit BTR</b>. Nếu SKU có ASIN thứ hai (lỗi listing) thì unit bán trên ASIN kia nhiều khả năng <b>không được tính</b> cho BTR.</li>
+      <li>Sold của Amazon thường <b>thấp hơn</b> ordered units của mình (đơn hủy, đơn trả, độ trễ). Nên chừa biên an toàn khi ST% đang sát 50%.</li>
+    </ul></div>
+  <p>Chi phí cuối cùng là COOP agreement Amazon tạo sau khi hết kỳ, xem ở Vendor Central (Offer Details → Completed Offers). Số trên dashboard là ước tính.</p>
+</section>
+
+<section id="faq">
+  <h2>12. FAQ tóm tắt</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Câu hỏi</th><th>Trả lời</th></tr></thead>
+    <tbody>
+      <tr><td>Tạo ASIN mới bằng BTR được không?</td><td>Không. Tạo qua New Item Setup / Catalog Feeds như bình thường.</td></tr>
+      <tr><td>Xem Offer được duyệt và sell-through ở đâu?</td><td>BTR landing page → Search filters: “Under Review” (đang duyệt), “Active Offers” (đã duyệt) → Go to Details để xem sell-through từng ASIN.</td></tr>
+      <tr><td>Offer bị từ chối thì làm gì?</td><td>Lý do thường là lợi nhuận ASIN, setup sai, hoặc vận hành. Làm việc với Amazon contact hoặc mở case Contact Us rồi gửi lại.</td></tr>
+      <tr><td>Sửa Offer đã duyệt được không?</td><td>Không. Chỉ có thể confirm PO với số thấp hơn.</td></tr>
+      <tr><td>ASIN BTR báo Out of Stock dù đã ship?</td><td>Nhu cầu cao hơn tồn đang có. Sẽ in-stock khi FC nhận các PO BTR còn mở.</td></tr>
+      <tr><td>Mỗi ASIN chọn Disposition Path khác nhau được không?</td><td>Không. Cả Offer dùng một path.</td></tr>
+      <tr><td>Bị loại khỏi BTR thì Offer đang chạy ra sao?</td><td>Giữ nguyên, xử lý theo điều khoản ban đầu. Amazon báo trước 30 ngày khi chấm dứt. Thay đổi policy có hiệu lực sau 15 ngày kể từ khi thông báo.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="thuat-ngu">
+  <h2>13. Thuật ngữ</h2>
+  <div class="tw"><table>
+    <tbody>
+      <tr><th>Offer</th><td>Đề nghị BTR của vendor: ASIN, số lượng, window, Disposition Path.</td></tr>
+      <tr><th>Sell-through Period (ST)</th><td>70 ngày (hoặc 77 nếu theo Street Date) để bán số hàng BTR.</td></tr>
+      <tr><th>Sell-through rate (ST%)</th><td>Số bán trong kỳ ÷ số unit tính trách nhiệm.</td></tr>
+      <tr><th>Vendor responsible qty</th><td>Số unit Amazon dùng để tính Disposition Path (cột trong file Alert).</td></tr>
+      <tr><th>Disposition Path</th><td>Cách xử lý hàng chưa bán: Retention Fees, Returns, hoặc Ad Spend Commitment.</td></tr>
+      <tr><th>Base Fee / Surcharge Fee</th><td>Hai thành phần của Retention Fee; Surcharge chỉ khi ST% &lt; 50%.</td></tr>
+      <tr><th>Street Date</th><td>Release Date trên New Item Setup template của ASIN.</td></tr>
+      <tr><th>COOP agreement</th><td>Thỏa thuận Amazon tự tạo để trừ phí vào accounts payable của vendor.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+</main>
+</div>
+
+<footer>
+  Nguồn kiến thức: Amazon Vendor Central, “Born to Run Program Policy” và “Born to Run Frequently Asked Questions”:
+  <a href="https://vendorcentral.amazon.com/hz/vendor/members/support/help/node/G3UQ6PHPZRCUYHYS" target="_blank" rel="noopener noreferrer">https://vendorcentral.amazon.com/hz/vendor/members/support/help/node/G3UQ6PHPZRCUYHYS</a>.
+  Policy có thể thay đổi; khi có mâu thuẫn, bản trên Vendor Central là bản chuẩn. Trang này cũng được nạp vào knowledge hub để nút “Hỏi AI” trả lời câu hỏi về BTR.
+</footer>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const usd = v => '$' + v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  function calc(){
+    const Q = Math.max(0, +$('cQ').value || 0), sold = Math.min(Q, Math.max(0, +$('cS').value || 0)), c = Math.max(0, +$('cC').value || 0);
+    const b = (+$('cB').value || 0) / 100, u = (+$('cU').value || 0) / 100;
+    const unsold = Q - sold, st = Q ? sold / Q : 0;
+    const base = b * unsold * c, sur = st < 0.5 ? u * Math.min(unsold, 0.5 * Q) * c : 0;
+    $('oST').textContent = (st * 100).toFixed(1) + '%';
+    $('oB').textContent = usd(base); $('oU').textContent = usd(sur); $('oT').textContent = usd(base + sur);
+    const need = Math.ceil(0.5 * Q) - sold;
+    $('oHint').textContent = !Q ? '' : st < 0.5
+      ? `Còn thiếu ${need} unit để chạm 50%. Bán thêm ${need} unit thì bỏ được Surcharge ${usd(sur)} và giảm Base ${usd(b * need * c)}.`
+      : `Đã qua mốc 50%, chỉ còn Base Fee. Mỗi unit bán thêm giảm ${usd(b * c)}.`;
+  }
+  ['cQ','cS','cC','cB','cU'].forEach(id => $(id).addEventListener('input', calc));
+  calc();
+})();
+</script>
+</body>
+</html>

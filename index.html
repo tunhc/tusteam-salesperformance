@@ -2515,6 +2515,9 @@ async function boot(){
 
     await loadProjects();
     renderProjectDatalist(); renderProjects();
+    // deep link: index.html#btr opens that tab (used by the back link on born-to-run.html)
+    const deepTab = location.hash.slice(1), deepBtn = deepTab && document.querySelector(`.tab-btn[data-tab="${CSS.escape(deepTab)}"]`);
+    if(deepBtn) deepBtn.click();
   }catch(err){
     console.error(err);
     showFatalBanner('Could not load data from Supabase: ' + err.message + '<br><br>Check that SUPABASE_URL / SUPABASE_ANON_KEY are correct and that the schema (supabase_schema.sql) has been run.');

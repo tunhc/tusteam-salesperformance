@@ -22,6 +22,8 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
 | `supabase_weekly_targets.sql` | Weekly targets for the Weekly Review (`targets_weekly`) and `freeze_review_week` using them (the last week of a month runs to the month end). Safe to re-run. |
 | `supabase_btr.sql` | BTR Tracking tab (Amazon Born To Run): `btr_offers`, `asin_inventory`, `sales_asin_daily` + `replace_sales_asin_days`. Safe to re-run. |
+| `born-to-run.html` | Reference page on Amazon Born to Run (program, Sell-through Period, Retention Fee formula, Returns, Flex), linked from the BTR Tracking tab. Source: Vendor Central Born to Run Program Policy. |
+| `supabase_kb.sql` | AI knowledge hub: `kb_articles` (one article per topic, with its dashboard page and source link) read by the chat before answering policy questions. Starts with the Born to Run article. Safe to re-run; re-run after editing an article. |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
 | `prototype/redesign.html` | Early layout proposal with generated sample data (kept for reference). |
 
