@@ -133,20 +133,14 @@ Source: `For_Sales_Incoming_Tracker.xlsx` — sheets `01_AMZ_incoming_details` (
 
 **Setup (one time)**
 1. Run `supabase_inventory_tracking.sql` in the SQL Editor (safe to re-run).
-2. Create the upload key (your own passphrase; only its bcrypt hash is stored):
-   ```sql
-   insert into upload_keys(name, key_hash) values ('inventory', crypt('<passphrase>', gen_salt('bf')))
-   on conflict (name) do update set key_hash = excluded.key_hash;
-   ```
-3. Optional: redeploy `supabase/functions/ai-chat` so the chat box knows the new tables.
+2. Optional: redeploy `supabase/functions/ai-chat` so the chat box knows the new tables.
 
-**One source for stock + incoming.** The tracker file is the only source for `skus.salable_*`, `inventory_snapshot`, `incoming_weekly`, `asin_inventory` (BTR tab) and the new tables. Both ways of loading it go through the same SQL functions (`inv_upload` → `inv_upload_finish`), so they give identical data:
-- **Automatic (Edge Function `pull-inventory`)**: Power Automate posts the file (SharePoint *Get file content* → HTTP POST `https://<project>.supabase.co/functions/v1/pull-inventory`, headers `x-pull-secret: <INVENTORY_SECRET>`, `x-file-name: For_Sales_Incoming_Tracker.xlsx`, body = file content), or set secret `INVENTORY_FILE_URL` to the sharing link and call it with an empty body. The function detects the format from the sheet names (it still reads the old `USA Inventory Y4A-AMZ.xlsx` / sheet `report`, only for rollback). Test first with header `x-dry-run: 1` (parses, writes nothing, returns row counts). Unchanged files are skipped (`ingest_runs`, source `auto: tracker …`). If the function ever hits the Edge CPU limit, set `INVENTORY_COUNTRIES=USA` to load fewer rows.
-- **Manual**: tab Inventory Tracking → ⬆ Upload file tracker (needs the upload key).
+**One source for stock + incoming, loaded automatically.** The tracker file is the only source for `skus.salable_*`, `inventory_snapshot`, `incoming_weekly`, `asin_inventory` (BTR tab) and the new tables. There is no upload button: the data only comes in through the Edge Function `pull-inventory`, which writes through `inv_upload` → `inv_upload_finish`.
+- **Power Automate flow "Y4A Inventory → Supabase"** (hourly): Power Automate posts the file (SharePoint *Get file content* → HTTP POST `https://<project>.supabase.co/functions/v1/pull-inventory`, headers `x-pull-secret: <INVENTORY_SECRET>`, `x-file-name: For_Sales_Incoming_Tracker.xlsx`, body = file content), or set secret `INVENTORY_FILE_URL` to the sharing link and call it with an empty body. The function detects the format from the sheet names (it still reads the old `USA Inventory Y4A-AMZ.xlsx` / sheet `report`, only for rollback). Test first with header `x-dry-run: 1` (parses, writes nothing, returns row counts). Unchanged files are skipped (`ingest_runs`, source `auto: tracker …`). If the function ever hits the Edge CPU limit, set `INVENTORY_COUNTRIES=USA` to load fewer rows.
 - Do not load the old inventory file any more (old Power Automate flow, or `ingest_v2.py --inventory`): it would write `incoming_weekly` / `skus` with the old ETA logic.
-- Check: `select ran_at, source, status, message from ingest_runs where source like 'auto: tracker%' or source like 'upload:%' order by ran_at desc limit 10;`
+- Check: `select ran_at, source, status, message from ingest_runs where source like 'auto: tracker%' order by ran_at desc limit 10;`
 
-**Refresh**: tab Inventory Tracking → ⬆ Upload file tracker → choose the file, enter the key → Tải lên. The browser reads the workbook (SheetJS) and writes it through `inv_upload()` / `inv_upload_finish()` (security definer, key checked). Each upload replaces the previous file; USA lines are also appended to `incoming_eta_log` (one row per PO line per file date) so ETA changes are kept over time (`incoming_eta_changes`). The upload also refreshes `skus.salable_*`, `inventory_snapshot` and `incoming_weekly` (USA, team SKUs) so DOC / incoming on Tracking Target use the same data. Lines already past their ETA are counted in the week of the file date.
+**What a load does**: each load replaces the previous file; USA lines are also appended to `incoming_eta_log` (one row per PO line per file date) so ETA changes are kept over time (`incoming_eta_changes`). It also refreshes `skus.salable_*`, `inventory_snapshot` and `incoming_weekly` (USA, team SKUs) so DOC / incoming on Tracking Target use the same data. Lines already past their ETA are counted in the week of the file date.
 
 **How the tab counts**
 - `on_time_status` from the file: `normal`; `delay vs expected` = current ETA later than the original ETA (slip days = ETA now − ETA original); `delay vs current` = ETA already passed and the goods are not sellable yet (days past ETA = file date − ETA).
