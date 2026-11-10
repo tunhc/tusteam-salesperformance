@@ -22,7 +22,7 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
 | `supabase_weekly_targets.sql` | Weekly targets for the Weekly Review (`targets_weekly`) and `freeze_review_week` using them (the last week of a month runs to the month end). Safe to re-run. |
 | `supabase_btr.sql` | BTR Tracking tab (Amazon Born To Run): `btr_offers`, `asin_inventory`, `sales_asin_daily` + `replace_sales_asin_days`. Safe to re-run. |
-| `inventory.js` + `supabase_inventory_tracking.sql` | Inventory Tracking tab: stock, incoming by the new ETA logic (Amazon vs Y4A warehouse), delayed POs/containers, per-SKU forecast + stock projection, AI suggestions; the tracker file is uploaded from the tab. |
+| `inventory.js` + `supabase_inventory_tracking.sql` + `supabase/functions/pull-inventory/` | Inventory Tracking tab: stock, incoming by the new ETA logic (Amazon vs Y4A warehouse), delayed POs/containers, per-SKU forecast + stock projection, AI suggestions; the tracker file is uploaded from the tab. |
 | `born-to-run.html` | Reference page on Amazon Born to Run (program, Sell-through Period, Retention Fee formula, Returns, Flex), linked from the BTR Tracking tab. Source: Vendor Central Born to Run Program Policy. |
 | `supabase_kb.sql` | AI knowledge hub: `kb_articles` (one article per topic, with its dashboard page and source link) read by the chat before answering policy questions. Starts with the Born to Run article. Safe to re-run; re-run after editing an article. |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
@@ -139,6 +139,12 @@ Source: `For_Sales_Incoming_Tracker.xlsx` — sheets `01_AMZ_incoming_details` (
    on conflict (name) do update set key_hash = excluded.key_hash;
    ```
 3. Optional: redeploy `supabase/functions/ai-chat` so the chat box knows the new tables.
+
+**One source for stock + incoming.** The tracker file is the only source for `skus.salable_*`, `inventory_snapshot`, `incoming_weekly`, `asin_inventory` (BTR tab) and the new tables. Both ways of loading it go through the same SQL functions (`inv_upload` → `inv_upload_finish`), so they give identical data:
+- **Automatic (Edge Function `pull-inventory`)**: Power Automate posts the file (SharePoint *Get file content* → HTTP POST `https://<project>.supabase.co/functions/v1/pull-inventory`, headers `x-pull-secret: <INVENTORY_SECRET>`, `x-file-name: For_Sales_Incoming_Tracker.xlsx`, body = file content), or set secret `INVENTORY_FILE_URL` to the sharing link and call it with an empty body. The function detects the format from the sheet names (it still reads the old `USA Inventory Y4A-AMZ.xlsx` / sheet `report`, only for rollback). Test first with header `x-dry-run: 1` (parses, writes nothing, returns row counts). Unchanged files are skipped (`ingest_runs`, source `auto: tracker …`). If the function ever hits the Edge CPU limit, set `INVENTORY_COUNTRIES=USA` to load fewer rows.
+- **Manual**: tab Inventory Tracking → ⬆ Upload file tracker (needs the upload key).
+- Do not load the old inventory file any more (old Power Automate flow, or `ingest_v2.py --inventory`): it would write `incoming_weekly` / `skus` with the old ETA logic.
+- Check: `select ran_at, source, status, message from ingest_runs where source like 'auto: tracker%' or source like 'upload:%' order by ran_at desc limit 10;`
 
 **Refresh**: tab Inventory Tracking → ⬆ Upload file tracker → choose the file, enter the key → Tải lên. The browser reads the workbook (SheetJS) and writes it through `inv_upload()` / `inv_upload_finish()` (security definer, key checked). Each upload replaces the previous file; USA lines are also appended to `incoming_eta_log` (one row per PO line per file date) so ETA changes are kept over time (`incoming_eta_changes`). The upload also refreshes `skus.salable_*`, `inventory_snapshot` and `incoming_weekly` (USA, team SKUs) so DOC / incoming on Tracking Target use the same data. Lines already past their ETA are counted in the week of the file date.
 

@@ -154,6 +154,10 @@ end $$;
 create or replace function inv_check_key(p_key text) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin
+  -- the pull-inventory Edge Function calls with the service role key: no upload key needed
+  if coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', current_setting('request.jwt.claim.role', true)) = 'service_role' then
+    return;
+  end if;
   if not exists (select 1 from upload_keys where name = 'inventory' and key_hash = crypt(coalesce(p_key, ''), key_hash)) then
     raise exception 'Upload key không đúng (hoặc chưa tạo: xem đầu file supabase_inventory_tracking.sql)' using errcode = '28000';
   end if;
@@ -219,9 +223,11 @@ begin
 end $$;
 
 -- After every chunk is in: ETA history (USA), and the tables other tabs read.
-create or replace function inv_upload_finish(p_key text, p_file_name text default null, p_uploaded_by text default null)
+drop function if exists inv_upload_finish(text, text, text);
+create or replace function inv_upload_finish(p_key text, p_file_name text default null, p_uploaded_by text default null,
+                                             p_source text default null, p_hash text default null)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare d_amz date; d_y4a date; d_inv date; c jsonb;
+declare d_amz date; d_y4a date; d_inv date; c jsonb; n_asin int;
 begin
   perform inv_check_key(p_key);
   select max(log_date) into d_amz from incoming_detail where source = 'AMZ';
@@ -251,7 +257,7 @@ begin
   -- 3) Weekly incoming (USA) by the new ETA. Lines already past their ETA (delay vs current)
   --    are put in the week of the file date: they are due now.
   if coalesce(d_amz, d_y4a) is not null then
-    delete from incoming_weekly where snapshot_date = greatest(d_amz, d_y4a);
+    delete from incoming_weekly where snapshot_date = greatest(d_amz, d_y4a) or snapshot_date < greatest(d_amz, d_y4a) - 90;
     insert into incoming_weekly (sku, week_start, qty_y4a, qty_amz, snapshot_date)
     select x.sku, x.wk, sum(x.qy), sum(x.qa), greatest(d_amz, d_y4a)
     from (
@@ -263,21 +269,45 @@ begin
     group by x.sku, x.wk;
   end if;
 
+  -- 4) BTR tab: stock per SKU × ASIN (USA, SSO) from 04_AMZ_sellable details; ASIN status kept from the previous rows
+  if to_regclass('public.asin_inventory') is not null and exists (select 1 from amz_inventory_asin where country = 'USA') then
+    create temp table _ai on commit drop as
+    select a.sku, a.asin, o.asin_status, coalesce(a.department, 'SSO') dep,
+           coalesce(s.inv_y4a, 0) salable_y4a, coalesce(a.total_sellable, 0) salable_amz,
+           coalesce((select sum(qty) from incoming_detail i where i.country = 'USA' and i.source = 'Y4A' and i.sku = a.sku), 0) incoming_y4a,
+           coalesce((select sum(qty) from incoming_detail i where i.country = 'USA' and i.source = 'AMZ' and i.asin = a.asin), 0) incoming_amz,
+           a.log_date::timestamp snapshot_at
+    from amz_inventory_asin a
+    left join inventory_sellable s on s.country = 'USA' and s.sku = a.sku
+    left join asin_inventory o on o.sku = a.sku and o.asin = a.asin
+    where a.country = 'USA' and a.sku is not null and coalesce(a.department, 'SSO') = 'SSO';
+    delete from asin_inventory where true;
+    insert into asin_inventory (sku, asin, asin_status, dep, salable_y4a, salable_amz, incoming_y4a, incoming_amz, snapshot_at)
+    select sku, asin, asin_status, dep, salable_y4a, salable_amz, incoming_y4a, incoming_amz, snapshot_at from _ai
+    on conflict (sku, asin) do nothing;
+    get diagnostics n_asin = row_count;
+  end if;
+
   select jsonb_build_object(
     'amz_lines', (select count(*) from incoming_detail where source = 'AMZ'),
     'y4a_lines', (select count(*) from incoming_detail where source = 'Y4A'),
     'inventory_rows', (select count(*) from inventory_sellable),
     'amz_asin_rows', (select count(*) from amz_inventory_asin),
+    'asin_inventory_rows', n_asin,
     'amz_log_date', d_amz, 'y4a_log_date', d_y4a, 'inventory_as_of', d_inv) into c;
-  insert into inventory_uploads (file_name, log_date, counts, uploaded_by) values (p_file_name, coalesce(d_amz, d_y4a), c, p_uploaded_by);
+  insert into inventory_uploads (file_name, log_date, counts, uploaded_by) values (p_file_name, coalesce(d_amz, d_y4a), c, coalesce(p_uploaded_by, p_source));
+  insert into ingest_runs (source, status, file_hash, days, rows_in, rows_loaded, message)
+  values (coalesce(p_source, 'upload: ' || coalesce(p_file_name, 'tracker')), 'ok', p_hash, array[coalesce(d_amz, d_y4a)],
+          (c->>'amz_lines')::int + (c->>'y4a_lines')::int, (c->>'inventory_rows')::int,
+          format('tracker %s: AMZ %s dòng, Y4A %s dòng, tồn %s SKU, asin_inventory %s', coalesce(d_amz, d_y4a), c->>'amz_lines', c->>'y4a_lines', c->>'inventory_rows', coalesce(n_asin::text, 'bỏ qua')));
   return c;
 end $$;
 
 revoke execute on function inv_check_key(text) from public, anon, authenticated;
 revoke execute on function inv_upload(text, text, jsonb, boolean) from public;
-revoke execute on function inv_upload_finish(text, text, text) from public;
-grant execute on function inv_upload(text, text, jsonb, boolean) to anon, authenticated;
-grant execute on function inv_upload_finish(text, text, text) to anon, authenticated;
+revoke execute on function inv_upload_finish(text, text, text, text, text) from public;
+grant execute on function inv_upload(text, text, jsonb, boolean) to anon, authenticated, service_role;
+grant execute on function inv_upload_finish(text, text, text, text, text) to anon, authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- ETA accuracy from the history: per PO line, first ETA seen, last ETA seen,
