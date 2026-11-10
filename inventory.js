@@ -21,6 +21,8 @@
 const root = typeof window !== 'undefined' ? window : globalThis;
 const INV = root.INV = root.INV || {};
 const H = () => root.V2.h;
+// SKU → Amazon listing (helper from v2.js; plain bold text when the SKU has no ASIN)
+const link = sku => (root.V2 && root.V2.skuLink ? root.V2.skuLink(sku) : '<b>' + String(sku) + '</b>');
 const DAY = 86400000;
 
 // ---------------------------------------------------------------- dates
@@ -352,7 +354,7 @@ function paint(){
   const badge = r => `<span class="badge ${r.riskRank <= 2 ? 'red' : r.riskRank <= 3 ? 'amber' : r.risk === 'OK' ? 'green' : 'gray'}">${h.esc(r.risk)}</span>`;
   const nxt = l => l ? `${md(l.eta)}<span class="vs">${fi(l.qty)} u · ${h.esc(l.physical_status || '')}${l.on_time_status !== 'normal' ? ' · <b style="color:var(--red)">' + (l.on_time_status === 'delay vs current' ? 'quá ETA' : 'lùi ' + (l.slip || 0) + 'n') + '</b>' : ''}</span>` : '—';
   document.getElementById('ivBody').innerHTML = tr.slice(0, 600).map(r => `<tr class="main${IV.sel === r.sku ? ' sel' : ''}" data-sku="${h.esc(r.sku)}" style="cursor:pointer">
-      <td>${h.esc(r.pic)}</td><td><b>${h.esc(r.sku)}</b></td><td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
+      <td>${h.esc(r.pic)}</td><td>${link(r.sku)}</td><td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td class="num">${fi(r.amz)}</td><td class="num">${fi(r.y4a)}</td><td class="num">${r.act4 == null ? '—' : r.act4.toFixed(1)}</td>
       <td class="num" title="${r.f ? 'Mô hình ' + r.model + (r.acc != null ? ' · chính xác ' + (r.acc * 100).toFixed(0) + '%' : '') : ''}">${r.fc4 == null ? '—' : r.fc4.toFixed(1)}<span class="vs">${h.esc(r.model)}${r.acc != null ? ' · ' + (r.acc * 100).toFixed(0) + '%' : ''}</span></td>
       <td class="num">${r.woc == null ? '—' : r.woc > 99 ? '>99' : r.woc.toFixed(1)}<span class="vs">tổng ${r.wocT == null ? '—' : r.wocT > 99 ? '>99' : r.wocT.toFixed(1)}</span></td>
@@ -379,7 +381,7 @@ function paint(){
       : (r.fcW ? r.pA.p.map((v, i) => { const short = r.fcW[i] > 0 && (i === 0 ? r.amz + r.incA[0] : r.pA.p[i - 1] + r.incA[i]) < r.fcW[i];
           return `<td class="num g-c${short ? ' g-od' : ''}" title="Tồn AMZ cuối tuần ${fi(v)} · hàng về AMZ ${fi(r.incA[i])} · forecast ${r.fcW[i].toFixed(1)}">${fi(v)}</td>`; }).join('')
          : W2.map(() => '<td class="num g-c" title="Chưa có forecast">·</td>').join(''));
-    return `<tr data-sku="${h.esc(r.sku)}"${IV.sel === r.sku ? ' class="sel"' : ''}><td class="g-sku"><b>${h.esc(r.sku)}</b><span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 26))}</span></td><td class="g-pl">${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
+    return `<tr data-sku="${h.esc(r.sku)}"${IV.sel === r.sku ? ' class="sel"' : ''}><td class="g-sku">${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 26))}</span></td><td class="g-pl">${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td class="num g-inv">${fi(r.amz)}</td><td class="num g-inv2">${fi(r.y4a)}</td>${cells}<td class="num"><b>${fi(r.incAmzTot + r.incY4aTot)}</b></td></tr>`;
   }).join('') || `<tr><td colspan="${HZN + 7}" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc.</td></tr>`;
   document.querySelectorAll('#ivGridBody tr[data-sku]').forEach(t => t.onclick = () => { IV.sel = t.dataset.sku; paint(); document.getElementById('ivDetail').scrollIntoView({behavior: 'smooth', block: 'start'}); });
@@ -395,7 +397,7 @@ async function detail(){
   const fi = v => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('en-US');
   const W = IV.weeks, wl = W.map(md);
   const a0 = r.asins[0];
-  host.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Chart theo SKU · ${h.esc(r.sku)} · ${h.esc(r.name)}</h3>
+  host.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Chart theo SKU · ${link(r.sku)} · ${h.esc(r.name)}</h3>
       <div class="fld"><label for="ivSkuPick" style="font-size:10.5px;font-weight:800;color:var(--muted);display:block">Chọn SKU</label><select id="ivSkuPick">${filtered().slice().sort((a, b) => a.sku.localeCompare(b.sku)).map(x => `<option value="${h.esc(x.sku)}"${x.sku === r.sku ? ' selected' : ''}>${h.esc(x.sku)} · ${h.esc(x.name.slice(0, 40))}</option>`).join('')}</select></div></div>
     <div class="hint">Tồn AMZ <b>${fi(r.amz)}</b> · tồn Y4A <b>${fi(r.y4a)}</b> · ${h.esc(r.pl)}${r.pic ? ' · PIC ' + h.esc(r.pic) : ''} · ${r.f ? `Forecast: ${h.esc(r.model)}${r.acc != null ? ', chính xác backtest ' + (r.acc * 100).toFixed(0) + '%' : ''} (so sánh: ${Object.entries(r.f.scores).sort((a, b) => a[1] - b[1]).map(([m, s]) => m + ' ' + Math.max(0, (1 - s) * 100).toFixed(0) + '%').join(', ')})` : 'Chưa có số bán để forecast'}
     ${r.asins.length ? '<br>Vendor Central: ' + r.asins.map(a => `${h.esc(a.asin)} — on hand ${fi(a.sellable_on_hand_units)}, in transit ${fi(a.sellable_in_transit_units)}, open PO ${fi(a.open_po_units)}, aged 90+ ${fi(a.aged_90_units)}, confirm ${a.vendor_confirmation_rate == null ? '—' : (a.vendor_confirmation_rate * 100).toFixed(0) + '%'}, fill ${a.receive_fill_rate == null ? '—' : (a.receive_fill_rate * 100).toFixed(0) + '%'}, OOS ${a.procurable_oos_rate == null ? '—' : (a.procurable_oos_rate * 100).toFixed(1) + '%'}`).join('<br>') : ''}</div>

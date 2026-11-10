@@ -150,9 +150,19 @@ Source: `For_Sales_Incoming_Tracker.xlsx` — sheets `01_AMZ_incoming_details` (
 
 ## Tracking Target: lost sales / tồn cao (replaces the DOC table)
 
-- **Lost sales theo product line**: per Main PL (expand to SKUs; clicking a SKU filters the whole dashboard).
-  - *Mốc forecast* = an inventory + incoming snapshot (`inventory_snapshot` + `incoming_weekly` of that day, listed by `inventory_snapshot_dates()`; default = the last snapshot before the month).
-  - *Δ tồn* = (current stock + incoming due in the month by the new ETA + units sold since the snapshot) − (stock at the snapshot + incoming due in the month by the ETA at that time). Negative = the month has less supply than when the target was set.
-  - *Lost* = day by day to month end, the remaining target (target − MTD units) spread evenly over the days left against current stock plus incoming on its week (new ETA); missing units × price (RRP → Normal ASP → ASP). Units whose original ETA was inside the month but moved past month end are flagged per SKU.
-- **Tồn cao theo product line**: leftover at month end = current stock + incoming in the month − remaining target; potential GMV = leftover × price; DOC shown for reference.
-- **Issue monitor** (below): *Ineligible ads* (target file), block zipcode / long shipping / listing (PIC notes), *Nhảy giá* = 7-day ASP more than ±10% from RRP (the locked price; 4-week ASP when there is no RRP), glance views −30% WoW.
+Always measured against the **target** (`targets_weekly`, the weekly split of the month target; the monthly target spread evenly when a SKU has no weekly split). Price = target GMV ÷ target units of the month.
+
+- **Lost sales theo product line** (expand to SKUs; the SKU code opens the Amazon listing, the row filters the dashboard):
+  - Day by day from tomorrow to month end: the target units that current stock + incoming per week cannot cover. Incoming comes from the incoming tracker (new ETA). **ETA thận trọng** (default) moves goods already past their ETA / due this week one week later, because ETAs keep slipping; "ETA theo tracker" uses them as they are.
+  - **Mốc forecast**: the inventory file the target was built on, stored per month in `forecast_baseline_inventory` / `forecast_baseline_incoming` (Nov-2026 = `Yes4All_US_Inventory_10282026.xlsx`, 28/10 09:05); daily inventory snapshots can be picked instead. The same simulation on the baseline gives the lost "if goods had come as planned": **Do hàng trễ** = lost − that; the rest is short even on plan.
+  - **Δ tồn** = (current stock + incoming in the month + sold since the baseline) − (baseline stock + incoming in the month at the baseline).
+  - Units whose original ETA was inside the month but moved past month end, and units past ETA, are tagged per SKU.
+  - Nov-2026 check on real data (108 SKUs with a target, $419K target left from 11/11): even spread $11.3K · weekly target + tracker ETA $9.3K · **weekly target + cautious ETA $10.5K** (used) · if goods had come as the 28/10 file planned $4.2K.
+- **Tồn cao theo product line**: stock left at month end in the same simulation, potential GMV at the target price, DOC for reference.
+- **Issue monitor** (below the two tables): *Ineligible ads* (target file), block zipcode / long shipping / listing (PIC notes), **Nhảy giá** = current Buy Box (Keepa, column Z, matched by ASIN in column E) more than ±10% from **RRP tham chiếu** (Optimal Pricing, column U; the target-file RRP when a SKU is not in the pricing file), glance views −30% WoW.
+  - Each card shows **Lost $X (Y% impact)**: the PIC's estimate when a Weekly Review note has one for the SKU on a line naming that issue ("Lost ~$1,000", "Hụt $1106", "sức bán giảm khoảng 75%" × target GMV MTD), else the gap to the target GMV MTD; % impact = lost ÷ target GMV MTD of those SKUs.
+
+**Loading the price files and the forecast baseline** (Edge Function `pull-inventory`, same URL and `x-pull-secret` as the tracker flow; `supabase_pricing_baseline.sql` creates the tables, run once):
+- Keepa export (its link is updated continuously): a Power Automate flow like the tracker one — *Get file content* of `US_Keepa_Raw_Auto.xlsx` → HTTP POST, header `x-file-name: US_Keepa_Raw_Auto.xlsx`. Detected from its first row; replaces `keepa_prices`.
+- Optimal Pricing (`Yes4All_Optimal_Pricing_SKU.xlsx`, sheet *Optimal pricing*): POST it whenever the fixed prices change; replaces `price_reference`.
+- Forecast baseline of a new month: POST the inventory file used for the target (old *report* format) with header `x-forecast-month: 2026-12`.
