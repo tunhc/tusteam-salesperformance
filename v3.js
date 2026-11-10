@@ -26,6 +26,7 @@ css.textContent = `
 .chat-msg.ai{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
 .chat-msg.ai table{border-collapse:collapse;margin:6px 0;font-size:11.5px}.chat-msg.ai th,.chat-msg.ai td{border:1px solid var(--line);padding:3px 6px;position:static;background:#fff;color:var(--ink);white-space:nowrap;text-transform:none;letter-spacing:0;font-size:11.5px}
 .chat-msg.ai th{background:#F1F3F6;font-weight:700}
+.chat-msg.ai a{color:var(--navy);font-weight:700;text-decoration:underline}
 .chat-msg.ai ul{margin:4px 0;padding-left:18px}.chat-msg.ai code{background:#F1F3F6;border-radius:4px;padding:0 4px;font-size:11px}
 .chat-msg details{margin-top:6px;font-size:11px;color:var(--muted)}.chat-msg details pre{white-space:pre-wrap;background:#F6F7F8;border-radius:6px;padding:6px;font-size:10.5px;max-height:160px;overflow:auto}
 .chat-suggest{display:flex;flex-wrap:wrap;gap:6px}.chat-suggest button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:inherit;text-align:left}
@@ -104,6 +105,8 @@ css.textContent = `
 .btr-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
 .btr-src{font-size:11.5px;color:var(--muted);margin:-4px 0 12px;display:flex;gap:6px 16px;flex-wrap:wrap}
 .btr-src b{color:var(--ink)}
+.btr-learn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;background:#FFF3EA;color:var(--orange-dark);font-weight:700;font-size:12.5px;text-decoration:none;border:1px solid #FFD2AE;white-space:nowrap}
+.btr-learn:hover{background:#FFE6D2}
 .btr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 .btr-grid .plot{height:340px}
 #btrTable td.sub{color:var(--muted);font-size:11.5px;background:#FAFBFC}
@@ -125,11 +128,13 @@ document.head.appendChild(css);
 const CHAT_KEY = 'y4a_chat_session_v1';
 const loadSession = () => { try { return JSON.parse(localStorage.getItem(CHAT_KEY) || 'null'); } catch(e){ return null; } };
 const saveSession = s => { try { s ? localStorage.setItem(CHAT_KEY, JSON.stringify(s)) : localStorage.removeItem(CHAT_KEY); } catch(e){} };
-const SUGGEST = ['Tháng 9 năm ngoái Dumbbell Neoprene bán được bao nhiêu units?', 'Chỉ số nào đang có vấn đề cho Standard Dumbbells tuần này?', 'Top 5 SKU giảm GMV mạnh nhất 7 ngày qua so với 7 ngày trước', 'SKU nào sắp hết hàng trong 2 tuần tới?', 'Nên chạy deal hay tăng ads cho Tricep Ropes?'];
+const SUGGEST = ['Tháng 9 năm ngoái Dumbbell Neoprene bán được bao nhiêu units?', 'Chỉ số nào đang có vấn đề cho Standard Dumbbells tuần này?', 'Top 5 SKU giảm GMV mạnh nhất 7 ngày qua so với 7 ngày trước', 'SKU nào sắp hết hàng trong 2 tuần tới?', 'Nên chạy deal hay tăng ads cho Tricep Ropes?', 'Born to Run tính retention fee thế nào?'];
 function md(text){
   const esc = H().esc;
   const lines = String(text || '').split('\n'); const out = []; let i = 0;
-  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const link = (label, url) => /^(https?:\/\/|[\w-]+\.html(#[\w-]*)?$)/.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => link(label, url));
   while(i < lines.length){
     const l = lines[i];
     if(/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|[\s:\-|]+\|\s*$/.test(lines[i + 1])){
@@ -969,6 +974,7 @@ V3.renderBtr = async function(){
         <div class="fld"><label for="btrAlert">Mức cảnh báo</label><select id="btrAlert"><option value="">All</option><option value="High">High (Est % &lt; 50%)</option><option value="Medium">Medium (50–80%)</option><option value="OK">OK (≥ 80%)</option></select></div>
         <div class="fld"><label for="btrQ">Tìm SKU / ASIN / tên</label><input id="btrQ" type="search" placeholder="VD: CKKG, B0HCZ…"></div>
         <div class="fld"><label>&nbsp;</label><button class="btn small" id="btrReload" type="button">↻ Tải lại số</button></div>
+        <div class="fld"><label>&nbsp;</label><a class="btr-learn" href="born-to-run.html" target="_blank" rel="noopener">&#128216; Hiểu thêm về Born to Run</a></div>
       </div>
       <div class="btr-src" id="btrSrc"></div>
       <div class="kpis btr-kpis" id="btrKpis"></div>
