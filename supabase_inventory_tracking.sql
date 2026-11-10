@@ -182,7 +182,7 @@ begin
       product_line text, selling_type text, incoming_week text)
     where sku is not null and po_name is not null and country is not null and log_date is not null;
   elsif p_kind = 'inventory_sellable' then
-    if p_reset then delete from inventory_sellable; end if;
+    if p_reset then delete from inventory_sellable where true; end if;   -- "where true": Supabase blocks DELETE without WHERE from the API
     insert into inventory_sellable (country, sku, product_name, department, inv_y4a, inv_amz, y4a_as_of, amz_as_of)
     select country, sku, max(product_name), max(department), sum(coalesce(inv_y4a, 0)), sum(coalesce(inv_amz, 0)), max(y4a_as_of), max(amz_as_of)
     from jsonb_to_recordset(p_rows) as r(country text, sku text, product_name text, department text, inv_y4a numeric, inv_amz numeric, y4a_as_of date, amz_as_of date)
@@ -191,7 +191,7 @@ begin
     on conflict (country, sku) do update set product_name = excluded.product_name, department = excluded.department,
       inv_y4a = excluded.inv_y4a, inv_amz = excluded.inv_amz, y4a_as_of = excluded.y4a_as_of, amz_as_of = excluded.amz_as_of, loaded_at = now();
   elsif p_kind = 'amz_asin' then
-    if p_reset then delete from amz_inventory_asin; end if;
+    if p_reset then delete from amz_inventory_asin where true; end if;
     insert into amz_inventory_asin (country, asin, sku, department, log_date, currency, sellable_on_hand_units, sellable_on_hand_value,
       sellable_in_transit_units, unsellable_on_hand_units, in_transit_units, open_po_units, total_sellable, net_received_units,
       unfilled_customer_ordered_units, confirmed_units, aged_90_units, procurable_oos_rate, sourceable_oos_rate,
