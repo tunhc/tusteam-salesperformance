@@ -488,9 +488,11 @@ def followup_pic_rows(path, sheet):
 
 
 def month_target_rows(path, month):
-    """Final target per SKU (columns AD units, AE GMV, AF Ads, AG Promo) and the weekly split
-    (AH.. units, then Ads, then Promo, one column per week; the last week column covers the rest
-    of the month, e.g. "W47 (incl 29&30/11)" = 22/11 → 30/11). Weekly GMV follows the weekly units.
+    """Final target per SKU and its weekly split, read from the last plan block of the sheet: the block
+    labelled on row 2 ("Bottom up Plan" at AC, and from Nov.2026 a revised "Final" block after it), each
+    laid out RRP | Final target unit | Final target GMV | Ads | Promo | week units… | week Ads… | week Promo…
+    (one column per week; the last week column covers the rest of the month, e.g. "W47 (incl 29&30/11)"
+    = 22/11 → 30/11). Weekly GMV follows the weekly units.
     Weeks are calendar weeks Sunday → Saturday starting at the month start; the last file week
     runs to the month end."""
     import calendar
@@ -499,11 +501,19 @@ def month_target_rows(path, month):
     rows = list(ws.iter_rows(values_only=True))
     hdr = rows[2]
     L = lambda c: openpyxl.utils.column_index_from_string(c) - 1
-    expect = {"C": "SKU", "AD": "Final target unit", "AE": "Final target GMV", "AF": "Ads", "AG": "Promo"}
-    bad = [f"{c}={hdr[L(c)]!r}" for c, v in expect.items() if str(hdr[L(c)] or "").strip() != v]
+    # plan blocks: a label on row 2 at or after AC above an "RRP" header; the last one is the final plan
+    starts = [i for i in range(L("AC"), len(hdr)) if txt(rows[1][i] if i < len(rows[1]) else None) and str(hdr[i] or "").strip() == "RRP"]
+    if not starts:
+        raise SystemExit("File target không có khối kế hoạch (nhãn ở dòng 2 trên cột RRP, từ cột AC)")
+    b = starts[-1]
+    block_end = len(hdr)
+    U, G, A, P = b + 1, b + 2, b + 3, b + 4
+    expect = {"C": (L("C"), "SKU"), "units": (U, "Final target unit"), "GMV": (G, "Final target GMV"), "Ads": (A, "Ads"), "Promo": (P, "Promo")}
+    bad = [f"{k}: cột {openpyxl.utils.get_column_letter(i + 1)}={hdr[i]!r}" for k, (i, v) in expect.items() if str(hdr[i] or "").strip() != v]
     if bad:
         raise SystemExit("File target không đúng cột mong đợi: " + ", ".join(bad))
-    wk_cols = [i for i in range(L("AH"), len(hdr)) if re.match(r"^W\d+", str(hdr[i] or ""))]
+    print(f"  target block: {txt(rows[1][b])} (cột {openpyxl.utils.get_column_letter(b + 1)})")
+    wk_cols = [i for i in range(P + 1, block_end) if re.match(r"^W\d+", str(hdr[i] or ""))]
     n = len(wk_cols) // 3
     units_c, ads_c, promo_c = wk_cols[:n], wk_cols[n:2 * n], wk_cols[2 * n:3 * n]
     # calendar weeks of the month (Sunday start), cut at the month ends
@@ -521,7 +531,7 @@ def month_target_rows(path, month):
         sku = (txt(r[L("C")]) or "").replace("\u200b", "").strip().upper()
         if not re.fullmatch(r"[0-9A-Z]{4}", sku):
             continue
-        mu, mg, ma, mp = (num(r[L(c)]) for c in ("AD", "AE", "AF", "AG"))
+        mu, mg, ma, mp = (num(r[c]) for c in (U, G, A, P))
         monthly.append({"sku": sku, "month": first, "target_units": round(mu, 4), "target_gmv": round(mg, 4),
                         "ads_target": round(ma, 4), "promo_target": round(mp, 4)})
         for k, grp in enumerate(groups):
