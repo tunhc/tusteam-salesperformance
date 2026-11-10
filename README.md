@@ -147,3 +147,12 @@ Source: `For_Sales_Incoming_Tracker.xlsx` — sheets `01_AMZ_incoming_details` (
 - ETA for projections: "ETA trong file", or "ETA thận trọng" = ETA + the average slip seen in the file for the same source × physical status (overdue lines: file date + 7 days).
 - Forecast (USA only; `sales_daily` is Amazon US): per SKU, 78 complete weeks of units → 5 models (MA4, MA8, SES, Holt damped, Seasonal = MA8 level × last year's shape), rolling-origin backtest over the last 8 weeks with a 4-week horizon, lowest WAPE wins (accuracy = 1 − WAPE). SKUs out of stock now whose last 4 weeks fell below half of weeks 5–12 use the pre-stock-out level (`OOS-adjusted`). Past stock-outs are not detected, so their weeks pull forecasts down.
 - Projection (16 weeks): stock AMZ + Amazon incoming in the week − forecast → OOS week and lost units; a second line adds Y4A stock and Y4A incoming. Risk: OOS ≤ 2 weeks / within 8 weeks, PO past ETA, ETA slipped, high stock (> 26 weeks of total cover). Suggestions are rule-based; "🤖 AI phân tích" sends the risk SKUs and delayed POs to the `ai-recommend` Edge Function.
+
+## Tracking Target: lost sales / tồn cao (replaces the DOC table)
+
+- **Lost sales theo product line**: per Main PL (expand to SKUs; clicking a SKU filters the whole dashboard).
+  - *Mốc forecast* = an inventory + incoming snapshot (`inventory_snapshot` + `incoming_weekly` of that day, listed by `inventory_snapshot_dates()`; default = the last snapshot before the month).
+  - *Δ tồn* = (current stock + incoming due in the month by the new ETA + units sold since the snapshot) − (stock at the snapshot + incoming due in the month by the ETA at that time). Negative = the month has less supply than when the target was set.
+  - *Lost* = day by day to month end, the remaining target (target − MTD units) spread evenly over the days left against current stock plus incoming on its week (new ETA); missing units × price (RRP → Normal ASP → ASP). Units whose original ETA was inside the month but moved past month end are flagged per SKU.
+- **Tồn cao theo product line**: leftover at month end = current stock + incoming in the month − remaining target; potential GMV = leftover × price; DOC shown for reference.
+- **Issue monitor** (below): *Ineligible ads* (target file), block zipcode / long shipping / listing (PIC notes), *Nhảy giá* = 7-day ASP more than ±10% from RRP (the locked price; 4-week ASP when there is no RRP), glance views −30% WoW.

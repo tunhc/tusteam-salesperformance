@@ -273,6 +273,10 @@ tr.sub td:first-child{padding-left:28px}
 .v2-modal .panel{background:#fff;border-radius:14px;max-width:1100px;width:100%;padding:18px 20px;box-shadow:var(--shadow-lg)}
 .v2-modal .panel .x{float:right;border:0;background:#EEF1F5;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:16px}
 .issue-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.ls-table td,.ls-table th{white-space:nowrap}
+.ls-table tr.ls-pl td{background:#F7F9FC}
+.ls-table tr.ls-sku td{font-size:12px}
+.ls-table tr.clickable{cursor:pointer}
 .issue{border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;background:#fff;display:flex;flex-direction:column;gap:2px}
 .issue:hover{border-color:var(--orange)}
 .issue.active{box-shadow:0 0 0 2px var(--orange) inset}
@@ -345,9 +349,10 @@ tr.sub td:first-child{padding-left:28px}
 
   <div class="moc-strip" id="mocStrip"></div>
   <div class="grid2" style="align-items:start">
-    <div class="card" id="docStatsCard" style="margin:0"></div>
-    <div class="card" id="issueCard" style="margin:0"></div>
+    <div class="card" id="lostCard" style="margin:0"></div>
+    <div class="card" id="excessCard" style="margin:0"></div>
   </div>
+  <div class="card" id="issueCard" style="margin:0 0 16px"></div>
 
   <div class="section-title" id="targetSectionTitle">Target &mdash; Aug-26 (full month)</div>
   <div class="kpis" id="kpiTargetRow"></div>

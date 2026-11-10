@@ -310,27 +310,118 @@ function rerenderAllTabs(){
 // =====================================================================
 let issueFilter = null;
 function priceOf(r){ return r.rrp > 0 ? r.rrp : (r.normalAsp > 0 ? r.normalAsp : (r.actualUnits ? r.actualGMV / r.actualUnits : 0)); }
-const DOC_ORDER = ['OOS','DOC <14d','DOC 14–30d','DOC 30–90d','DOC >90d','N/A'];
-function renderDocStats(rows){
-  const el = $('#docStatsCard'); if(!el) return;
-  const g = {}; DOC_ORDER.forEach(b => g[b] = {n:0, withInv:0, units:0, value:0, sell30:0, noRrp:0});
-  rows.forEach(r => {
-    const b = g[r.docBand] || g['N/A']; const inv = stockOf(r), p = priceOf(r);
-    b.n++; if(inv > 0) b.withInv++; b.units += inv; b.value += inv * p; if(!(r.rrp > 0) && inv > 0) b.noRrp++;
-    const vel = r.sig && isNum(r.sig.vel) ? r.sig.vel : (r.docVelocity || 0);
-    b.sell30 += Math.min(inv, vel * 30) * p;
+// ---------------------------------------------------------------------
+// Lost sales / tồn cao (replaces the DOC table)
+// Mốc forecast = the inventory + incoming snapshot of the day the target was built.
+//   Δ tồn  = (tồn hiện tại + hàng về trong tháng theo ETA mới + đã bán từ mốc)
+//          − (tồn lúc forecast + hàng về trong tháng theo ETA lúc forecast)
+//   Lost   = day-by-day to month end: demand = (target − bán MTD) spread evenly over the days left,
+//            stock = tồn hiện tại + hàng về theo tuần (ETA mới); units missing × giá (RRP → Normal ASP → ASP)
+//   Tồn dư = tồn hiện tại + hàng về trong tháng − target còn lại; potential GMV = tồn dư × giá
+// ---------------------------------------------------------------------
+const LS = { key: '', data: null, loading: false, open: new Set(), openX: new Set(), rows: [], fdate: null };
+try { LS.fdate = localStorage.getItem('lsForecastDate') || null; } catch(_){}
+const monthEndOf = m => addDaysIso(addMonthsIsoV2(m, 1), -1);
+function addMonthsIsoV2(m, n){ const d = new Date(m + 'T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); }
+async function lsLoad(month){
+  const dates = await rpcAll('inventory_snapshot_dates', {});
+  const avail = dates.filter(d => d.has_incoming).map(d => String(d.snapshot_date).slice(0, 10));
+  const def = avail.find(d => d < month) || avail[avail.length - 1] || null;   // last snapshot before the month
+  const fdate = LS.fdate && avail.includes(LS.fdate) ? LS.fdate : def;
+  if(!fdate) return {avail, fdate: null};
+  const asOf = V2.state.maxDate || todayISO(), mEnd = monthEndOf(month);
+  const [invF, incF, soldSince, lines] = await Promise.all([
+    selectAll('inventory_snapshot', q => q.eq('snapshot_date', fdate)),
+    selectAll('incoming_weekly', q => q.eq('snapshot_date', fdate).lte('week_start', mEnd)),
+    fdate < asOf ? rpcAll('sales_by_sku', {p_from: addDaysIso(fdate, 1), p_to: asOf}) : Promise.resolve([]),
+    selectAll('incoming_detail', q => q.eq('country', 'USA')).catch(() => []),
+  ]);
+  const by = (a, f) => { const m = new Map(); a.forEach(x => m.set(x.sku, (m.get(x.sku) || 0) + f(x))); return m; };
+  return {avail, fdate, month, mEnd, asOf,
+    stockF: new Map(invF.map(x => [x.sku, (+x.salable_y4a || 0) + (+x.salable_amz || 0)])),
+    incF: by(incF, x => (+x.qty_y4a || 0) + (+x.qty_amz || 0)),
+    sold: by(soldSince, x => +x.units || 0),
+    // goods that were due inside the month but whose ETA moved past month end
+    slipOut: by(lines.filter(l => l.eta_salable_original && l.eta_salable_original <= mEnd && l.eta_salable_date > mEnd), x => +x.qty || 0),
+    overdue: by(lines.filter(l => l.on_time_status === 'delay vs current'), x => +x.qty || 0)};
+}
+function lsCompute(rows, D){
+  const asOf = D.asOf, mEnd = D.mEnd, daysLeft = Math.max(0, Math.round((Date.parse(mEnd) - Date.parse(asOf)) / 864e5));
+  return rows.map(r => {
+    const price = priceOf(r), stock = Math.max(0, stockOf(r));
+    const inc = (V2.state.incoming.get(r.sku) || []).filter(w => w.week <= mEnd);
+    const incNow = inc.reduce((t, w) => t + w.qty, 0);
+    const stockF = D.stockF.get(r.sku) || 0, incF = D.incF.get(r.sku) || 0, sold = D.sold.get(r.sku) || 0;
+    const delta = stock + incNow + sold - (stockF + incF);
+    const need = Math.max(0, (r.targetUnits || 0) - (r.actualUnits || 0));
+    let st = stock, lost = 0, first = null;
+    for(let k = 1; k <= daysLeft; k++){
+      const day = addDaysIso(asOf, k);
+      inc.forEach(w => { if(w.week === day || (k === 1 && w.week < day)) st += w.qty; });   // arrives on its week start
+      const dmd = daysLeft ? need / daysLeft : 0, miss = Math.max(0, dmd - st);
+      if(miss > 0 && first === null) first = day;
+      lost += miss; st = Math.max(0, st - dmd);
+    }
+    const surplus = Math.max(0, stock + incNow - need);
+    return {r, sku: r.sku, pl: r.mainPL || 'Unclassified', name: r.productName || '', pic: r.pic, price, stock, incNow, stockF, incF, sold, delta, need,
+      lost, lostGmv: lost * price, firstShort: first, surplus, potGmv: surplus * price, doc: r.docDays,
+      slipOut: D.slipOut.get(r.sku) || 0, overdue: D.overdue.get(r.sku) || 0};
   });
-  const tot = Object.values(g).reduce((t, b) => ({n:t.n+b.n, withInv:t.withInv+b.withInv, units:t.units+b.units, value:t.value+b.value, sell30:t.sell30+b.sell30, noRrp:t.noRrp+b.noRrp}), {n:0,withInv:0,units:0,value:0,sell30:0,noRrp:0});
-  const over = g['DOC >90d'];
-  const color = {OOS:COLOR.red, 'DOC <14d':COLOR.red, 'DOC 14–30d':COLOR.amber, 'DOC 30–90d':COLOR.green, 'DOC >90d':COLOR.navy, 'N/A':'#66707C'};
-  el.innerHTML = `<h3 style="margin:0 0 4px">Tồn kho theo DOC & GMV tương ứng</h3>
-    <div class="hint">GMV tiềm năng = tồn (Y4A + AMZ) × RRP (thiếu RRP thì dùng Normal ASP, rồi ASP tháng này). “Bán được 30 ngày” = min(tồn, tốc độ bán 5 tuần gần nhất × 30) × RRP. ${tot.noRrp ? `<b>${tot.noRrp} SKU còn tồn chưa có RRP.</b>` : ''}</div>
-    <div class="readout" style="margin:8px 0 10px">Hàng tồn <b>&gt; 90 ngày</b>: <b>${over.withInv}</b> SKU còn tồn · <b>${fmtInt(over.units)}</b> units · GMV tương ứng <b>${f$(over.value)}</b> theo RRP, nhưng với tốc độ hiện tại chỉ bán được khoảng <b>${f$(over.sell30)}</b> trong 30 ngày → cần deal/ads để kéo.</div>
-    <div class="tablewrap" style="max-height:none"><table class="doc-table"><thead><tr><th>DOC band</th><th class="num">SKU</th><th class="num">SKU còn tồn</th><th class="num">Units tồn</th><th class="num">GMV tiềm năng @RRP</th><th class="num">Bán được 30 ngày</th><th class="num">% giá trị tồn</th></tr></thead><tbody>
-    ${DOC_ORDER.map(b => { const x = g[b]; return `<tr class="clickable" data-band="${b}"><td><span class="badge" style="background:#F1F3F6;color:${color[b]}">${b}</span></td><td class="num">${x.n}</td><td class="num">${x.withInv}</td><td class="num">${fmtInt(x.units)}</td><td class="num"><b>${f$(x.value)}</b></td><td class="num">${f$(x.sell30)}</td><td class="num">${tot.value ? fP(x.value / tot.value, 0) : '—'}</td></tr>`; }).join('')}
-    <tr style="font-weight:800;background:#F5F7FA"><td>Tổng</td><td class="num">${tot.n}</td><td class="num">${tot.withInv}</td><td class="num">${fmtInt(tot.units)}</td><td class="num">${f$(tot.value)}</td><td class="num">${f$(tot.sell30)}</td><td class="num">100%</td></tr>
+}
+function renderDocStats(rows){
+  const elL = $('#lostCard'), elX = $('#excessCard'); if(!elL || !elX) return;
+  LS.rows = rows;
+  const month = document.getElementById('fMonth').value;
+  const key = month + '|' + (LS.fdate || '') + '|' + (V2.state.maxDate || '') + '|' + (V2.state.incomingAsOf || '');
+  if(LS.key !== key && !LS.loading){
+    LS.loading = true; elL.innerHTML = '<h3 style="margin:0">Lost sales theo product line</h3><div class="hint" style="margin-top:8px">Đang tải tồn kho lúc forecast…</div>'; elX.innerHTML = '';
+    lsLoad(month).then(d => { LS.data = d; LS.key = key; }).catch(e => { LS.data = {error: e}; LS.key = key; }).finally(() => { LS.loading = false; renderDocStats(LS.rows); });
+    return;
+  }
+  if(LS.loading) return;
+  const D = LS.data || {};
+  if(D.error || !D.fdate){ elL.innerHTML = `<h3 style="margin:0">Lost sales theo product line</h3><div class="hint" style="margin-top:8px">${D.error ? (missingSchema(D.error) ? 'Cần chạy hàm <b>inventory_snapshot_dates</b> (supabase_inventory_tracking.sql).' : 'Không tải được: ' + esc(D.error.message || D.error)) : 'Chưa có snapshot tồn kho nào.'}</div>`; elX.innerHTML = ''; return; }
+  const X = lsCompute(rows, D);
+  const pick = `<select id="lsFdate" title="Snapshot tồn kho + incoming dùng làm mốc forecast">${D.avail.map(d => `<option value="${d}"${d === D.fdate ? ' selected' : ''}>${dm(d)}${d === D.avail.find(x => x < D.month) ? ' (cuối tháng trước)' : ''}</option>`).join('')}</select>`;
+  const n0 = v => fmtInt(Math.round(v)), sgn = v => (v > 0 ? '+' : '') + n0(v);
+  const group = (list, val) => { const g = new Map(); list.forEach(x => { const a = g.get(x.pl) || {pl: x.pl, items: [], stock: 0, delta: 0, units: 0, gmv: 0, docN: 0, docS: 0};
+    a.items.push(x); a.stock += x.stock; a.delta += x.delta; a.units += val === 'lost' ? x.lost : x.surplus; a.gmv += val === 'lost' ? x.lostGmv : x.potGmv;
+    if(isNum(x.doc) && isFinite(x.doc)){ a.docN += x.stock; a.docS += x.doc * x.stock; } g.set(x.pl, a); });
+    return [...g.values()].sort((a, b) => b.gmv - a.gmv); };
+  // ---- lost sales
+  const L = X.filter(x => x.lost >= 0.5), GL = group(L, 'lost'), totL = L.reduce((t, x) => t + x.lostGmv, 0);
+  elL.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Lost sales theo product line</h3>
+      <div class="fld"><label for="lsFdate" style="font-size:10.5px;font-weight:800;color:var(--muted);display:block">Mốc forecast (tồn + incoming)</label>${pick}</div></div>
+    <div class="hint">Δ tồn = (tồn hiện tại + hàng về trong tháng theo ETA mới + đã bán từ mốc) − (tồn lúc forecast + hàng về trong tháng theo ETA lúc forecast); âm = tháng này có ít hàng hơn lúc làm target. Lost = units thiếu để đạt target còn lại tới ${dm(D.mEnd)} (bán đều mỗi ngày, hàng về theo ETA mới) × RRP. Bấm product line để xem SKU; bấm SKU để lọc cả dashboard.</div>
+    <div class="readout" style="margin:8px 0 10px">Lost GMV dự kiến tháng này: <b style="color:var(--red)">${f$(totL)}</b> · <b>${L.length}</b> SKU thiếu hàng · ${n0(L.reduce((t, x) => t + x.lost, 0))} units${L.some(x => x.slipOut) ? ` · <b>${n0(L.reduce((t, x) => t + x.slipOut, 0))}</b> units hàng về bị lùi ETA ra khỏi tháng` : ''}</div>
+    <div class="tablewrap" style="max-height:520px"><table class="ls-table"><thead><tr><th>Product line / SKU</th><th class="num">Tồn hiện tại</th><th class="num">Hàng về trong tháng</th><th class="num">Δ tồn vs forecast</th><th class="num">Units thiếu</th><th class="num">Lost GMV</th></tr></thead><tbody>
+    ${GL.map(g => `<tr class="ls-pl clickable" data-pl="${esc(g.pl)}"><td><b>${LS.open.has(g.pl) ? '▾' : '▸'} ${esc(g.pl)}</b> <span class="v2-note">${g.items.length} SKU</span></td><td class="num">${n0(g.stock)}</td><td class="num">${n0(g.items.reduce((t, x) => t + x.incNow, 0))}</td>
+        <td class="num" style="color:${g.delta < 0 ? 'var(--red)' : 'var(--green)'}">${sgn(g.delta)}</td><td class="num">${n0(g.units)}</td><td class="num"><b style="color:var(--red)">${f$(g.gmv)}</b></td></tr>` +
+      (LS.open.has(g.pl) ? g.items.sort((a, b) => b.lostGmv - a.lostGmv).map(x => `<tr class="ls-sku clickable" data-sku="${esc(x.sku)}" title="${esc(x.name)} · PIC ${esc(x.pic)} · lúc forecast: tồn ${n0(x.stockF)} + về ${n0(x.incF)} · đã bán từ mốc ${n0(x.sold)} · target còn lại ${n0(x.need)} · giá ${f$2(x.price)}${x.firstShort ? ' · thiếu hàng từ ' + dm(x.firstShort) : ''}">
+          <td style="padding-left:22px">${esc(x.sku)} <span class="v2-note">${esc(x.name.slice(0, 30))}</span>${x.slipOut ? ` <span class="rec p1" title="Hàng dự kiến về trong tháng nhưng ETA đã lùi sang tháng sau">${n0(x.slipOut)} u trễ ra khỏi tháng</span>` : ''}${x.overdue ? ` <span class="rec p2" title="Đã quá ETA mà chưa về">${n0(x.overdue)} u quá ETA</span>` : ''}</td>
+          <td class="num">${n0(x.stock)}</td><td class="num">${n0(x.incNow)}</td><td class="num" style="color:${x.delta < 0 ? 'var(--red)' : 'var(--green)'}">${sgn(x.delta)}</td><td class="num">${n0(x.lost)}${x.firstShort ? `<span class="v2-note" style="display:block">từ ${dm(x.firstShort)}</span>` : ''}</td><td class="num">${f$(x.lostGmv)}</td></tr>`).join('') : '')).join('')
+      || '<tr><td colspan="6" style="padding:14px;color:var(--muted)">Không SKU nào thiếu hàng so với target còn lại.</td></tr>'}
+    ${GL.length ? `<tr style="font-weight:800;background:#F5F7FA"><td>Tổng</td><td class="num">${n0(GL.reduce((t, g) => t + g.stock, 0))}</td><td class="num">${n0(L.reduce((t, x) => t + x.incNow, 0))}</td><td class="num">${sgn(GL.reduce((t, g) => t + g.delta, 0))}</td><td class="num">${n0(GL.reduce((t, g) => t + g.units, 0))}</td><td class="num" style="color:var(--red)">${f$(totL)}</td></tr>` : ''}
     </tbody></table></div>`;
-  el.querySelectorAll('tr[data-band]').forEach(tr => tr.onclick = () => { mocBandFilter = mocBandFilter === tr.dataset.band ? null : tr.dataset.band; renderAll(); $('#skuTable').scrollIntoView({behavior:'smooth', block:'start'}); });
+  // ---- high stock
+  const E = X.filter(x => x.surplus >= 1 && x.potGmv >= 1), GE = group(E, 'excess'), totE = E.reduce((t, x) => t + x.potGmv, 0);
+  const docTxt = v => !isNum(v) ? '—' : !isFinite(v) ? '∞' : v > 999 ? '>999' : Math.round(v) + 'd';
+  elX.innerHTML = `<h3 style="margin:0">Tồn cao theo product line</h3>
+    <div class="hint">Tồn dư cuối tháng = tồn hiện tại + hàng về trong tháng − target còn lại. Potential GMV = tồn dư × RRP: GMV có thể kéo thêm nếu đẩy deal / ads. Δ tồn dương = có nhiều hàng hơn lúc làm target. DOC (tồn ÷ tốc độ bán 5 tuần) để tham khảo mức dư.</div>
+    <div class="readout" style="margin:8px 0 10px">Potential GMV: <b style="color:var(--green)">${f$(totE)}</b> · <b>${E.length}</b> SKU dư · ${n0(E.reduce((t, x) => t + x.surplus, 0))} units · ${E.filter(x => x.doc > 90).length} SKU DOC &gt; 90 ngày</div>
+    <div class="tablewrap" style="max-height:520px"><table class="ls-table"><thead><tr><th>Product line / SKU</th><th class="num">Tồn hiện tại</th><th class="num">Δ tồn vs forecast</th><th class="num">Tồn dư cuối tháng</th><th class="num">Potential GMV</th><th class="num">DOC</th></tr></thead><tbody>
+    ${GE.map(g => `<tr class="ls-pl clickable" data-plx="${esc(g.pl)}"><td><b>${LS.openX.has(g.pl) ? '▾' : '▸'} ${esc(g.pl)}</b> <span class="v2-note">${g.items.length} SKU</span></td><td class="num">${n0(g.stock)}</td>
+        <td class="num" style="color:${g.delta < 0 ? 'var(--red)' : 'var(--green)'}">${sgn(g.delta)}</td><td class="num">${n0(g.units)}</td><td class="num"><b style="color:var(--green)">${f$(g.gmv)}</b></td><td class="num">${g.docN ? docTxt(g.docS / g.docN) : '—'}</td></tr>` +
+      (LS.openX.has(g.pl) ? g.items.sort((a, b) => b.potGmv - a.potGmv).map(x => `<tr class="ls-sku clickable" data-sku="${esc(x.sku)}" title="${esc(x.name)} · PIC ${esc(x.pic)} · hàng về trong tháng ${n0(x.incNow)} · target còn lại ${n0(x.need)} · giá ${f$2(x.price)}">
+          <td style="padding-left:22px">${esc(x.sku)} <span class="v2-note">${esc(x.name.slice(0, 30))}</span></td><td class="num">${n0(x.stock)}</td><td class="num" style="color:${x.delta < 0 ? 'var(--red)' : 'var(--green)'}">${sgn(x.delta)}</td>
+          <td class="num">${n0(x.surplus)}</td><td class="num">${f$(x.potGmv)}</td><td class="num"${x.doc > 90 ? ' style="color:var(--red);font-weight:800"' : ''}>${docTxt(x.doc)}</td></tr>`).join('') : '')).join('')
+      || '<tr><td colspan="6" style="padding:14px;color:var(--muted)">Không có SKU dư tồn.</td></tr>'}
+    ${GE.length ? `<tr style="font-weight:800;background:#F5F7FA"><td>Tổng</td><td class="num">${n0(GE.reduce((t, g) => t + g.stock, 0))}</td><td class="num">${sgn(GE.reduce((t, g) => t + g.delta, 0))}</td><td class="num">${n0(GE.reduce((t, g) => t + g.units, 0))}</td><td class="num" style="color:var(--green)">${f$(totE)}</td><td></td></tr>` : ''}
+    </tbody></table></div>`;
+  const pickEl = $('#lsFdate'); if(pickEl) pickEl.onchange = e => { LS.fdate = e.target.value; try { localStorage.setItem('lsForecastDate', LS.fdate); } catch(_){} LS.key = ''; renderDocStats(LS.rows); };
+  elL.querySelectorAll('tr[data-pl]').forEach(t => t.onclick = () => { const k = t.dataset.pl; LS.open.has(k) ? LS.open.delete(k) : LS.open.add(k); renderDocStats(LS.rows); });
+  elX.querySelectorAll('tr[data-plx]').forEach(t => t.onclick = () => { const k = t.dataset.plx; LS.openX.has(k) ? LS.openX.delete(k) : LS.openX.add(k); renderDocStats(LS.rows); });
+  [elL, elX].forEach(el => el.querySelectorAll('tr.ls-sku').forEach(t => t.onclick = () => setGS({sku: t.dataset.sku})));
 }
 
 // SKU-level issue flags. Source noted per flag so the team knows what to trust.
@@ -349,14 +440,13 @@ function notesMentions(){
 function issueDefs(){
   const nm = notesMentions();
   return [
-    {key:'blockAds', label:'Block ads', src:'Target file', test:r => /block/i.test(r.blockAds || '') && !/not predominantly|no observation/i.test(r.blockAds || ''), sev:'crit'},
+    {key:'blockAds', label:'Ineligible ads', src:'Target file', test:r => /block/i.test(r.blockAds || '') && !/not predominantly|no observation/i.test(r.blockAds || ''), sev:'crit'},
     {key:'zip', label:'Block zipcode', src:'Ghi chú PIC', test:r => nm.zip.has(r.sku), sev:'crit'},
     {key:'ship', label:'Long shipping time', src:'Ghi chú PIC', test:r => nm.ship.has(r.sku), sev:'warn'},
     {key:'listing', label:'Bung / lỗi listing', src:'Ghi chú PIC', test:r => nm.listing.has(r.sku), sev:'warn'},
-    {key:'inactiveInv', label:'ASIN inactive còn tồn', src:'USA Inventory', test:r => /inactive/i.test(r.asinStatus || '') && stockOf(r) > 0, sev:'warn'},
-    {key:'overRrp', label:'Bung giá (ASP 7N > RRP +5%)', src:'Sales daily', test:r => r.sig && r.rrp > 0 && r.sig.asp7 > r.rrp * 1.05 && r.sig.units7 >= 3, sev:'warn'},
-    {key:'priceJump', label:'Nhảy giá (ASP 7N vs 4 tuần ±10%)', src:'Sales daily', test:r => r.sig && isNum(r.sig.asp7) && isNum(r.sig.asp28) && r.sig.units7 >= 3 && Math.abs(r.sig.asp7 / r.sig.asp28 - 1) > .10, sev:'warn'},
-    {key:'oosAds', label:'Hết hàng vẫn chạy ads', src:'Sales + tồn', test:r => stockOf(r) <= 0 && r.sig && r.sig.ads7 > 5, sev:'crit'},
+    // one price issue, ±10%: vs RRP (giá đã chốt) when there is one, else vs the 4-week ASP
+    {key:'price', label:'Nhảy giá (ASP 7N vs giá chốt ±10%)', src:'Sales daily · RRP', test:r => { if(!r.sig || !isNum(r.sig.asp7) || r.sig.units7 < 3) return false;
+      const ref = r.rrp > 0 ? r.rrp : r.sig.asp28; return isNum(ref) && ref > 0 && Math.abs(r.sig.asp7 / ref - 1) > .10; }, sev:'warn'},
     {key:'gvDrop', label:'Glance view giảm > 30% WoW', src:'Sales daily', test:r => r.sig && r.sig.gvPrev7 >= 200 && r.sig.gv7 > 0 && r.sig.gv7 < r.sig.gvPrev7 * .7, sev:'warn'},
   ];
 }
@@ -455,7 +545,7 @@ function recsFor(k, c, p, t){
   if(isNum(crC) && isNum(crP) && c.glance_views >= 150 && crC < crP * .75) add(2, `CR giảm ${fP(crP,1)} → ${fP(crC,1)} → check giá, buy box, review, deal đối thủ`);
   if(isNum(ctrC) && isNum(ctrP) && c.impressions >= 2000 && p.impressions >= 2000 && ctrC < ctrP * .75) add(2, `CTR ads giảm ${fP(ctrP,2)} → ${fP(ctrC,2)} (${fN(p.impressions)}→${fN(c.impressions)} impr.) → check main image, giá hiển thị, badge/coupon, vị trí ads`);
   if(isNum(acrC) && isNum(acrP) && c.clicks >= 60 && p.clicks >= 60 && acrC < acrP * .7) add(2, `CR ads giảm ${fP(acrP,1)} → ${fP(acrC,1)} (units/click) → check giá, buy box, review, search term kém`);
-  if(k && k.rrp > 0 && isNum(aspC) && c.units >= 3 && aspC > k.rrp * 1.05) add(2, `Bung giá: ASP ${f$2(aspC)} cao hơn RRP ${f$2(k.rrp)} (${fP(aspC / k.rrp - 1, 0)})`);
+  if(k && k.rrp > 0 && isNum(aspC) && c.units >= 3 && Math.abs(aspC / k.rrp - 1) > .10) add(2, `Nhảy giá: ASP ${f$2(aspC)} ${aspC > k.rrp ? 'cao' : 'thấp'} hơn giá chốt ${f$2(k.rrp)} (${fP(aspC / k.rrp - 1, 0)})`);
   else if(isNum(aspC) && isNum(aspP) && c.units >= 3 && p.units >= 3 && Math.abs(aspC / aspP - 1) > .10) add(3, `Giá thay đổi ${fP(aspC / aspP - 1, 0)} so với kỳ trước (${f$2(aspP)} → ${f$2(aspC)})`);
   if(isNum(acos) && acos > .40 && c.ads > 50) add(2, `ACOS ${fP(acos,0)} trên ${f$(c.ads)} ads → hạ bid, thêm negative keyword, cắt search term lỗ`);
   if(t && t.gmv >= 100 && c.gmv <= 0 && stock > 0) add(1, `Có tồn ${fmtInt(stock)} và target ${f$(t.gmv)} nhưng không bán được → check listing (inactive/suppressed), buy box, giá`);
