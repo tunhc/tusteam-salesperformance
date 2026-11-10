@@ -132,10 +132,11 @@ INV.forecastSeries = function(y, H){
 };
 
 // ---------------------------------------------------------------- state
-const IV = {country: 'USA', scope: 'team', pic: '', pl: '', risk: '', status: '', src: '', q: '', etaMode: 'file',
+const IV = {country: 'USA', pic: '', pl: '', risk: '', status: '', src: '', q: '', etaMode: 'file',
   data: null, loadedFor: null, sales: null, rows: [], po: [], sort: 'riskRank', dir: 1, poSort: 'sev', poDir: -1, sel: null};
 const HZN = 16;   // projection weeks
-const COUNTRIES = ['USA','CAN','MEX','GBR','DEU','FRA','ITA','ESP','JPN','AUS','ARE','SAU','GPE','BRA'];
+// USA only; the SKU list, PIC, Main PL / Sub PL and lifecycle come from the follow-up (table skus)
+const followUp = () => (typeof ROWS !== 'undefined' && Array.isArray(ROWS) ? ROWS : []);
 const C = {amz:'#2a78d6', amzD:'#9EC3EF', amzO:'#D64545', y4a:'#1baf7a', y4aD:'#9ADBC2', fc:'#E86A10', stock:'#002859', act:'#66707C', warn:'#eda100'};
 const STATUS_VI = {'normal': 'Đúng hạn', 'delay vs expected': 'Trễ so với ETA ban đầu', 'delay vs current': 'Quá ETA, chưa về'};
 
@@ -186,7 +187,7 @@ function compute(){
   const logDate = D.inc.reduce((m, r) => r.log_date > m ? r.log_date : m, '') || iso(new Date());
   const wk0 = sunday(logDate), weeks = Array.from({length: HZN}, (_, i) => addD(wk0, i * 7));
   const buf = slipBuffers(D.inc); IV.buf = buf; IV.logDate = logDate; IV.weeks = weeks;
-  const inScope = sku => IV.scope === 'all' || !!h.skuInfo(sku);
+  const inScope = sku => !!h.skuInfo(sku);
   const sell = new Map(D.sell.map(r => [r.sku, r]));
   const asinBy = new Map(); D.asin.forEach(r => { if(!r.sku) return; if(!asinBy.has(r.sku)) asinBy.set(r.sku, []); asinBy.get(r.sku).push(r); });
   const lines = D.inc.map(r => {
@@ -196,11 +197,10 @@ function compute(){
   });
   IV.lines = lines;
   const bySku = new Map(); lines.forEach(l => { if(!bySku.has(l.sku)) bySku.set(l.sku, []); bySku.get(l.sku).push(l); });
-  const skus = new Set([...bySku.keys(), ...D.sell.filter(r => (+r.inv_amz || 0) + (+r.inv_y4a || 0) > 0).map(r => r.sku)]);
-  const S = IV.country === 'USA' ? IV.sales : null;
+  const skus = new Set(followUp().map(r => r.sku));   // every SKU of the follow-up, also those without stock or incoming
+  const S = IV.sales;
   const rows = [];
   for(const sku of skus){
-    if(!inScope(sku)) continue;
     const k = h.skuInfo(sku) || {}, s = sell.get(sku) || {}, L = bySku.get(sku) || [];
     const amz = Math.max(0, +s.inv_amz || 0), y4a = Math.max(0, +s.inv_y4a || 0);
     const incA = Array(HZN).fill(0), incY = Array(HZN).fill(0); let beyondA = 0, beyondY = 0;
@@ -244,7 +244,8 @@ function compute(){
     else if(dl.length && sum(dl) > 0){ rank = 4; risk = 'ETA bị lùi'; why.push(`ETA lùi tối đa ${Math.max(...dl.map(l => l.slip || 0))} ngày trên ${Math.round(sum(dl))} units`); }
     if(fc4 > 0 && wocT > 26){ if(rank >= 4){ rank = 4; risk = 'Tồn cao'; } why.push(`Tồn + hàng về đủ ~${Math.round(wocT)} tuần: cân nhắc dời PO / đẩy bán`); }
     if(!fcW && (amz + y4a) > 0 && rank === 5){ risk = 'Chưa có forecast'; rank = 6; }
-    rows.push({sku, name: k.productName || s.product_name || (L[0] || {}).product_name || '', pl: (L[0] || {}).product_line || k.mainPL || '', pic: k.pic || '',
+    if(!L.length && amz + y4a <= 0 && !(fc4 > 0)) continue;   // nothing to track: no stock, no incoming, no sales
+    rows.push({sku, name: k.productName || s.product_name || (L[0] || {}).product_name || '', pl: k.mainPL || (L[0] || {}).product_line || '', subPl: k.subPL || '', lifecycle: k.lifecycle || '', pic: k.pic || 'Unassigned',
       dept: s.department || (L[0] || {}).department || '', amz, y4a, incA, incY, beyondA, beyondY,
       incAmzTot: sum(L.filter(l => l.source === 'AMZ')), incY4aTot: sum(L.filter(l => l.source === 'Y4A')),
       delayQty: sum(dl), overdueQty: sum(od), maxSlip: dl.length ? Math.max(...dl.map(l => l.slip || 0)) : 0, maxOverdue: od.length ? Math.max(...od.map(l => l.overdue)) : 0,
@@ -269,7 +270,7 @@ INV.render = async function(){
   const h = H();
   if(!host.dataset.built){ build(host); host.dataset.built = '1'; }
   if(!IV.data || IV.loadedFor !== IV.country){
-    host.querySelector('#ivBody').innerHTML = '<tr><td colspan="18" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming' + (IV.country === 'USA' ? ' và số bán để forecast' : '') + '…</td></tr>';
+    host.querySelector('#ivBody').innerHTML = '<tr><td colspan="18" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming' + ' và số bán để forecast' + '…</td></tr>';
     try { await load(); }
     catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="18" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor, rồi bấm <b>⬆ Upload file tracker</b>.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
     compute();
@@ -281,10 +282,8 @@ INV.render = async function(){
 };
 function build(host){
   host.innerHTML = `<div class="filterbar">
-      <div class="fld"><label for="ivCountry">Thị trường</label><select id="ivCountry">${COUNTRIES.map(c => `<option ${c === IV.country ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-      <div class="fld"><label for="ivScope">Phạm vi SKU</label><select id="ivScope"><option value="team">SKU của team</option><option value="all">Tất cả SKU trong file</option></select></div>
       <div class="fld"><label for="ivPic">PIC</label><select id="ivPic"><option value="">All</option></select></div>
-      <div class="fld"><label for="ivPl">Product line</label><select id="ivPl"><option value="">All</option></select></div>
+      <div class="fld"><label for="ivPl">Main PL</label><select id="ivPl"><option value="">All</option></select></div>
       <div class="fld"><label for="ivRisk">Rủi ro</label><select id="ivRisk"><option value="">All</option><option>OOS ≤2 tuần</option><option>OOS trong 8 tuần</option><option>PO quá ETA</option><option>ETA bị lùi</option><option>Tồn cao</option><option>OK</option></select></div>
       <div class="fld"><label for="ivEta">ETA dùng để dự phóng</label><select id="ivEta"><option value="file">ETA trong file</option><option value="safe">ETA thận trọng (+ độ trễ TB)</option></select></div>
       <div class="fld"><label for="ivQ">Tìm SKU / tên / PO / container</label><input id="ivQ" type="search" placeholder="VD: DXD3, USAWH…"></div>
@@ -306,9 +305,17 @@ function build(host){
     <div class="kpis iv-kpis" id="ivKpis"></div>
     <div class="btr-grid">
       <div class="card"><h3>Incoming theo tuần (theo ETA đang chọn)</h3><div class="hint">Xanh dương = về kho Amazon (AVC), xanh lá = về kho Y4A. Màu nhạt = ETA đã lùi so với ban đầu; đỏ = đã quá ETA mà chưa về (dồn vào tuần hiện tại).</div><div id="ivWeekly" class="plot"></div></div>
-      <div class="card"><h3>Hàng trễ theo product line</h3><div class="hint">Units đang trễ: ETA lùi so với ban đầu, và đã quá ETA. Rê chuột để xem số PO và số ngày trễ.</div><div id="ivPlDelay" class="plot"></div></div>
+      <div class="card"><h3>Hàng trễ theo Main PL</h3><div class="hint">Units đang trễ: ETA lùi so với ban đầu, và đã quá ETA. Rê chuột để xem số PO và số ngày trễ.</div><div id="ivPlDelay" class="plot"></div></div>
       <div class="card"><h3>ETA bị lùi bao nhiêu ngày</h3><div class="hint">Phân bố số ngày ETA hiện tại − ETA ban đầu (theo units). Đây là "độ trễ TB" cộng thêm khi chọn ETA thận trọng.</div><div id="ivSlip" class="plot"></div></div>
       <div class="card"><h3>Hàng đang ở đâu</h3><div class="hint">Units incoming theo trạng thái vật lý (Pre-pipeline → In production → Pipeline → In land transit).</div><div id="ivPhys" class="plot"></div></div>
+    </div>
+    <div class="card"><h3>Tổng hợp theo PIC (follow-up)</h3>
+      <div class="hint">Mỗi PIC: tồn, hàng về, hàng trễ và rủi ro OOS của các SKU mình phụ trách (PIC, Main PL theo follow-up). Bấm một PIC để lọc cả trang; bấm lại để bỏ lọc.</div>
+      <div class="tablewrap" style="max-height:420px"><table id="ivPicTable"><thead><tr>
+        <th>PIC</th><th class="num">SKU</th><th class="num">Tồn AMZ</th><th class="num">Tồn Y4A</th><th class="num">Forecast / tuần</th><th class="num">WOC AMZ</th>
+        <th class="num">Incoming AMZ</th><th class="num">Incoming Y4A</th><th class="num">Units ETA lùi</th><th class="num">Units quá ETA</th><th class="num">PO trễ</th>
+        <th class="num">OOS ≤2 tuần</th><th class="num">OOS 8 tuần</th><th class="num">Units có thể mất</th><th class="num">Tồn cao</th>
+      </tr></thead><tbody id="ivPicBody"></tbody></table></div>
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><h3 style="margin:0">Theo dõi theo SKU</h3>
@@ -316,7 +323,7 @@ function build(host){
       <div id="ivAiOut" class="ai-out" hidden style="white-space:pre-wrap;font-size:12.5px;background:#F7F9FC;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0"></div>
       <div class="hint">Tồn = sellable hiện tại. Bán/tuần = TB 4 tuần đủ gần nhất (sales_daily). Forecast/tuần = TB 4 tuần tới, mô hình tốt nhất của SKU (độ chính xác = 1 − WAPE backtest 8 tuần). WOC = số tuần tồn AMZ đủ bán (tổng AMZ + Y4A bên dưới). OOS = tuần tồn AMZ (cộng hàng AMZ về theo ETA) không đủ forecast. Bấm một dòng để xem dự phóng tuần, các PO và lịch sử ETA.</div>
       <div class="tablewrap" style="max-height:640px"><table id="ivTable"><thead><tr>
-        <th data-k="pic">PIC</th><th data-k="sku">SKU</th><th data-k="name">Product</th><th data-k="pl">Product line</th>
+        <th data-k="pic">PIC</th><th data-k="sku">SKU</th><th data-k="name">Product</th><th data-k="pl">Main PL</th>
         <th data-k="amz" class="num">Tồn AMZ</th><th data-k="y4a" class="num">Tồn Y4A</th><th data-k="act4" class="num">Bán / tuần</th><th data-k="fc4" class="num">Forecast / tuần</th>
         <th data-k="woc" class="num">WOC</th><th data-k="oosWk" class="num">OOS (AMZ)</th>
         <th data-k="nAeta">Hàng AMZ kế tiếp</th><th data-k="nYeta">Hàng Y4A kế tiếp</th>
@@ -338,8 +345,6 @@ function build(host){
       </tr></thead><tbody id="ivPoBody"></tbody></table></div>
     </div>`;
   const $ = s => host.querySelector(s), re = () => paint();
-  $('#ivCountry').onchange = e => { IV.country = e.target.value; IV.scope = IV.country === 'USA' ? IV.scope : 'all'; $('#ivScope').value = IV.scope; IV.sel = null; INV.render(); };
-  $('#ivScope').onchange = e => { IV.scope = e.target.value; compute(); re(); };
   $('#ivPic').onchange = e => { IV.pic = e.target.value; re(); };
   $('#ivPl').onchange = e => { IV.pl = e.target.value; re(); };
   $('#ivRisk').onchange = e => { IV.risk = e.target.value; re(); };
@@ -358,7 +363,7 @@ function build(host){
 }
 function filtered(){
   return IV.rows.filter(r => (!IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl) && (!IV.risk || r.risk === IV.risk) &&
-    (!IV.q || [r.sku, r.name, r.pl, ...r.lines.map(l => l.po_name + ' ' + (l.container_number || ''))].join(' ').toLowerCase().includes(IV.q)));
+    (!IV.q || [r.sku, r.name, r.pl, r.subPl, ...r.lines.map(l => l.po_name + ' ' + (l.container_number || ''))].join(' ').toLowerCase().includes(IV.q)));
 }
 function paint(){
   const h = H(), D = IV.data; if(!D) return;
@@ -369,7 +374,7 @@ function paint(){
   const up = D.up, logA = D.inc.filter(l => l.source === 'AMZ').map(l => l.log_date).sort().pop(), logY = D.inc.filter(l => l.source === 'Y4A').map(l => l.log_date).sort().pop();
   const s0 = D.sell[0] || {};
   document.getElementById('ivSrc').innerHTML = `<span>Incoming AMZ: <b>${md(logA)}</b> · Y4A: <b>${md(logY)}</b></span><span>Tồn Y4A: <b>${md(s0.y4a_as_of)}</b> · tồn AMZ: <b>${md(s0.amz_as_of)}</b></span>` +
-    (IV.sales && IV.country === 'USA' ? `<span>Số bán để forecast: tới <b>${md(IV.sales.lastSat)}</b> (tuần đủ, ${IV.sales.weeks.length} tuần)</span>` : `<span>Forecast chỉ có cho USA (số bán là Amazon US)</span>`) +
+    `<span>Thị trường <b>USA</b> · <b>${IV.rows.length}</b> SKU của follow-up đang có tồn / hàng về / số bán</span>` + (IV.sales ? `<span>Số bán để forecast: tới <b>${md(IV.sales.lastSat)}</b> (tuần đủ, ${IV.sales.weeks.length} tuần)</span>` : '') +
     (up ? `<span>Upload lần cuối: <b>${h.esc(String(up.uploaded_at).slice(0, 16).replace('T', ' '))}</b>${up.uploaded_by ? ' · ' + h.esc(up.uploaded_by) : ''}${up.file_name ? ' · ' + h.esc(up.file_name) : ''}</span>` : '<span>Chưa có upload nào: bấm <b>⬆ Upload file tracker</b></span>');
   // KPIs
   const sum = (a, f) => a.reduce((t, x) => t + (f(x) || 0), 0);
@@ -397,7 +402,7 @@ function paint(){
     ['Y4A', 'normal', C.y4a, 'Y4A đúng hạn'], ['Y4A', 'delay vs expected', C.y4aD, 'Y4A ETA lùi'], ['Y4A', 'delay vs current', '#8B1E1E', 'Y4A quá ETA'],
   ].map(([s, st, col, name]) => ({type: 'bar', x: wl, y: wkSum(s, st), name, marker: {color: col}, hovertemplate: name + ': %{y:,.0f}<extra></extra>'})).filter(t => t.y.some(v => v)),
     lay({xaxis: h.ax({title: {text: beyond ? `Sau ${HZN} tuần còn ${fi(beyond)} u` : ''}}), yaxis: h.ax({tickformat: ',.0f'})}));
-  const byPl = new Map(); lines.forEach(l => { if(l.on_time_status === 'normal') return; const a = byPl.get(l.product_line || '—') || {d: 0, o: 0, po: new Set(), slip: 0}; if(l.on_time_status === 'delay vs current') a.o += l.qty; else a.d += l.qty; a.po.add(l.po_name); a.slip = Math.max(a.slip, l.slip || 0, l.overdue); byPl.set(l.product_line || '—', a); });
+  const plOf = sku => ((h.skuInfo(sku) || {}).mainPL || '—'); const byPl = new Map(); lines.forEach(l => { if(l.on_time_status === 'normal') return; const a = byPl.get(plOf(l.sku)) || {d: 0, o: 0, po: new Set(), slip: 0}; if(l.on_time_status === 'delay vs current') a.o += l.qty; else a.d += l.qty; a.po.add(l.po_name); a.slip = Math.max(a.slip, l.slip || 0, l.overdue); byPl.set(plOf(l.sku), a); });
   const pl = [...byPl.entries()].sort((a, b) => (a[1].d + a[1].o) - (b[1].d + b[1].o)).slice(-14);
   if(pl.length) h.draw('ivPlDelay', [
     {type: 'bar', orientation: 'h', y: pl.map(p => p[0]), x: pl.map(p => p[1].d), name: 'ETA lùi', marker: {color: C.warn}, customdata: pl.map(p => [p[1].po.size, p[1].slip]), hovertemplate: 'ETA lùi: %{x:,.0f} u · %{customdata[0]} PO · tối đa %{customdata[1]} ngày<extra></extra>'},
@@ -411,6 +416,24 @@ function paint(){
   const ph = ['Pre-pipeline', 'In production', 'Pipeline', 'In land transit'];
   h.draw('ivPhys', ['AMZ', 'Y4A'].map(src => ({type: 'bar', name: src === 'AMZ' ? 'Về kho Amazon' : 'Về kho Y4A', x: ph, marker: {color: src === 'AMZ' ? C.amz : C.y4a},
     y: ph.map(p => sum(lines.filter(l => l.source === src && l.physical_status === p), l => l.qty)), hovertemplate: '%{x}: %{y:,.0f} u<extra></extra>'})), lay({yaxis: h.ax({tickformat: ',.0f'})}));
+  // PIC summary (every filter except PIC, so a click can switch PIC)
+  const base = IV.rows.filter(r => (!IV.pl || r.pl === IV.pl) && (!IV.risk || r.risk === IV.risk) &&
+    (!IV.q || [r.sku, r.name, r.pl, r.subPl, ...r.lines.map(l => l.po_name + ' ' + (l.container_number || ''))].join(' ').toLowerCase().includes(IV.q)));
+  const byPic = new Map();
+  base.forEach(r => { const a = byPic.get(r.pic) || {pic: r.pic, n: 0, amz: 0, y4a: 0, fc: 0, incA: 0, incY: 0, dl: 0, od: 0, po: new Set(), o2: 0, o8: 0, lost: 0, high: 0};
+    a.n++; a.amz += r.amz; a.y4a += r.y4a; a.fc += r.fc4 || 0; a.incA += r.incAmzTot; a.incY += r.incY4aTot; a.dl += r.delayQty; a.od += r.overdueQty;
+    r.lines.forEach(l => { if(l.on_time_status !== 'normal') a.po.add(l.po_name); });
+    if(r.risk === 'OOS ≤2 tuần') a.o2++; if(r.risk === 'OOS trong 8 tuần') a.o8++; if(r.oosWk !== null && r.oosWk < 8) a.lost += r.lost; if(r.wocT > 26) a.high++;
+    byPic.set(r.pic, a); });
+  const pics = [...byPic.values()].sort((a, b) => (b.o2 * 1e6 + b.o8 * 1e3 + b.od) - (a.o2 * 1e6 + a.o8 * 1e3 + a.od) || a.pic.localeCompare(b.pic));
+  const red = v => v ? `<b style="color:var(--red)">${fi(v)}</b>` : '—';
+  document.getElementById('ivPicBody').innerHTML = pics.map(a => `<tr data-pic="${h.esc(a.pic)}" style="cursor:pointer"${IV.pic === a.pic ? ' class="sel"' : ''}>
+      <td><b>${h.esc(a.pic)}</b></td><td class="num">${a.n}</td><td class="num">${fi(a.amz)}</td><td class="num">${fi(a.y4a)}</td><td class="num">${a.fc ? a.fc.toFixed(0) : '—'}</td>
+      <td class="num">${a.fc ? (a.amz / a.fc).toFixed(1) : '—'}</td><td class="num">${fi(a.incA)}</td><td class="num">${fi(a.incY)}</td><td class="num">${a.dl ? fi(a.dl) : '—'}</td>
+      <td class="num">${red(a.od)}</td><td class="num">${a.po.size || '—'}</td><td class="num">${red(a.o2)}</td><td class="num">${a.o8 ? `<b style="color:var(--amber)">${a.o8}</b>` : '—'}</td>
+      <td class="num">${a.lost ? fi(a.lost) : '—'}</td><td class="num">${a.high || '—'}</td></tr>`).join('')
+    || '<tr><td colspan="15" style="padding:14px;color:var(--muted)">Chưa có dữ liệu.</td></tr>';
+  document.querySelectorAll('#ivPicBody tr[data-pic]').forEach(t => t.onclick = () => { IV.pic = IV.pic === t.dataset.pic ? '' : t.dataset.pic; const sel = document.getElementById('ivPic'); if(sel) sel.value = IV.pic; paint(); });
   // SKU table
   rows.forEach(r => { r.nAeta = r.nA ? r.nA.eta : '9999'; r.nYeta = r.nY ? r.nY.eta : '9999'; r.whyTxt = r.why.join(' · '); });
   const val = (r, k) => k === 'oosWk' ? (r.oosWk === null ? 999 : r.oosWk) : k === 'riskRank' ? r.riskRank * 1000 + (r.oosWk === null ? 999 : r.oosWk) : r[k];
@@ -418,7 +441,7 @@ function paint(){
   const badge = r => `<span class="badge ${r.riskRank <= 2 ? 'red' : r.riskRank <= 3 ? 'amber' : r.risk === 'OK' ? 'green' : 'gray'}">${h.esc(r.risk)}</span>`;
   const nxt = l => l ? `${md(l.eta)}<span class="vs">${fi(l.qty)} u · ${h.esc(l.physical_status || '')}${l.on_time_status !== 'normal' ? ' · <b style="color:var(--red)">' + (l.on_time_status === 'delay vs current' ? 'quá ETA' : 'lùi ' + (l.slip || 0) + 'n') + '</b>' : ''}</span>` : '—';
   document.getElementById('ivBody').innerHTML = tr.slice(0, 600).map(r => `<tr class="main${IV.sel === r.sku ? ' sel' : ''}" data-sku="${h.esc(r.sku)}" style="cursor:pointer">
-      <td>${h.esc(r.pic)}</td><td><b>${h.esc(r.sku)}</b></td><td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}</td>
+      <td>${h.esc(r.pic)}</td><td><b>${h.esc(r.sku)}</b></td><td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td class="num">${fi(r.amz)}</td><td class="num">${fi(r.y4a)}</td><td class="num">${r.act4 == null ? '—' : r.act4.toFixed(1)}</td>
       <td class="num" title="${r.f ? 'Mô hình ' + r.model + (r.acc != null ? ' · chính xác ' + (r.acc * 100).toFixed(0) + '%' : '') : ''}">${r.fc4 == null ? '—' : r.fc4.toFixed(1)}<span class="vs">${h.esc(r.model)}${r.acc != null ? ' · ' + (r.acc * 100).toFixed(0) + '%' : ''}</span></td>
       <td class="num">${r.woc == null ? '—' : r.woc > 99 ? '>99' : r.woc.toFixed(1)}<span class="vs">tổng ${r.wocT == null ? '—' : r.wocT > 99 ? '>99' : r.wocT.toFixed(1)}</span></td>
@@ -520,7 +543,7 @@ async function upload(){
 function exportXlsx(){
   if(typeof XLSX === 'undefined') return;
   const rows = filtered(), wb = XLSX.utils.book_new();
-  const a = rows.map(r => ({'PIC': r.pic, 'SKU': r.sku, 'Product': r.name, 'Product line': r.pl, 'Inv AMZ': r.amz, 'Inv Y4A': r.y4a,
+  const a = rows.map(r => ({'PIC': r.pic, 'SKU': r.sku, 'Product': r.name, 'Main PL': r.pl, 'Sub PL': r.subPl, 'Lifecycle': r.lifecycle, 'Inv AMZ': r.amz, 'Inv Y4A': r.y4a,
     'Sales / week (4w)': r.act4 == null ? '' : +r.act4.toFixed(1), 'Forecast / week (4w)': r.fc4 == null ? '' : +r.fc4.toFixed(1), 'Model': r.model, 'Backtest accuracy': r.acc == null ? '' : +r.acc.toFixed(3),
     'WOC AMZ': r.woc == null ? '' : +r.woc.toFixed(1), 'WOC total': r.wocT == null ? '' : +r.wocT.toFixed(1), 'OOS week (AMZ)': r.oosWk === null ? '' : IV.weeks[r.oosWk], 'Lost units (16w)': Math.round(r.lost),
     'Next AMZ ETA': r.nA ? r.nA.eta : '', 'Next AMZ qty': r.nA ? r.nA.qty : '', 'Next Y4A ETA': r.nY ? r.nY.eta : '', 'Next Y4A qty': r.nY ? r.nY.qty : '',
@@ -569,7 +592,8 @@ if(typeof document !== 'undefined'){
   const css = document.createElement('style');
   css.textContent = `.iv-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
 #ivTable .vs,#ivPoTable .vs{font-size:10.5px;color:var(--muted);display:block}
-#ivTable tr.sel td{background:#FFF3EA}
+#ivTable tr.sel td,#ivPicTable tr.sel td{background:#FFF3EA}
+#ivPicTable tbody tr:hover td{background:#F7F9FC}
 #ivTable tbody tr:hover td{background:#F7F9FC}
 @media (max-width:1100px){.iv-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}`;
   document.head.appendChild(css);
