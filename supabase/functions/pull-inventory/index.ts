@@ -1,17 +1,22 @@
 // Supabase Edge Function: pull-inventory
 //
-// Loads the inventory / incoming Excel and writes it to the database. Two formats:
+// Loads an Excel file and writes it to the database. Four kinds of file, told apart by their sheets:
 //
 //  • NEW (one source of truth since Nov-2026): "For_Sales_Incoming_Tracker.xlsx"
 //    (sheets 01_AMZ_incoming_details, 02_Y4A_incoming_details, 04_AMZ_sellable details,
-//    06_ USA_Sellable INV, 07_INT Sellable INV). Parsed by tracker.ts — the same mapping as the
-//    Upload button of the Inventory Tracking tab — and written through the same SQL functions
+//    06_ USA_Sellable INV, 07_INT Sellable INV). Parsed by tracker.ts and written through the SQL functions
 //    (supabase_inventory_tracking.sql): inv_upload() per sheet, then inv_upload_finish(), which
 //    also refreshes skus.salable_*, inventory_snapshot, incoming_weekly and asin_inventory.
-//    A manual upload and an automatic load therefore give identical data.
-//  • OLD: "Yes4All_US_Inventory" / "USA Inventory Y4A-AMZ.xlsx" (sheet report) via
-//    replace_inventory_snapshot (inventory.ts). Kept only to roll back.
-// The format is detected from the sheet names.
+//  • KEEPA export (US_Keepa_Raw_Auto.xlsx): column E = ASIN, column Z = "Buy Box: Current" → keepa_prices
+//    (prices.ts, replace_keepa_prices). Tracking Target compares it with the reference RRP.
+//  • OPTIMAL PRICING (Yes4All_Optimal_Pricing_SKU.xlsx, sheet "Optimal pricing"): column U = "RRP tham chiếu"
+//    → price_reference (replace_price_reference).
+//  • OLD inventory report: "Yes4All_US_Inventory" / "USA Inventory Y4A-AMZ.xlsx" (sheet report).
+//    With header x-forecast-month: 2026-12 it is stored as the forecast baseline of that month
+//    (the inventory file used to build the target; set_forecast_baseline). Without the header it is
+//    loaded the old way (replace_inventory_snapshot), only to roll back.
+// The format is detected from the sheet names (Keepa: first row of a sheet).
+// supabase_pricing_baseline.sql creates the price / baseline tables and functions.
 //
 // Two ways to get the file (same as pull-hourly):
 //   1. POST the .xlsx as the request body (Power Automate: SharePoint "Get file content" → HTTP).
@@ -30,6 +35,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { makeInventoryParser } from "./inventory.ts";
 import { isTracker, parseTracker } from "./tracker.ts";
+import { findKeepaSheet, isPricing, parseKeepa, parsePricing } from "./prices.ts";
 import { openWorkbook, readSheetRows } from "./xlsx.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -130,9 +136,16 @@ Deno.serve(async (req) => {
       try { force ||= !!JSON.parse(new TextDecoder().decode(raw))?.force; } catch { /* empty body */ }
       bytes = await download(link);
     }
-    const sheets = (await openWorkbook(bytes)).sheets.map((s) => s.name);
-    const tracker = isTracker(sheets);
+    const wbo = await openWorkbook(bytes);
+    const sheets = wbo.sheets.map((s) => s.name);
+    const tracker = isTracker(sheets), pricing = !tracker && isPricing(sheets);
+    const keepaSheet = !tracker && !pricing ? await findKeepaSheet(bytes, wbo) : null;
+    const forecastMonth = (req.headers.get("x-forecast-month") || "").trim().slice(0, 7);
+    if (forecastMonth && !/^\d{4}-\d{2}$/.test(forecastMonth)) throw new Error("x-forecast-month phải dạng YYYY-MM (vd 2026-12)");
     if (tracker) source = "auto: tracker " + (fileName || "For_Sales_Incoming_Tracker");
+    else if (pricing) source = "auto: pricing " + (fileName || "Optimal_Pricing_SKU");
+    else if (keepaSheet) source = "auto: keepa " + (fileName || "Keepa");
+    else if (forecastMonth) source = `auto: forecast baseline ${forecastMonth} ` + (fileName || "inventory");
 
     const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
     const hash = [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 32);
@@ -166,6 +179,27 @@ Deno.serve(async (req) => {
       return json({ ok: true, format: "tracker", counts, warn, result: data });
     }
 
+    // ---------------- Keepa export: Buy Box price per ASIN ----------------
+    if (keepaSheet) {
+      const k = await parseKeepa(bytes, wbo, keepaSheet);
+      if (!k.rows.length) throw new Error("File Keepa không có dòng ASIN nào");
+      const info = { format: "keepa", sheet: keepaSheet, refreshed: k.refreshed, asins: k.rows.length, withBuyBox: k.rows.filter((r) => r.buybox_current != null).length };
+      if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, ...info });
+      const { data, error } = await db.rpc("replace_keepa_prices", { p_rows: k.rows, p_source: source, p_hash: hash });
+      if (error) throw new Error(error.message);
+      return json({ ok: true, ...info, result: data });
+    }
+    // ---------------- Optimal pricing: reference RRP per SKU ----------------
+    if (pricing) {
+      const p = await parsePricing(bytes, wbo);
+      if (!p.rows.length) throw new Error("Sheet Optimal pricing không có SKU nào");
+      const info = { format: "pricing", skus: p.rows.length, withRrp: p.rows.filter((r) => r.rrp_ref != null).length };
+      if (dryRun) return json({ ok: true, dryRun: true, fileHash: hash, ...info });
+      const { data, error } = await db.rpc("replace_price_reference", { p_rows: p.rows, p_source: source });
+      if (error) throw new Error(error.message);
+      return json({ ok: true, ...info, result: data });
+    }
+
     // ---------------- OLD format: Yes4All_US_Inventory (sheet report) ----------------
     const p = makeInventoryParser();
     const found = await readSheetRows(bytes, (first) => { p.add(first); return ALL_COLUMNS; }, (cells) => p.add(cells),
@@ -178,7 +212,7 @@ Deno.serve(async (req) => {
     // Managed SKUs only (the RPC also filters); match ignoring case / invisible chars, write the stored spelling
     const { data: skus, error: skuErr } = await db.from("skus").select("sku").limit(100000);
     if (skuErr) throw new Error(skuErr.message);
-    const key = (s: string) => s.replace(/[​-‍﻿\s]/g, "").toUpperCase();
+    const key = (s: string) => s.replace(/[\u200b-\u200d\ufeff\s]/g, "").toUpperCase();
     const managed = new Map((skus ?? []).map((s: { sku: string }) => [key(s.sku), s.sku]));
     const canon = <T extends { sku: string }>(rows: T[]) => rows.flatMap((r) => { const s = managed.get(key(r.sku)); return s ? [{ ...r, sku: s }] : []; });
     const skuRows = canon(inv.skus), incRows = canon(inv.incoming);
@@ -188,12 +222,19 @@ Deno.serve(async (req) => {
       weeks: inv.weeks.length ? `${inv.weeks[0]} → ${inv.weeks.at(-1)}` : null,
       totals: { salableY4A: skuRows.reduce((s, r) => s + r.salable_y4a, 0), salableAMZ: skuRows.reduce((s, r) => s + r.salable_amz, 0),
         incomingY4A: incRows.reduce((s, r) => s + r.qty_y4a, 0), incomingAMZ: incRows.reduce((s, r) => s + r.qty_amz, 0) } };
-    if (dryRun) return json({ ok: true, dryRun: true, format: "report", fileHash: hash, ...info });
+    if (dryRun) return json({ ok: true, dryRun: true, format: forecastMonth ? "forecast baseline" : "report", forecastMonth: forecastMonth || null, fileHash: hash, ...info });
     if (!skuRows.length) {
       await logError(`Không SKU nào trong file khớp bảng skus (${inv.skus.length} SKU trong file)`);
       return json({ ok: false, ...info }, 422);
     }
 
+    if (forecastMonth) {   // the inventory file the month's target was built on
+      const { data, error } = await db.rpc("set_forecast_baseline", { p_month: forecastMonth + "-01",
+        p_skus: skuRows.map((r) => ({ sku: r.sku, salable_y4a: r.salable_y4a, salable_amz: r.salable_amz })),
+        p_incoming: incRows, p_as_of: (inv.pageRefresh || inv.snapshotAt || "").replace(" ", "T") || null, p_source: source });
+      if (error) throw new Error(error.message);
+      return json({ ok: true, format: "forecast baseline", ...info, result: data });
+    }
     const { data, error } = await db.rpc("replace_inventory_snapshot", {
       p_date: inv.snapshotDate, p_skus: skuRows, p_incoming: incRows, p_asins: inv.asins, p_source: source, p_hash: hash });
     if (error) throw new Error(error.message);

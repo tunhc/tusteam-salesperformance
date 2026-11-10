@@ -133,23 +133,36 @@ Source: `For_Sales_Incoming_Tracker.xlsx` — sheets `01_AMZ_incoming_details` (
 
 **Setup (one time)**
 1. Run `supabase_inventory_tracking.sql` in the SQL Editor (safe to re-run).
-2. Create the upload key (your own passphrase; only its bcrypt hash is stored):
-   ```sql
-   insert into upload_keys(name, key_hash) values ('inventory', crypt('<passphrase>', gen_salt('bf')))
-   on conflict (name) do update set key_hash = excluded.key_hash;
-   ```
-3. Optional: redeploy `supabase/functions/ai-chat` so the chat box knows the new tables.
+2. Optional: redeploy `supabase/functions/ai-chat` so the chat box knows the new tables.
 
-**One source for stock + incoming.** The tracker file is the only source for `skus.salable_*`, `inventory_snapshot`, `incoming_weekly`, `asin_inventory` (BTR tab) and the new tables. Both ways of loading it go through the same SQL functions (`inv_upload` → `inv_upload_finish`), so they give identical data:
-- **Automatic (Edge Function `pull-inventory`)**: Power Automate posts the file (SharePoint *Get file content* → HTTP POST `https://<project>.supabase.co/functions/v1/pull-inventory`, headers `x-pull-secret: <INVENTORY_SECRET>`, `x-file-name: For_Sales_Incoming_Tracker.xlsx`, body = file content), or set secret `INVENTORY_FILE_URL` to the sharing link and call it with an empty body. The function detects the format from the sheet names (it still reads the old `USA Inventory Y4A-AMZ.xlsx` / sheet `report`, only for rollback). Test first with header `x-dry-run: 1` (parses, writes nothing, returns row counts). Unchanged files are skipped (`ingest_runs`, source `auto: tracker …`). If the function ever hits the Edge CPU limit, set `INVENTORY_COUNTRIES=USA` to load fewer rows.
-- **Manual**: tab Inventory Tracking → ⬆ Upload file tracker (needs the upload key).
+**One source for stock + incoming, loaded automatically.** The tracker file is the only source for `skus.salable_*`, `inventory_snapshot`, `incoming_weekly`, `asin_inventory` (BTR tab) and the new tables. There is no upload button: the data only comes in through the Edge Function `pull-inventory`, which writes through `inv_upload` → `inv_upload_finish`.
+- **Power Automate flow "Y4A Inventory → Supabase"** (hourly): Power Automate posts the file (SharePoint *Get file content* → HTTP POST `https://<project>.supabase.co/functions/v1/pull-inventory`, headers `x-pull-secret: <INVENTORY_SECRET>`, `x-file-name: For_Sales_Incoming_Tracker.xlsx`, body = file content), or set secret `INVENTORY_FILE_URL` to the sharing link and call it with an empty body. The function detects the format from the sheet names (it still reads the old `USA Inventory Y4A-AMZ.xlsx` / sheet `report`, only for rollback). Test first with header `x-dry-run: 1` (parses, writes nothing, returns row counts). Unchanged files are skipped (`ingest_runs`, source `auto: tracker …`). If the function ever hits the Edge CPU limit, set `INVENTORY_COUNTRIES=USA` to load fewer rows.
 - Do not load the old inventory file any more (old Power Automate flow, or `ingest_v2.py --inventory`): it would write `incoming_weekly` / `skus` with the old ETA logic.
-- Check: `select ran_at, source, status, message from ingest_runs where source like 'auto: tracker%' or source like 'upload:%' order by ran_at desc limit 10;`
+- Check: `select ran_at, source, status, message from ingest_runs where source like 'auto: tracker%' order by ran_at desc limit 10;`
 
-**Refresh**: tab Inventory Tracking → ⬆ Upload file tracker → choose the file, enter the key → Tải lên. The browser reads the workbook (SheetJS) and writes it through `inv_upload()` / `inv_upload_finish()` (security definer, key checked). Each upload replaces the previous file; USA lines are also appended to `incoming_eta_log` (one row per PO line per file date) so ETA changes are kept over time (`incoming_eta_changes`). The upload also refreshes `skus.salable_*`, `inventory_snapshot` and `incoming_weekly` (USA, team SKUs) so DOC / incoming on Tracking Target use the same data. Lines already past their ETA are counted in the week of the file date.
+**What a load does**: each load replaces the previous file; USA lines are also appended to `incoming_eta_log` (one row per PO line per file date) so ETA changes are kept over time (`incoming_eta_changes`). It also refreshes `skus.salable_*`, `inventory_snapshot` and `incoming_weekly` (USA, team SKUs) so DOC / incoming on Tracking Target use the same data. Lines already past their ETA are counted in the week of the file date.
 
 **How the tab counts**
 - `on_time_status` from the file: `normal`; `delay vs expected` = current ETA later than the original ETA (slip days = ETA now − ETA original); `delay vs current` = ETA already passed and the goods are not sellable yet (days past ETA = file date − ETA).
 - ETA for projections: "ETA trong file", or "ETA thận trọng" = ETA + the average slip seen in the file for the same source × physical status (overdue lines: file date + 7 days).
 - Forecast (USA only; `sales_daily` is Amazon US): per SKU, 78 complete weeks of units → 5 models (MA4, MA8, SES, Holt damped, Seasonal = MA8 level × last year's shape), rolling-origin backtest over the last 8 weeks with a 4-week horizon, lowest WAPE wins (accuracy = 1 − WAPE). SKUs out of stock now whose last 4 weeks fell below half of weeks 5–12 use the pre-stock-out level (`OOS-adjusted`). Past stock-outs are not detected, so their weeks pull forecasts down.
 - Projection (16 weeks): stock AMZ + Amazon incoming in the week − forecast → OOS week and lost units; a second line adds Y4A stock and Y4A incoming. Risk: OOS ≤ 2 weeks / within 8 weeks, PO past ETA, ETA slipped, high stock (> 26 weeks of total cover). Suggestions are rule-based; "🤖 AI phân tích" sends the risk SKUs and delayed POs to the `ai-recommend` Edge Function.
+
+## Tracking Target: lost sales / tồn cao (replaces the DOC table)
+
+Always measured against the **target** (`targets_weekly`, the weekly split of the month target; the monthly target spread evenly when a SKU has no weekly split). Price = target GMV ÷ target units of the month.
+
+- **Lost sales theo product line** (expand to SKUs; the SKU code opens the Amazon listing, the row filters the dashboard):
+  - Day by day from tomorrow to month end: the target units that current stock + incoming per week cannot cover. Incoming comes from the incoming tracker (new ETA). **ETA thận trọng** (default) moves goods already past their ETA / due this week one week later, because ETAs keep slipping; "ETA theo tracker" uses them as they are.
+  - **Mốc forecast**: the inventory file the target was built on, stored per month in `forecast_baseline_inventory` / `forecast_baseline_incoming` (Nov-2026 = `Yes4All_US_Inventory_10282026.xlsx`, 28/10 09:05); daily inventory snapshots can be picked instead. The same simulation on the baseline gives the lost "if goods had come as planned": **Do hàng trễ** = lost − that; the rest is short even on plan.
+  - **Δ tồn** = (current stock + incoming in the month + sold since the baseline) − (baseline stock + incoming in the month at the baseline).
+  - Units whose original ETA was inside the month but moved past month end, and units past ETA, are tagged per SKU.
+  - Nov-2026 check on real data (108 SKUs with a target, $419K target left from 11/11): even spread $11.3K · weekly target + tracker ETA $9.3K · **weekly target + cautious ETA $10.5K** (used) · if goods had come as the 28/10 file planned $4.2K.
+- **Tồn cao theo product line**: stock left at month end in the same simulation, potential GMV at the target price, DOC for reference.
+- **Issue monitor** (below the two tables): *Ineligible ads* (target file), block zipcode / long shipping / listing (PIC notes), **Nhảy giá** = current Buy Box (Keepa, column Z, matched by ASIN in column E) more than ±10% from **RRP tham chiếu** (Optimal Pricing, column U; the target-file RRP when a SKU is not in the pricing file), glance views −30% WoW.
+  - Each card shows **Lost $X (Y% impact)**: the PIC's estimate when a Weekly Review note has one for the SKU on a line naming that issue ("Lost ~$1,000", "Hụt $1106", "sức bán giảm khoảng 75%" × target GMV MTD), else the gap to the target GMV MTD; % impact = lost ÷ target GMV MTD of those SKUs.
+
+**Loading the price files and the forecast baseline** (Edge Function `pull-inventory`, same URL and `x-pull-secret` as the tracker flow; `supabase_pricing_baseline.sql` creates the tables, run once):
+- Keepa export (its link is updated continuously): a Power Automate flow like the tracker one — *Get file content* of `US_Keepa_Raw_Auto.xlsx` → HTTP POST, header `x-file-name: US_Keepa_Raw_Auto.xlsx`. Detected from its first row; replaces `keepa_prices`.
+- Optimal Pricing (`Yes4All_Optimal_Pricing_SKU.xlsx`, sheet *Optimal pricing*): POST it whenever the fixed prices change; replaces `price_reference`.
+- Forecast baseline of a new month: POST the inventory file used for the target (old *report* format) with header `x-forecast-month: 2026-12`.

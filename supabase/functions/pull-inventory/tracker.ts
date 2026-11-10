@@ -1,6 +1,6 @@
 // Parsing of the new "For_Sales_Incoming_Tracker" workbook. No Deno APIs (tested with Node).
-// Same mapping as INV.parseWorkbook in inventory.js (the tab's Upload button), so an automatic
-// load and a manual upload write identical rows through inv_upload() / inv_upload_finish().
+// Writes through inv_upload() / inv_upload_finish() (supabase_inventory_tracking.sql); the mapping
+// below is the single definition of how each sheet becomes table rows.
 //
 //   01_AMZ_incoming_details   → amz_incoming        (hàng về kho Amazon)
 //   02_Y4A_incoming_details   → y4a_incoming        (hàng về kho Y4A)
