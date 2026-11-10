@@ -739,6 +739,8 @@ let PICS = [];
 // SKUs with lifecycle "Inactived" in the follow-up file: kept in the database,
 // left off every tab (loadMonth fills this, v2/v3 exclude their sales too).
 let HIDDEN_SKUS = new Set();
+// Inactived SKUs that still have a target and must stay on the dashboard (exception list).
+const SHOW_INACTIVE_SKUS = new Set(['R9SH']);
 
 function monthLabel(iso){
   const [y,m] = iso.split('-');
@@ -821,7 +823,7 @@ async function loadMonth(monthIso){
   const daysElapsed = +asOfDate.slice(8,10);
   const daysInMonth = daysInMonthOf(monthIso);
 
-  const isInactive = sk => /^inactiv/i.test(String(sk.lifecycle || '').trim());
+  const isInactive = sk => /^inactiv/i.test(String(sk.lifecycle || '').trim()) && !SHOW_INACTIVE_SKUS.has(sk.sku);
   HIDDEN_SKUS = new Set((skus||[]).filter(isInactive).map(sk=>sk.sku));
   const rows = (skus||[]).filter(sk=>!isInactive(sk)).map(sk=>{
     const t = targetBySku[sk.sku] || {};
