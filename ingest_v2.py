@@ -456,6 +456,113 @@ def asin_daily_rows(paths, skus, date_from, date_to=None):
     return [r for r in rows if r["units"] or r["gmv"] or r["ads"] or r["promo"] or r["glance_views"]]
 
 
+# ---------------------------------------------------------------------------
+# Monthly + weekly targets from "SSO_US_<Mon>.<year>_Target_<date>_Team_*.xlsx", PIC from the follow-up
+# ---------------------------------------------------------------------------
+def followup_pic_rows(path, sheet):
+    """Tracking sheet of the follow-up (header on row 4): SKUs that have a PIC. Rows without a PIC are left out."""
+    import openpyxl
+    ws = openpyxl.load_workbook(path, read_only=True, data_only=True)[sheet]
+    rows = list(ws.iter_rows(values_only=True))
+    h = [str(c).strip() if c is not None else "" for c in rows[3]]
+    col = {k: i for i, k in enumerate(h) if k}
+    def g(r, k):  # Excel error cells (#N/A, #REF!…) count as empty
+        v = r[col[k]] if k in col and col[k] < len(r) else None
+        return None if isinstance(v, str) and re.fullmatch(r"#[A-Z/0!?]+[!?]?", v.strip()) else v
+    out, no_pic = {}, []
+    for r in rows[4:]:
+        sku = (txt(g(r, "SKU")) or "").replace("\u200b", "").strip().upper()
+        if not re.fullmatch(r"[0-9A-Z]{4}", sku):
+            continue
+        pic = (txt(g(r, "PIC")) or "").strip()
+        if not pic:
+            no_pic.append(sku)
+            continue
+        out[sku] = {"sku": sku, "pic": pic, "lifecycle": txt(g(r, "Lifecycle")) or None,
+                    "product_name": (txt(g(r, "Product Name")) or "").replace("\u200b", "").strip() or None,
+                    "main_pl": txt(g(r, "New Product line")) or None, "category": txt(g(r, "Category")) or None,
+                    "selling_type": txt(g(r, "Selling type")) or None, "asin": txt(g(r, "ASIN")) or None,
+                    "asin_status": txt(g(r, "ASIN status")) or None,
+                    "salable_y4a": num(g(r, "SALABLE Y4A")), "salable_amz": num(g(r, "SALABLE AMZ"))}
+    return out, no_pic
+
+
+def month_target_rows(path, month):
+    """Final target per SKU (columns AD units, AE GMV, AF Ads, AG Promo) and the weekly split
+    (AH.. units, then Ads, then Promo, one column per week; the last week column covers the rest
+    of the month, e.g. "W47 (incl 29&30/11)" = 22/11 → 30/11). Weekly GMV follows the weekly units.
+    Weeks are calendar weeks Sunday → Saturday starting at the month start; the last file week
+    runs to the month end."""
+    import calendar
+    import openpyxl
+    ws = openpyxl.load_workbook(path, read_only=True, data_only=True).worksheets[0]
+    rows = list(ws.iter_rows(values_only=True))
+    hdr = rows[2]
+    L = lambda c: openpyxl.utils.column_index_from_string(c) - 1
+    expect = {"C": "SKU", "AD": "Final target unit", "AE": "Final target GMV", "AF": "Ads", "AG": "Promo"}
+    bad = [f"{c}={hdr[L(c)]!r}" for c, v in expect.items() if str(hdr[L(c)] or "").strip() != v]
+    if bad:
+        raise SystemExit("File target không đúng cột mong đợi: " + ", ".join(bad))
+    wk_cols = [i for i in range(L("AH"), len(hdr)) if re.match(r"^W\d+", str(hdr[i] or ""))]
+    n = len(wk_cols) // 3
+    units_c, ads_c, promo_c = wk_cols[:n], wk_cols[n:2 * n], wk_cols[2 * n:3 * n]
+    # calendar weeks of the month (Sunday start), cut at the month ends
+    first = month
+    last = date(month.year, month.month, calendar.monthrange(month.year, month.month)[1])
+    sun = first - timedelta(days=(first.weekday() + 1) % 7)
+    cal = []
+    while sun <= last:
+        cal.append((sun, max(sun, first), min(sun + timedelta(days=6), last)))
+        sun += timedelta(days=7)
+    # file week k = calendar week k, the last file week takes every remaining calendar week
+    groups = [[cal[k]] for k in range(n - 1)] + [cal[n - 1:]]
+    monthly, weekly = [], []
+    for r in rows[3:]:
+        sku = (txt(r[L("C")]) or "").replace("\u200b", "").strip().upper()
+        if not re.fullmatch(r"[0-9A-Z]{4}", sku):
+            continue
+        mu, mg, ma, mp = (num(r[L(c)]) for c in ("AD", "AE", "AF", "AG"))
+        monthly.append({"sku": sku, "month": first, "target_units": round(mu, 4), "target_gmv": round(mg, 4),
+                        "ads_target": round(ma, 4), "promo_target": round(mp, 4)})
+        for k, grp in enumerate(groups):
+            wu, wa, wp = num(r[units_c[k]]), num(r[ads_c[k]]), num(r[promo_c[k]])
+            wsun, ps, pe = grp[0][0], grp[0][1], grp[-1][2]   # the last file week runs to the month end
+            gmv = mg * wu / mu if mu else mg * ((pe - ps).days + 1) / last.day
+            weekly.append({"sku": sku, "week_start": wsun, "period_start": ps, "period_end": pe,
+                           "target_units": round(wu, 4), "target_gmv": round(gmv, 4),
+                           "ads_target": round(wa, 4), "promo_target": round(wp, 4),
+                           "source": os.path.basename(path)})
+    return monthly, weekly
+
+
+def write_month_targets(out_dir, target_path, month, followup_path, sheet):
+    pics, no_pic = followup_pic_rows(followup_path, sheet)
+    monthly, weekly = month_target_rows(target_path, month)
+    keep = set(pics)
+    skipped = sorted({r["sku"] for r in monthly} - keep)
+    monthly = [r for r in monthly if r["sku"] in keep]
+    weekly = [r for r in weekly if r["sku"] in keep]
+    tag = f"{month:%Y_%m}"
+    # 1) SKU master: new SKUs inserted whole; existing SKUs only get the new PIC and lifecycle
+    cols = ["sku", "pic", "lifecycle", "product_name", "main_pl", "category", "selling_type", "asin", "asin_status", "salable_y4a", "salable_amz"]
+    body = upsert_sql("skus", cols, list(pics.values()), ["sku"], update=["pic", "lifecycle"])
+    write(out_dir, f"21_skus_pic_{tag}.sql", body,
+          header=f"-- {len(pics)} SKUs with a PIC in {sheet} (PIC + lifecycle updated; new SKUs added) · {len(no_pic)} rows without PIC left out")
+    # 2) monthly target (replaces the month)
+    body = f"delete from targets_monthly where month = '{month}';\n\n" + upsert_sql(
+        "targets_monthly", ["sku", "month", "target_units", "target_gmv", "ads_target", "promo_target"], monthly, ["sku", "month"])
+    tot = lambda k: sum(r[k] for r in monthly)
+    write(out_dir, f"22_targets_{tag}.sql", body,
+          header=f"-- {len(monthly)} SKUs · GMV {tot('target_gmv'):,.0f} · Ads {tot('ads_target'):,.0f} · Promo {tot('promo_target'):,.0f} · units {tot('target_units'):,.0f}"
+                 + (f"\n-- left out (no PIC in follow-up): {', '.join(skipped)}" if skipped else "") + "\n-- run 21_skus_pic first")
+    # 3) weekly target (needs supabase_weekly_targets.sql)
+    wcols = ["sku", "week_start", "period_start", "period_end", "target_units", "target_gmv", "ads_target", "promo_target", "source"]
+    body = f"delete from targets_weekly where period_start >= '{month}' and period_start < '{(month.replace(day=28) + timedelta(days=4)).replace(day=1)}';\n\n" + upsert_sql(
+        "targets_weekly", wcols, weekly, ["sku", "period_start"])
+    write(out_dir, f"23_targets_weekly_{tag}.sql", body, header=f"-- {len(weekly)} SKU-week rows · needs supabase_weekly_targets.sql")
+    return monthly, weekly, skipped, no_pic
+
+
 BTR_COLS = ["offer_id", "asin", "sku", "pic", "product_title", "offer_name", "offer_state", "status", "st_start", "st_end", "as_of",
             "submitted_qty", "accepted_qty", "vendor_resp_qty", "product_cost", "sold_qty", "est_sold_end", "est_retention",
             "retention_rate", "ad_spend", "promo_spend", "alert_level", "action_code", "link", "file_updated_at"]
@@ -954,6 +1061,9 @@ def main():
     ap.add_argument("--hourly", help="SSO Data Extraction Hourly export: overwrite one month of sales_daily (see --overwrite-month)")
     ap.add_argument("--overwrite-month", help="YYYY-MM to replace with the --hourly file, e.g. 2026-09 (deletes the whole month first)")
     ap.add_argument("--max-part-kb", type=int, default=600, help="max size of each sales history file (SQL Editor limit)")
+    ap.add_argument("--month-target", help="SSO_US_<Mon>.<year>_Target_*.xlsx → 21_skus_pic / 22_targets / 23_targets_weekly (needs --target-month, --pic-followup)")
+    ap.add_argument("--pic-followup", help="with --month-target: follow-up workbook whose tracking sheet gives the PIC per SKU")
+    ap.add_argument("--pic-sheet", default="Tracking_0925", help="with --month-target: sheet of --pic-followup")
     ap.add_argument("--btr", help="Born-to-run Alert export (.xlsx) → 17_btr_offers.sql")
     ap.add_argument("--asin-inventory", help="Yes4All_US_Inventory_<date>.xlsx (sheet report) → 18_asin_inventory.sql (per SKU × ASIN)")
     ap.add_argument("--asin-backfill", nargs="+", help="exports with an ASIN column, oldest first → 20_sales_asin_backfill.sql (sales_asin_daily)")
@@ -987,6 +1097,12 @@ def main():
                 write_split(a.out, name[:-4].replace("12_sales", "12b_sales_hourly"), hsql, header=f"-- {hn} SKU-hour rows (activity only) · needs sales_hourly (16_auto_ingest.sql)")
         if not a.followup:
             return
+    if a.month_target and not a.followup:
+        if not (a.target_month and a.pic_followup):
+            ap.error("--month-target needs --target-month and --pic-followup")
+        monthly, weekly, skipped, no_pic = write_month_targets(a.out, a.month_target, date.fromisoformat(a.target_month), a.pic_followup, a.pic_sheet)
+        print(f"  {len(monthly)} SKU targets, {len(weekly)} SKU-weeks; no PIC: {len(no_pic)} follow-up rows; targets left out: {skipped}")
+        return
     if (a.btr or a.asin_inventory or a.asin_backfill) and not a.followup:
         if a.btr or a.asin_inventory:
             write_btr(a.out, a.btr, a.asin_inventory)  # BTR tab files only
