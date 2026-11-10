@@ -4,11 +4,9 @@
 //
 //  • NEW (one source of truth since Nov-2026): "For_Sales_Incoming_Tracker.xlsx"
 //    (sheets 01_AMZ_incoming_details, 02_Y4A_incoming_details, 04_AMZ_sellable details,
-//    06_ USA_Sellable INV, 07_INT Sellable INV). Parsed by tracker.ts — the same mapping as the
-//    Upload button of the Inventory Tracking tab — and written through the same SQL functions
+//    06_ USA_Sellable INV, 07_INT Sellable INV). Parsed by tracker.ts and written through the SQL functions
 //    (supabase_inventory_tracking.sql): inv_upload() per sheet, then inv_upload_finish(), which
 //    also refreshes skus.salable_*, inventory_snapshot, incoming_weekly and asin_inventory.
-//    A manual upload and an automatic load therefore give identical data.
 //  • OLD: "Yes4All_US_Inventory" / "USA Inventory Y4A-AMZ.xlsx" (sheet report) via
 //    replace_inventory_snapshot (inventory.ts). Kept only to roll back.
 // The format is detected from the sheet names.

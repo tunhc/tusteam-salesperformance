@@ -1,13 +1,13 @@
 // =====================================================================
 // Inventory Tracking tab — tồn kho, incoming (ETA mới), trễ hàng, forecast
 //
-// Data (supabase_inventory_tracking.sql), loaded from "For_Sales_Incoming_Tracker.xlsx"
-// with the Upload button of this tab:
+// Data (supabase_inventory_tracking.sql), loaded automatically every hour from
+// "For_Sales_Incoming_Tracker.xlsx" by the Edge Function pull-inventory (Power Automate):
 //   incoming_detail     01_AMZ_incoming_details (source AMZ: hàng về kho Amazon, AVC)
 //                       02_Y4A_incoming_details (source Y4A: hàng về kho mình, kéo sớm được)
 //   inventory_sellable  06_ USA_Sellable INV + 07_INT Sellable INV (tồn Y4A / AMZ per SKU)
 //   amz_inventory_asin  04_AMZ_sellable details (Vendor Central per ASIN)
-//   incoming_eta_log    USA lines of every upload → ETA history
+//   incoming_eta_log    USA lines of every load → ETA history
 // on_time_status in the file:
 //   normal · delay vs expected = ETA hiện tại lùi so với ETA ban đầu ·
 //   delay vs current = đã quá ETA mà chưa thành sellable (quá hạn)
@@ -30,64 +30,6 @@ const dow = s => new Date(s + 'T00:00:00Z').getUTCDay();
 const sunday = s => addD(s, -dow(s));
 const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
 const md = s => s ? s.slice(5, 7) + '/' + s.slice(8, 10) : '—';
-// Excel serial (or Date / ISO string) → yyyy-mm-dd; time-only cells (serial < 1) are empty
-function xlDate(v){
-  if(v == null || v === '') return null;
-  if(typeof v === 'number') return v < 1 ? null : iso(new Date(Math.round((Math.floor(v) - 25569) * DAY)));
-  if(v instanceof Date) return isNaN(v) ? null : iso(new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate())));
-  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : null;
-}
-const xlNum = v => v == null || v === '' || isNaN(+v) ? null : +v;
-const xlTxt = v => { if(v == null) return null; const s = String(v).trim(); return s && !/^#(N\/A|REF!|VALUE!|DIV\/0!|NAME\?)$/.test(s) ? s : null; };
-
-// ---------------------------------------------------------------- parse the workbook
-// wb = SheetJS workbook read with {cellDates:false}. Returns {kind: rows[]} for inv_upload.
-INV.parseWorkbook = function(wb, XL){
-  XL = XL || root.XLSX;
-  const find = re => wb.SheetNames.find(n => re.test(n.trim()));
-  const objs = name => name ? XL.utils.sheet_to_json(wb.Sheets[name], {raw:true, defval:null}) : [];
-  const out = {}, warn = [];
-  const inc = (name, src) => objs(name).map(r => ({
-    log_date: xlDate(r.log_date), country: xlTxt(r.country), channel: xlTxt(src === 'AMZ' ? r.channel : r.warehouse), po_type: xlTxt(r.po_type),
-    po_name: xlTxt(r.po_name), vendor_code: xlTxt(r.vendor_code), sku: xlTxt(r.sku), asin: xlTxt(r.asin), qty: xlNum(src === 'AMZ' ? r.qty_incoming : r.incoming_qty),
-    eta_salable_date: xlDate(r.eta_salable_date), eta_salable_original: xlDate(r.eta_salable_original), physical_status: xlTxt(r.physical_status),
-    on_time_status: xlTxt(r.on_time_status), ordered_date: xlDate(r.ordered_date), container_number: xlTxt(r.container_number), container_type: xlTxt(r.container_type),
-    expected_ship_date: xlDate(r.expected_ship_date), actual_ship_date: xlDate(r.actual_ship_date), etd_pol: xlDate(r.etd_pol), atd_pol: xlDate(r.atd_pol),
-    eta_pod: xlDate(r.eta_pod), ata_pod: xlDate(src === 'AMZ' ? r.actual_port_arrival : r.ata_pod), department: xlTxt(r.department ?? r.dept),
-    product_name: xlTxt(r.product_name), product_line: xlTxt(r.product_line), selling_type: xlTxt(r.selling_type), incoming_week: xlTxt(r.incoming_week),
-  })).filter(r => r.sku && r.po_name && r.country && r.log_date);
-  const sA = find(/^01_?AMZ_incoming/i), sY = find(/^02_?Y4A_incoming/i);
-  if(sA) out.amz_incoming = inc(sA, 'AMZ'); else warn.push('Không thấy sheet 01_AMZ_incoming_details');
-  if(sY) out.y4a_incoming = inc(sY, 'Y4A'); else warn.push('Không thấy sheet 02_Y4A_incoming_details');
-  // 06 / 07: row 1 holds the as-of dates of inv_y4a / inv_amz, row 2 the header
-  const sell = [];
-  [find(/^06_?\s*USA_?Sellable/i), find(/^07_?\s*INT_?Sellable/i)].forEach(name => {
-    if(!name) return;
-    const a = XL.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:null});
-    const hi = a.findIndex(r => r && r.includes('sku') && r.includes('inv_amz')); if(hi < 0) return;
-    const h = a[hi], c = k => h.indexOf(k), top = a[hi - 1] || [];
-    const y4aAt = xlDate(top[c('inv_y4a')]), amzAt = xlDate(top[c('inv_amz')]);
-    for(const r of a.slice(hi + 1)){
-      const sku = xlTxt(r[c('sku')]), country = xlTxt(r[c('country')]); if(!sku || !country) continue;
-      sell.push({country, sku, product_name: xlTxt(r[c('product_name')]), department: xlTxt(r[c('department')]),
-        inv_y4a: xlNum(r[c('inv_y4a')]) || 0, inv_amz: xlNum(r[c('inv_amz')]) || 0, y4a_as_of: y4aAt, amz_as_of: amzAt});
-    }
-  });
-  if(sell.length) out.inventory_sellable = sell; else warn.push('Không thấy sheet 06/07 Sellable INV');
-  const sZ = find(/^04_?AMZ_sellable/i);
-  if(sZ) out.amz_asin = objs(sZ).map(r => ({
-    country: xlTxt(r.country), asin: xlTxt(r.asin), sku: xlTxt(r.SKU ?? r.sku), department: xlTxt(r.Department ?? r.department), log_date: xlDate(r.log_date), currency: xlTxt(r.currency),
-    sellable_on_hand_units: xlNum(r.sellable_on_hand_inventory_units), sellable_on_hand_value: xlNum(r.sellable_on_hand_inventory_value),
-    sellable_in_transit_units: xlNum(r.sellable_in_transit_units), unsellable_on_hand_units: xlNum(r.unsellable_on_hand_inventory_units),
-    in_transit_units: xlNum(r.in_transit_units), open_po_units: xlNum(r.open_purchase_order_units), total_sellable: xlNum(r['Total sellable']),
-    net_received_units: xlNum(r.net_received_inventory_units), unfilled_customer_ordered_units: xlNum(r.unfilled_customer_ordered_units),
-    confirmed_units: xlNum(r.confirmed_units), aged_90_units: xlNum(r.aged_90_plus_days_sellable_inventory_units),
-    procurable_oos_rate: xlNum(r.procurable_product_oos_rate), sourceable_oos_rate: xlNum(r.sourceable_product_oos_rate),
-    vendor_confirmation_rate: xlNum(r.vendor_confirmation_rate), receive_fill_rate: xlNum(r.receive_fill_rate), vendor_lead_time_days: xlNum(r.overall_vendor_lead_time_days),
-  })).filter(r => r.asin && r.country);
-  return {rows: out, warn};
-};
-
 // ---------------------------------------------------------------- forecast (AutoML lite)
 const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
 const MODELS = {
@@ -264,7 +206,7 @@ INV.render = async function(){
   if(!IV.data || IV.loadedFor !== IV.country){
     host.querySelector('#ivBody').innerHTML = '<tr><td colspan="18" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming' + ' và số bán để forecast' + '…</td></tr>';
     try { await load(); }
-    catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="18" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor, rồi bấm <b>⬆ Upload file tracker</b>.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
+    catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="18" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
     compute();
     const pics = [...new Set(IV.rows.map(r => r.pic).filter(Boolean))].sort(), pls = [...new Set(IV.rows.map(r => r.pl).filter(Boolean))].sort();
     host.querySelector('#ivPic').innerHTML = '<option value="">All</option>' + pics.map(p => `<option ${p === IV.pic ? 'selected' : ''}>${h.esc(p)}</option>`).join('');
@@ -280,18 +222,6 @@ function build(host){
       <div class="fld"><label for="ivEta">ETA dùng để dự phóng</label><select id="ivEta"><option value="file">ETA trong file</option><option value="safe">ETA thận trọng (+ độ trễ TB)</option></select></div>
       <div class="fld"><label for="ivQ">Tìm SKU / tên / product line</label><input id="ivQ" type="search" placeholder="VD: DXD3, Kettlebell…"></div>
       <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button">↻ Tải lại</button></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivUpBtn" type="button">⬆ Upload file tracker</button></div>
-    </div>
-    <div class="card" id="ivUp" hidden>
-      <h3 style="margin-top:0">Upload "For_Sales_Incoming_Tracker.xlsx"</h3>
-      <div class="hint">File được đọc ngay trên trình duyệt; các sheet 01_AMZ_incoming_details, 02_Y4A_incoming_details, 04_AMZ_sellable details, 06_ USA_Sellable INV, 07_INT Sellable INV được ghi vào database (thay dữ liệu file cũ; lịch sử ETA của USA được giữ lại theo từng ngày log). Cần upload key (tạo trong SQL Editor, xem đầu file <code>supabase_inventory_tracking.sql</code>).</div>
-      <div class="filterbar" style="box-shadow:none;margin:0">
-        <div class="fld"><label for="ivFile">File</label><input id="ivFile" type="file" accept=".xlsx,.xlsm,.xls"></div>
-        <div class="fld"><label for="ivKey">Upload key</label><input id="ivKey" type="password" autocomplete="off"></div>
-        <div class="fld"><label for="ivWho">Người upload</label><input id="ivWho" type="text" placeholder="Tên"></div>
-        <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivGo" type="button">Tải lên</button></div>
-      </div>
-      <div id="ivUpMsg" class="hint" style="margin-top:8px"></div>
     </div>
     <div class="btr-src" id="ivSrc"></div>
     <div class="kpis iv-kpis" id="ivKpis"></div>
@@ -339,11 +269,8 @@ function build(host){
   $('#ivEta').onchange = e => { IV.etaMode = e.target.value; compute(); re(); };
   $('#ivQ').oninput = e => { IV.q = e.target.value.trim().toLowerCase(); re(); };
   $('#ivReload').onclick = () => { IV.data = null; IV.sales = null; INV.render(); };
-  $('#ivUpBtn').onclick = () => { $('#ivUp').hidden = !$('#ivUp').hidden; };
-  $('#ivGo').onclick = upload;
   $('#ivExport').onclick = exportXlsx;
   $('#ivAi').onclick = () => askAi(false);
-  try { $('#ivWho').value = localStorage.getItem('ivWho') || ''; } catch(_){}
   host.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(IV.sort === k) IV.dir *= -1; else { IV.sort = k; IV.dir = ['pic','sku','name','pl','riskRank','oosWk','nAeta','nYeta','whyTxt'].includes(k) ? 1 : -1; } re(); });
   host.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.onclick = () => { IV.grid = b.dataset.m; host.querySelectorAll('#ivGridMode .cv-btn').forEach(x => x.classList.toggle('active', x === b)); re(); });
 }
@@ -361,7 +288,7 @@ function paint(){
   const s0 = D.sell[0] || {};
   document.getElementById('ivSrc').innerHTML = `<span>Incoming AMZ: <b>${md(logA)}</b> · Y4A: <b>${md(logY)}</b></span><span>Tồn Y4A: <b>${md(s0.y4a_as_of)}</b> · tồn AMZ: <b>${md(s0.amz_as_of)}</b></span>` +
     `<span>Thị trường <b>USA</b> · <b>${IV.rows.length}</b> SKU của follow-up đang có tồn / hàng về / số bán</span>` + (IV.sales ? `<span>Số bán để forecast: tới <b>${md(IV.sales.lastSat)}</b> (tuần đủ, ${IV.sales.weeks.length} tuần)</span>` : '') +
-    (up ? `<span>Upload lần cuối: <b>${h.esc(String(up.uploaded_at).slice(0, 16).replace('T', ' '))}</b>${up.uploaded_by ? ' · ' + h.esc(up.uploaded_by) : ''}${up.file_name ? ' · ' + h.esc(up.file_name) : ''}</span>` : '<span>Chưa có upload nào: bấm <b>⬆ Upload file tracker</b></span>');
+    (up ? `<span>Cập nhật tự động lần cuối: <b>${h.esc(new Date(up.uploaded_at).toLocaleString('vi-VN', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'}))}</b> (mỗi giờ, từ file tracker)</span>` : '<span>Chưa có lần cập nhật nào: chờ flow tự động (mỗi giờ)</span>');
   // KPIs
   const sum = (a, f) => a.reduce((t, x) => t + (f(x) || 0), 0);
   const dl = lines.filter(l => l.on_time_status === 'delay vs expected'), od = lines.filter(l => l.on_time_status === 'delay vs current');
@@ -435,7 +362,7 @@ function paint(){
       <td class="num">${r.delayQty ? fi(r.delayQty) + `<span class="vs">tối đa ${r.maxSlip}n</span>` : '—'}</td>
       <td class="num">${r.overdueQty ? `<b style="color:var(--red)">${fi(r.overdueQty)}</b><span class="vs">${r.maxOverdue}n</span>` : '—'}</td>
       <td>${badge(r)}</td><td style="min-width:240px;font-size:11.5px">${r.why.map(w => '• ' + h.esc(w)).join('<br>')}</td></tr>`).join('')
-    || '<tr><td colspan="18" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: bấm ⬆ Upload file tracker)') + '.</td></tr>';
+    || '<tr><td colspan="18" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: chờ flow tự động mỗi giờ)') + '.</td></tr>';
   document.querySelectorAll('#ivBody tr[data-sku]').forEach(t => t.onclick = () => { IV.sel = t.dataset.sku; paint(); document.getElementById('ivDetail').scrollIntoView({behavior: 'smooth', block: 'start'}); });
   document.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.setAttribute('aria-sort', th.dataset.k === IV.sort ? (IV.dir > 0 ? 'ascending' : 'descending') : 'none'));
   // weekly grid: one row per SKU, one column per week
@@ -491,47 +418,15 @@ async function detail(){
   }
   h.draw('ivDPlot', traces, h.lay({barmode: 'stack', hovermode: 'x unified', margin: {l: 52, r: 12, t: 6, b: 50}, xaxis: h.ax({type: 'category', categoryorder: 'array', categoryarray: [...histW.map(md), ...wl.filter(x => !histW.map(md).includes(x))]}), yaxis: h.ax({tickformat: ',.0f'}),
     shapes: r.oosWk !== null ? [{type: 'line', x0: wl[r.oosWk], x1: wl[r.oosWk], yref: 'paper', y0: 0, y1: 1, line: {color: '#D64545', width: 1.5, dash: 'dot'}}] : []}));
-  // ETA history (USA keeps one row per upload)
+  // ETA history (USA keeps one row per load)
   try {
     const hist = await h.selectAll('incoming_eta_log', q => q.eq('country', IV.country).eq('sku', r.sku).order('log_date'));
     host.querySelectorAll('td.hist').forEach(td => {
       const hs = hist.filter(x => x.po_name === td.dataset.po && x.container_number === td.dataset.c);
       const seq = []; hs.forEach(x => { if(!seq.length || seq[seq.length - 1].eta !== x.eta_salable_date) seq.push({at: x.log_date, eta: x.eta_salable_date}); });
-      td.innerHTML = seq.length > 1 ? seq.map(s => `${md(s.eta)}<span style="color:var(--muted);font-size:10px"> (${md(s.at)})</span>`).join(' → ') : hs.length ? `<span style="color:var(--muted)">chưa đổi (${hs.length} lần upload)</span>` : '—';
+      td.innerHTML = seq.length > 1 ? seq.map(s => `${md(s.eta)}<span style="color:var(--muted);font-size:10px"> (${md(s.at)})</span>`).join(' → ') : hs.length ? `<span style="color:var(--muted)">chưa đổi (${hs.length} lần cập nhật)</span>` : '—';
     });
   } catch(_){ host.querySelectorAll('td.hist').forEach(td => td.textContent = '—'); }
-}
-
-// ---------------------------------------------------------------- upload
-async function upload(){
-  const h = H(), host = document.getElementById('view-inv'), msg = host.querySelector('#ivUpMsg');
-  const file = host.querySelector('#ivFile').files[0], key = host.querySelector('#ivKey').value, who = host.querySelector('#ivWho').value.trim();
-  if(!file){ msg.textContent = 'Chọn file trước.'; return; }
-  if(!key){ msg.textContent = 'Nhập upload key.'; return; }
-  if(typeof XLSX === 'undefined'){ msg.textContent = 'Không tải được thư viện đọc Excel (SheetJS).'; return; }
-  try { localStorage.setItem('ivWho', who); } catch(_){}
-  const btn = host.querySelector('#ivGo'); btn.disabled = true;
-  try {
-    msg.textContent = 'Đang đọc file…';
-    const wb = XLSX.read(await file.arrayBuffer(), {type: 'array', cellDates: false});
-    const {rows, warn} = INV.parseWorkbook(wb);
-    const kinds = Object.entries(rows).filter(([, v]) => v.length);
-    if(!kinds.length) throw new Error('Không đọc được sheet nào. ' + warn.join('; '));
-    const CH = 800;
-    for(const [kind, list] of kinds){
-      for(let i = 0; i < list.length; i += CH){
-        msg.textContent = `Đang ghi ${kind}: ${Math.min(i + CH, list.length).toLocaleString()} / ${list.length.toLocaleString()} dòng…`;
-        const {error} = await sb.rpc('inv_upload', {p_key: key, p_kind: kind, p_rows: list.slice(i, i + CH), p_reset: i === 0});
-        if(error) throw error;
-      }
-    }
-    msg.textContent = 'Đang cập nhật lịch sử ETA và tồn kho cho các tab khác…';
-    const {data, error} = await sb.rpc('inv_upload_finish', {p_key: key, p_file_name: file.name, p_uploaded_by: who || null});
-    if(error) throw error;
-    msg.innerHTML = `<b style="color:var(--green)">Xong.</b> ${h.esc(Object.entries(data || {}).map(([k, v]) => k + ': ' + v).join(' · '))}${warn.length ? '<br>Lưu ý: ' + h.esc(warn.join('; ')) : ''}`;
-    IV.data = null; INV.render();
-  } catch(e){ msg.innerHTML = `<b style="color:var(--red)">Lỗi:</b> ${h.esc(e.message || e)}`; }
-  finally { btn.disabled = false; }
 }
 
 // ---------------------------------------------------------------- export + AI
