@@ -288,7 +288,7 @@ function paint(){
   const s0 = D.sell[0] || {};
   document.getElementById('ivSrc').innerHTML = `<span>Incoming AMZ: <b>${md(logA)}</b> · Y4A: <b>${md(logY)}</b></span><span>Tồn Y4A: <b>${md(s0.y4a_as_of)}</b> · tồn AMZ: <b>${md(s0.amz_as_of)}</b></span>` +
     `<span>Thị trường <b>USA</b> · <b>${IV.rows.length}</b> SKU của follow-up đang có tồn / hàng về / số bán</span>` + (IV.sales ? `<span>Số bán để forecast: tới <b>${md(IV.sales.lastSat)}</b> (tuần đủ, ${IV.sales.weeks.length} tuần)</span>` : '') +
-    (up ? `<span>Cập nhật tự động lần cuối: <b>${h.esc(new Date(up.uploaded_at).toLocaleString('vi-VN', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'}))}</b> (mỗi giờ, từ file tracker)</span>` : '<span>Chưa có lần cập nhật nào: chờ flow tự động (mỗi giờ)</span>');
+    (up ? `<span>Cập nhật tự động lần cuối: <b>${(d => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`)(new Date(up.uploaded_at))}</b> (mỗi giờ, từ file tracker)</span>` : '<span>Chưa có lần cập nhật nào: chờ flow tự động (mỗi giờ)</span>');
   // KPIs
   const sum = (a, f) => a.reduce((t, x) => t + (f(x) || 0), 0);
   const dl = lines.filter(l => l.on_time_status === 'delay vs expected'), od = lines.filter(l => l.on_time_status === 'delay vs current');
