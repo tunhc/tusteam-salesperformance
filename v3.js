@@ -1113,7 +1113,7 @@ function btrExport(){
 // first paint and month changes (afterLoadMonth does not go through onTab)
 { const base = V2.afterLoadMonth; V2.afterLoadMonth = async function(){ await base.apply(this, arguments); if(V2.activeTab === 'sales') V3.renderLive().catch(e => console.warn(e)); }; }
 
-V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); if(tab === 'sales') V3.renderLive(); if(tab === 'btr') V3.renderBtr(); };
+V3.onTab = function(tab){ if(tab === 'projects') renderProjects(); if(tab === 'sales') V3.renderLive(); if(tab === 'btr') V3.renderBtr(); if(tab === 'inv' && window.INV) INV.render(); };
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildChat); else buildChat();
 V3.parseProject = parseProject;
 })();

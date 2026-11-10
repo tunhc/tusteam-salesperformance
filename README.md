@@ -22,6 +22,7 @@ Live Amazon Vendor/Seller sales dashboard for Yes4All — targets vs. actuals by
 | `supabase/functions/pull-hourly/` + `supabase_auto_ingest.sql` | Hourly auto-load of the SSO Data Extraction Hourly Excel from its SharePoint/OneDrive link (pg_cron → Edge Function → `replace_sales_days`). |
 | `supabase_weekly_targets.sql` | Weekly targets for the Weekly Review (`targets_weekly`) and `freeze_review_week` using them (the last week of a month runs to the month end). Safe to re-run. |
 | `supabase_btr.sql` | BTR Tracking tab (Amazon Born To Run): `btr_offers`, `asin_inventory`, `sales_asin_daily` + `replace_sales_asin_days`. Safe to re-run. |
+| `inventory.js` + `supabase_inventory_tracking.sql` | Inventory Tracking tab: stock, incoming by the new ETA logic (Amazon vs Y4A warehouse), delayed POs/containers, per-SKU forecast + stock projection, AI suggestions; the tracker file is uploaded from the tab. |
 | `born-to-run.html` | Reference page on Amazon Born to Run (program, Sell-through Period, Retention Fee formula, Returns, Flex), linked from the BTR Tracking tab. Source: Vendor Central Born to Run Program Policy. |
 | `supabase_kb.sql` | AI knowledge hub: `kb_articles` (one article per topic, with its dashboard page and source link) read by the chat before answering policy questions. Starts with the Born to Run article. Safe to re-run; re-run after editing an article. |
 | `supabase/functions/ai-chat/` | Edge Function behind the chat box: answers data questions with read-only SQL, other questions as an Amazon specialist. |
@@ -125,3 +126,24 @@ How the tab counts:
 - Weeks are Sunday → Saturday, numbered from the first full week of the year (01/11/2026 → W44). The last week of a month runs to the month end, as in the file ("W47 (incl 29&30/11)": W47 = 22/11 → 30/11); the week after it starts the next day (01/12). Due date and auto-freeze follow the week's last day.
 - Weekly Review: the "Target theo tuần" table lists the month's weeks with target vs actual GMV / Ads / Promo / units; the weekly snapshot groups its columns by what they are measured against (GMV vs target, Ads vs ads budget, Promo vs promo budget). Months without weekly targets fall back to the monthly target prorated per day.
 
+
+## Inventory Tracking tab (tồn kho + incoming theo ETA mới)
+
+Source: `For_Sales_Incoming_Tracker.xlsx` — sheets `01_AMZ_incoming_details` (hàng về kho Amazon, bán AVC), `02_Y4A_incoming_details` (hàng về kho Y4A — control được, request kéo về sớm), `04_AMZ_sellable details`, `06_ USA_Sellable INV`, `07_INT Sellable INV`. Sheet 03 (Wayfair) is not loaded.
+
+**Setup (one time)**
+1. Run `supabase_inventory_tracking.sql` in the SQL Editor (safe to re-run).
+2. Create the upload key (your own passphrase; only its bcrypt hash is stored):
+   ```sql
+   insert into upload_keys(name, key_hash) values ('inventory', crypt('<passphrase>', gen_salt('bf')))
+   on conflict (name) do update set key_hash = excluded.key_hash;
+   ```
+3. Optional: redeploy `supabase/functions/ai-chat` so the chat box knows the new tables.
+
+**Refresh**: tab Inventory Tracking → ⬆ Upload file tracker → choose the file, enter the key → Tải lên. The browser reads the workbook (SheetJS) and writes it through `inv_upload()` / `inv_upload_finish()` (security definer, key checked). Each upload replaces the previous file; USA lines are also appended to `incoming_eta_log` (one row per PO line per file date) so ETA changes are kept over time (`incoming_eta_changes`). The upload also refreshes `skus.salable_*`, `inventory_snapshot` and `incoming_weekly` (USA, team SKUs) so DOC / incoming on Tracking Target use the same data. Lines already past their ETA are counted in the week of the file date.
+
+**How the tab counts**
+- `on_time_status` from the file: `normal`; `delay vs expected` = current ETA later than the original ETA (slip days = ETA now − ETA original); `delay vs current` = ETA already passed and the goods are not sellable yet (days past ETA = file date − ETA).
+- ETA for projections: "ETA trong file", or "ETA thận trọng" = ETA + the average slip seen in the file for the same source × physical status (overdue lines: file date + 7 days).
+- Forecast (USA only; `sales_daily` is Amazon US): per SKU, 78 complete weeks of units → 5 models (MA4, MA8, SES, Holt damped, Seasonal = MA8 level × last year's shape), rolling-origin backtest over the last 8 weeks with a 4-week horizon, lowest WAPE wins (accuracy = 1 − WAPE). SKUs out of stock now whose last 4 weeks fell below half of weeks 5–12 use the pre-stock-out level (`OOS-adjusted`). Past stock-outs are not detected, so their weeks pull forecasts down.
+- Projection (16 weeks): stock AMZ + Amazon incoming in the week − forecast → OOS week and lost units; a second line adds Y4A stock and Y4A incoming. Risk: OOS ≤ 2 weeks / within 8 weeks, PO past ETA, ETA slipped, high stock (> 26 weeks of total cover). Suggestions are rule-based; "🤖 AI phân tích" sends the risk SKUs and delayed POs to the `ai-recommend` Edge Function.
