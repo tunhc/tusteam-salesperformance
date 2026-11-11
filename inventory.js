@@ -168,7 +168,7 @@ async function loadSales(max){
   } catch(e){ console.warn(e); return null; }
 }
 // daily units per SKU from Jan 1 of the latest sales year (or 90 days back, whichever is earlier)
-// to the latest sales date — AMS 2026 / AMS 3M / MTD. Fetched one month per request, in parallel.
+// to the latest sales date — AMS <năm> / AMS 3M / MTD. Fetched one month per request, in parallel.
 async function loadDaily(max){
   const h = H();
   try {
@@ -359,7 +359,7 @@ INV.render = async function(){
   paint();
 };
 function build(host){
-  const h = H(), yr = '2026';
+  const h = H(), yr = String(new Date().getFullYear());
   host.innerHTML = `<div class="filterbar iv-filters">
       <div class="fld"><label for="ivPic">Sales person (PIC)</label><select id="ivPic"><option value="">All</option></select></div>
       <div class="fld"><label for="ivPl">Main PL</label><select id="ivPl"><option value="">All</option></select></div>
@@ -632,7 +632,7 @@ function paintWeekly(rows, lines){
 
 // ---------------------------------------------------------------- 2) Theo dõi theo SKU
 // Cell colour scales (light tints, text stays dark; the number is always shown):
-//   MOC 2026 / MOC 3M      đỏ (<1 tháng, nguy cơ OOS) → vàng (1) → xanh (2–4, khỏe) → cam (≥8, tồn cao)
+//   MOC <năm> / MOC 3M     đỏ (<1 tháng, nguy cơ OOS) → vàng (1) → xanh (2–4, khỏe) → cam (≥8, tồn cao)
 //   SALABLE AMZ+Y4A        tháng tồn so với AMS 3M: đỏ (0) → vàng (1) → xanh (≥2)
 //   Incoming 4W            tháng bán mà lô 4 tuần tới bù được (÷ AMS 3M): đỏ (0) → vàng (0.5) → xanh (≥1);
 //                          không tô khi tồn hiện tại đã đủ ≥ 2 tháng (không về cũng không sao)
@@ -650,7 +650,7 @@ function heat(v, stops){
 }
 const HEAT_LEGEND = `<span class="iv-heat"><i style="background:rgb(${HEAT.red})"></i>thiếu<i style="background:rgb(${HEAT.yel})"></i>sát ngưỡng<i style="background:rgb(${HEAT.grn})"></i>khỏe<i style="background:rgb(${HEAT.org})"></i>tồn cao</span>`;
 function paintTable(rows){
-  const h = H(), DD = IV.daily, yr = DD ? DD.year : '2026';
+  const h = H(), DD = IV.daily, yr = DD ? DD.year : (IV.logDate || iso(new Date())).slice(0, 4);
   document.querySelectorAll('#ivTable .iv-yr').forEach(s => s.textContent = yr);
   // Incoming 4W: lots not yet due, ETA in the current week + the 3 next (Sunday start), per the selected warehouse
   rows.forEach(r => { const L = r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4); r.inc4 = sumQ(L); r.inc4L = L; });
@@ -661,7 +661,7 @@ function paintTable(rows){
     `${a.nData} ngày có dữ liệu · ${a.nMissing} ngày thiếu dữ liệu (bỏ qua)\n` +
     (a.note ? a.note : `Median ${a.median.toFixed(2)} u/ngày → ngưỡng OOS ${(a.median * OOS_SHARE).toFixed(2)} · loại ${a.nOos} ngày nghi OOS · còn ${a.nValid} ngày hợp lệ`) + '\n\n' + INV.AMS_RULE;
   const amsCell = (a, label) => `<td class="num" title="${h.esc(amsTip(a, label))}">${a && a.ams != null ? a.ams.toFixed(1) : '—'}${a && a.note === 'Không đủ baseline để xác định OOS' ? '<span class="vs">không đủ baseline</span>' : a && a.nOos ? `<span class="vs">loại ${a.nOos} ngày OOS</span>` : ''}</td>`;
-  const mocCell = (m, a) => `<td class="num"${heat(m, SC_MOC)} title=""${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS · đỏ < 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)'}">${m == null ? '—' : f1(m)}</td>`;
+  const mocCell = (m, a) => `<td class="num"${heat(m, SC_MOC)} title="${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS · đỏ &lt; 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)'}">${m == null ? '—' : f1(m)}</td>`;
   const stockHeat = r => r.ams3 > 0 ? heat(r.tot / r.ams3, SC_STOCK) : '';
   const incHeat = r => !(r.ams3 > 0) || (r.moc3 != null && r.moc3 >= 2) ? '' : heat(r.inc4 / r.ams3, SC_INC);
   const incTitle = r => (r.ams3 > 0 ? `Bù được ${(r.inc4 / r.ams3).toFixed(1)} tháng bán (÷ AMS 3M)` + (r.moc3 != null && r.moc3 >= 2 ? ' · tồn hiện tại đã đủ ≥ 2 tháng nên không tô màu' : '') + '\n' : '') + incTip(r.inc4L);
@@ -864,7 +864,7 @@ function detail(){
 // ---------------------------------------------------------------- export + AI
 function exportXlsx(){
   if(typeof XLSX === 'undefined') return;
-  const rows = filtered(), wb = XLSX.utils.book_new(), yr = IV.daily ? IV.daily.year : '2026';
+  const rows = filtered(), wb = XLSX.utils.book_new(), yr = IV.daily ? IV.daily.year : (IV.logDate || iso(new Date())).slice(0, 4);
   rows.forEach(r => { if(r.inc4 == null) r.inc4 = sumQ(r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4)); });
   const n1 = v => v == null || !isFinite(v) ? '' : +v.toFixed(1);
   const a = rows.map(r => ({'PIC': r.pic, 'Main PL': r.pl, 'Sub PL': r.subPl, 'SKU': r.sku, 'Product': r.name, 'Lifecycle': r.lifecycle,
