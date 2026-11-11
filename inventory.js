@@ -402,8 +402,8 @@ function build(host){
         <th data-k="y4a" class="num" title="Tồn sellable kho Y4A (06_ USA_Sellable INV)">SALABLE Y4A</th>
         <th data-k="amz" class="num" title="Amazon sellable on-hand (04_AMZ_sellable details, cộng các ASIN của SKU). SKU không có dòng ASIN: dùng tồn AMZ của 06_ USA_Sellable INV.">SALABLE AMZ</th>
         <th data-k="inc4" class="num" title="Các lô chưa đến hạn có ETA trong tuần hiện tại + 3 tuần kế tiếp (tuần bắt đầu Chủ nhật), theo ETA đang chọn và kho đến đang lọc">Incoming 4W</th>
-        <th data-k="moc26" class="num" data-rule="1">MOC <span class="iv-yr">${yr}</span></th><th data-k="ams26" class="num" data-rule="1">AMS <span class="iv-yr">${yr}</span></th>
-        <th data-k="moc3" class="num" data-rule="1">MOC 3M</th><th data-k="ams3" class="num" data-rule="1">AMS 3M</th>
+        <th data-k="moc26" class="num" data-rule="1">MOC <span class="iv-yr">${yr}</span></th><th data-k="moc3" class="num" data-rule="1">MOC 3M</th>
+        <th data-k="ams26" class="num" data-rule="1">AMS <span class="iv-yr">${yr}</span></th><th data-k="ams3" class="num" data-rule="1">AMS 3M</th>
         <th data-k="mtd" class="num" title="Actual units bán từ đầu tháng tới ngày có dữ liệu sales gần nhất">MTD Sale</th>
         <th data-k="flagRank">Flag</th>
       </tr></thead><tbody id="ivBody"></tbody></table></div>
@@ -652,6 +652,8 @@ const HEAT = {red: [244, 199, 195], yel: [251, 236, 186], grn: [204, 235, 214], 
 const SC_MOC = [[0, HEAT.red], [1, HEAT.yel], [2, HEAT.grn], [4, HEAT.grn], [8, HEAT.org]];
 const SC_STOCK = [[0, HEAT.red], [1, HEAT.yel], [2, HEAT.grn]];
 const SC_INC = [[0, HEAT.red], [0.5, HEAT.yel], [1, HEAT.grn]];
+// AMS năm: magnitude, single hue light → dark (percentile among the SKUs on screen)
+const SC_AMS = [[0, [240, 245, 252]], [1, [128, 170, 228]]];
 function heat(v, stops){
   if(v == null || !isFinite(v)) return '';
   let c = stops[stops.length - 1][1];
@@ -671,22 +673,25 @@ function paintTable(rows){
   const amsTip = (a, label) => !a ? 'Chưa có số bán theo ngày' : `${label}: ${a.ams == null ? '—' : a.ams.toFixed(1) + ' u/tháng'}\n` +
     `${a.nData} ngày có dữ liệu · ${a.nMissing} ngày thiếu dữ liệu (bỏ qua)\n` +
     (a.note ? a.note : `Median ${a.median.toFixed(2)} u/ngày → ngưỡng OOS ${(a.median * OOS_SHARE).toFixed(2)} · loại ${a.nOos} ngày nghi OOS · còn ${a.nValid} ngày hợp lệ`) + '\n\n' + INV.AMS_RULE;
-  const amsCell = (a, label) => `<td class="num" title="${h.esc(amsTip(a, label))}">${a && a.ams != null ? a.ams.toFixed(1) : '—'}${a && a.note === 'Không đủ baseline để xác định OOS' ? '<span class="vs">không đủ baseline</span>' : a && a.nOos ? `<span class="vs">loại ${a.nOos} ngày OOS</span>` : ''}</td>`;
-  const mocCell = (m, a) => `<td class="num"${heat(m, SC_MOC)} title="${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS · đỏ &lt; 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)'}">${m == null ? '—' : f1(m)}</td>`;
+  const amsCell = (a, label, bg) => `<td class="num"${bg || ''} title=""${h.esc(amsTip(a, label))}">${a && a.ams != null ? a.ams.toFixed(1) : '—'}${a && a.note === 'Không đủ baseline để xác định OOS' ? '<span class="vs">không đủ baseline</span>' : a && a.nOos ? `<span class="vs">loại ${a.nOos} ngày OOS</span>` : ''}</td>`;
+  const mocCell = (m, a, color) => `<td class="num"${color ? heat(m, SC_MOC) : ''} title=""${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS' + (color ? ' · đỏ &lt; 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)' : '')}">${m == null ? '—' : f1(m)}</td>`;
   const stockHeat = r => r.ams3 > 0 ? heat(r.tot / r.ams3, SC_STOCK) : '';
+  const amsSorted = rows.map(r => r.ams26).filter(v => v > 0).sort((a, b) => a - b);
+  const amsHeat = v => { if(!(v > 0) || !amsSorted.length) return ''; let lo = 0, hi = amsSorted.length; while(lo < hi){ const m = (lo + hi) >> 1; if(amsSorted[m] < v) lo = m + 1; else hi = m; }
+    const t = amsSorted.length > 1 ? lo / (amsSorted.length - 1) : 1; return heat(t, SC_AMS); };
   const incHeat = r => !(r.ams3 > 0) || (r.moc3 != null && r.moc3 >= 2) ? '' : heat(r.inc4 / r.ams3, SC_INC);
   const incTitle = r => (r.ams3 > 0 ? `Bù được ${(r.inc4 / r.ams3).toFixed(1)} tháng bán (÷ AMS 3M)` + (r.moc3 != null && r.moc3 >= 2 ? ' · tồn hiện tại đã đủ ≥ 2 tháng nên không tô màu' : '') + '\n' : '') + incTip(r.inc4L);
   const incTip = L => L.map(l => `${l.source} ${fi(l.qty)} u · ETA ${md(l.eta_salable_date)}${l.etaUse && l.etaUse !== l.eta_salable_date ? ' (dùng ' + md(l.etaUse) + ')' : ''} · ${l.po_name}${l.container_number ? ' · ' + l.container_number : ''}`).join('\n');
   document.getElementById('ivTableHint').innerHTML = `SALABLE = tồn sellable on-hand (AMZ: Amazon sellable on-hand theo ASIN). Incoming 4W = lô chưa đến hạn có ETA trong tuần ${md(IV.weeks[0])} → ${md(addD(IV.weeks[3], 6))}${IV.src ? ' · chỉ kho ' + IV.src : ''}. ` +
     (DD ? `AMS ${yr}: ${md(IV.per.ytd.from)} → ${md(DD.maxDate)} · AMS 3M: ${md(IV.per.m3.from)} → ${md(DD.maxDate)} (90 ngày) · MTD: ${md(IV.per.mStart)} → ${md(DD.maxDate)}. Rê chuột vào tiêu đề AMS / MOC để xem rule, vào ô để xem số ngày bị loại. ` : '<b>Chưa tải được số bán theo ngày: AMS / MOC / MTD để trống.</b> ') +
-    'Bấm một dòng để xem chart theo SKU.<br>Màu ô (so với AMS 3M của chính SKU): ' + HEAT_LEGEND + ' · SALABLE và MOC = số tháng tồn, Incoming 4W = số tháng bán mà lô 4 tuần tới bù được.';
+    'Bấm một dòng để xem chart theo SKU.<br>Màu ô (so với AMS 3M của chính SKU): ' + HEAT_LEGEND + ' · SALABLE và MOC ' + yr + ' = số tháng tồn, Incoming 4W = số tháng bán mà lô 4 tuần tới bù được. AMS ' + yr + ': <span class="iv-heat"><i style="background:rgb(240,245,252)"></i>bán ít<i style="background:rgb(128,170,228)"></i>bán chạy</span> (xếp hạng giữa các SKU đang lọc).';
   document.getElementById('ivBody').innerHTML = tr.slice(0, 600).map(r => `<tr class="main${IV.sel === r.sku ? ' sel' : ''}" data-sku="${h.esc(r.sku)}" style="cursor:pointer">
       <td>${h.esc(r.pic)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td>${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 34))}</span></td>
       <td class="num"${stockHeat(r)} title="${r.ams3 > 0 ? 'Đủ bán ' + (r.tot / r.ams3).toFixed(1) + ' tháng theo AMS 3M · đỏ ≈ 0 · xanh ≥ 2 tháng' : 'Chưa có AMS 3M: không tô màu'}"><b>${fi(r.tot)}</b></td><td class="num">${fi(r.y4a)}</td>
       <td class="num${r.amz <= 0 ? ' iv-zero' : ''}"${r.amzSrc === 'file' ? ' title="SKU không có dòng ASIN trong 04_AMZ_sellable details: dùng tồn AMZ của 06_ USA_Sellable INV"' : ''}>${fi(r.amz)}</td>
       <td class="num"${incHeat(r)} title="${h.esc(incTitle(r))}">${r.inc4 ? fi(r.inc4) : '—'}</td>
-      ${mocCell(r.moc26, r.a26)}${amsCell(r.a26, 'AMS ' + yr)}${mocCell(r.moc3, r.a3)}${amsCell(r.a3, 'AMS 3M')}
+      ${mocCell(r.moc26, r.a26, true)}${mocCell(r.moc3, r.a3)}${amsCell(r.a26, 'AMS ' + yr, amsHeat(r.ams26))}${amsCell(r.a3, 'AMS 3M')}
       <td class="num">${r.mtd == null ? '—' : fi(r.mtd)}</td>
       <td class="iv-flag" title="${h.esc(r.why.join(' · '))}">${r.flags.length ? r.flags.map(f => `<span class="badge ${f.c}">${h.esc(f.t)}</span>`).join('') : '<span class="badge green">OK</span>'}</td></tr>`).join('')
     || '<tr><td colspan="13" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: chờ flow tự động mỗi giờ)') + '.</td></tr>';
