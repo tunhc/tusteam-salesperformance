@@ -283,7 +283,7 @@ function compute(){
       rank = oT <= 2 ? 1 : 2; risk = oT <= 2 ? 'OOS ≤2 tuần' : 'OOS trong 8 tuần';
       const nX = [nA, nY].filter(Boolean).sort((a, b) => a.eta < b.eta ? -1 : 1)[0];
       why.push(`Hết hàng cả AMZ + Y4A từ tuần ${md(weeks[oT])}` + (nX ? `, lô kế tiếp ${md(nX.eta)} (${nX.source})` : ', chưa có hàng về'));
-      if(oA !== null && oA < oT) why.push(`AMZ hết trước từ tuần ${md(weeks[oA])}: chuyển hàng Y4A sang Amazon`);
+      if(oA !== null && oA < oT) why.push(`AMZ hết trước từ tuần ${md(weeks[oA])}: cần book DS từ Y4A`);
       const yEarly = L.filter(l => l.source === 'Y4A' && (!nA || l.eta < nA.eta));
       if(yEarly.length) why.push(`Y4A về ${md(yEarly[0].eta)}${yEarly[0].container_number ? ' (' + yEarly[0].container_number + ')' : ''} sớm hơn AMZ: request kéo hàng về sớm`);
       else if(nY) why.push(`Hàng Y4A ${nY.container_number ? nY.container_number + ' ' : ''}ETA ${md(nY.eta)}: hỏi kéo sớm`);
@@ -298,7 +298,7 @@ function compute(){
     const dueL = L.filter(l => l.due), noEtaL = L.filter(l => l.noEta), lateL = L.filter(l => !l.due && !l.noEta && (l.slip || 0) > 0);
     if(tot <= 0) flags.push({r: 1, t: 'Hết hàng cả 2 kho', c: 'red'});
     if(tot > 0 && (risk === 'OOS ≤2 tuần' || risk === 'OOS trong 8 tuần')) flags.push({r: risk === 'OOS ≤2 tuần' ? 1 : 2, t: `Nguy cơ OOS (AMZ + Y4A) tuần ${md(weeks[oT])}`, c: risk === 'OOS ≤2 tuần' ? 'red' : 'amber'});
-    if(tot > 0 && amz <= 0) flags.push({r: 2, t: `AMZ hết hàng, Y4A còn ${Math.round(y4a).toLocaleString('en-US')}: chuyển hàng sang Amazon`, c: 'amber'});
+    if(tot > 0 && amz <= 0) flags.push({r: 2, t: `AMZ hết hàng, Y4A còn ${Math.round(y4a).toLocaleString('en-US')}: cần book DS`, c: 'amber'});
     if(dueL.length) flags.push({r: 2, t: `ETA đã đến hạn, vẫn incoming: ${Math.round(sum(dueL)).toLocaleString('en-US')} u (quá tối đa ${Math.max(...dueL.map(l => l.overdue))} ngày)`, c: 'red'});
     if(noEtaL.length) flags.push({r: 3, t: `Chưa có ETA: ${Math.round(sum(noEtaL)).toLocaleString('en-US')} u`, c: 'amber'});
     if(lateL.length) flags.push({r: 3, t: `ETA bị lùi tối đa ${Math.max(...lateL.map(l => l.slip))} ngày: ${Math.round(sum(lateL)).toLocaleString('en-US')} u`, c: 'amber'});
@@ -410,7 +410,7 @@ function build(host){
         <th data-k="moc26" class="num" data-rule="1">MOC <span class="iv-yr">${yr}</span></th><th data-k="moc3" class="num" data-rule="1">MOC 3M</th>
         <th data-k="ams26" class="num" data-rule="1">AMS <span class="iv-yr">${yr}</span></th><th data-k="ams3" class="num" data-rule="1">AMS 3M</th>
         <th data-k="mtd" class="num" title="Actual units bán từ đầu tháng tới ngày có dữ liệu sales gần nhất">MTD Sale</th>
-        <th data-k="oosSort" class="num" title="Dự phóng tồn cả 2 kho: tồn AMZ + Y4A + hàng về kho Amazon và kho Y4A theo ETA đang chọn − forecast mỗi tuần.&#10;Từ = tuần đầu tiên tổng tồn không đủ forecast · số tuần thiếu hàng trong 16 tuần tới · tuần có hàng lại.&#10;Mất = units forecast không đáp ứng được trong 16 tuần tới.&#10;Riêng kho Amazon hết trước (còn hàng ở Y4A) thì ghi “AMZ cần chuyển hàng”.">OOS (AMZ + Y4A)</th>
+        <th data-k="oosSort" class="num" title="Dự phóng tồn cả 2 kho: tồn AMZ + Y4A + hàng về kho Amazon và kho Y4A theo ETA đang chọn − forecast mỗi tuần.&#10;Từ = tuần đầu tiên tổng tồn không đủ forecast · số tuần thiếu hàng trong 16 tuần tới · tuần có hàng lại.&#10;Mất = units forecast không đáp ứng được trong 16 tuần tới.&#10;Riêng kho Amazon hết trước (còn hàng ở Y4A) thì ghi “AMZ cần book DS”.">OOS (AMZ + Y4A)</th>
         <th data-k="flagRank">Flag</th>
       </tr></thead><tbody id="ivBody"></tbody></table></div>
     </div>
@@ -685,8 +685,8 @@ function paintTable(rows){
   // OOS AMZ: since which week, for how long, units lost (16-week projection, same as the old dashboard)
   const oosCell = r => {
     if(!r.fcW) return '<td class="num" title="Chưa có số bán để forecast">—</td>';
-    const amzNote = r.oosWkAmz !== null && (r.oosWk === null || r.oosWkAmz < r.oosWk) ? `\nRiêng kho Amazon: hết từ tuần ${md(IV.weeks[r.oosWkAmz])} nếu không chuyển hàng Y4A sang (mất ~${fi(r.lostAmz)} u)` : '';
-    if(r.oosWk === null) return `<td class="num" title="${h.esc(`Tồn AMZ + Y4A cộng hàng về cả 2 kho đủ forecast trong ${HZN} tuần tới${amzNote}`)}">—${amzNote ? '<span class="vs">AMZ cần chuyển hàng</span>' : ''}</td>`;
+    const amzNote = r.oosWkAmz !== null && (r.oosWk === null || r.oosWkAmz < r.oosWk) ? `\nRiêng kho Amazon: hết từ tuần ${md(IV.weeks[r.oosWkAmz])} nếu không book DS từ Y4A (mất ~${fi(r.lostAmz)} u)` : '';
+    if(r.oosWk === null) return `<td class="num" title="${h.esc(`Tồn AMZ + Y4A cộng hàng về cả 2 kho đủ forecast trong ${HZN} tuần tới${amzNote}`)}">—${amzNote ? '<span class="vs">AMZ cần book DS</span>' : ''}</td>`;
     const now = r.oosWk === 0 && r.tot <= 0, from = now ? 'Đang hết' : 'Từ ' + md(IV.weeks[r.oosWk]);
     const back = r.pT.backWk !== null ? 'đủ hàng lại lần đầu tuần ' + md(IV.weeks[r.pT.backWk]) + (r.pT.nShort > r.pT.backWk - r.oosWk ? ', sau đó còn thiếu tiếp' : '') : `chưa đủ hàng lại trong ${HZN} tuần`;
     return `<td class="num iv-oos" title="${h.esc(`${from} · thiếu hàng ${r.pT.nShort}/${HZN} tuần · ${back}\nMất ~${fi(r.lost)} u (forecast ${r.fc4 == null ? '—' : r.fc4.toFixed(1)} u/tuần, mô hình ${r.model})${amzNote}`)}"><b style="color:var(--red)">${from}</b><span class="vs">${r.pT.nShort} tuần · mất ~${fi(r.lost)} u</span></td>`;
@@ -922,7 +922,7 @@ async function askAi(force){
   const context = {
     market: IV.country, file_date: IV.logDate, sales_through: IV.daily ? IV.daily.maxDate : null, eta_mode: IV.etaMode === 'safe' ? 'ETA + độ trễ trung bình theo trạng thái' : 'ETA trong file',
     definitions: {AMZ: 'hàng về kho Amazon (AVC), không kéo sớm được', Y4A: 'hàng về kho Y4A, có thể request kéo về sớm', 'delay vs expected': 'ETA hiện tại lùi so với ETA ban đầu', 'delay vs current': 'đã quá ETA mà chưa thành sellable',
-      ams: 'units/tháng, loại ngày nghi OOS (< 15% median)', moc: 'tháng tồn = SALABLE AMZ+Y4A / AMS', inc_4w: 'lô chưa đến hạn về trong 4 tuần tới', oos_week: 'tuần tổng tồn AMZ + Y4A (cộng hàng về cả 2 kho) không đủ forecast', oos_week_amz_only: 'tuần riêng kho Amazon hết nếu không chuyển hàng Y4A sang'},
+      ams: 'units/tháng, loại ngày nghi OOS (< 15% median)', moc: 'tháng tồn = SALABLE AMZ+Y4A / AMS', inc_4w: 'lô chưa đến hạn về trong 4 tuần tới', oos_week: 'tuần tổng tồn AMZ + Y4A (cộng hàng về cả 2 kho) không đủ forecast', oos_week_amz_only: 'tuần riêng kho Amazon hết nếu không book DS từ Y4A'},
     kpis: document.getElementById('ivKpis').innerText.replace(/\n+/g, ' | '),
     skus: pick.map(r => ({sku: r.sku, name: r.name.slice(0, 60), pl: r.pl, pic: r.pic, inv_amz: r.amz, inv_y4a: r.y4a, inc_4w: r.inc4, ams_3m: r.ams3 == null ? null : +r.ams3.toFixed(1), moc_3m: r.moc3 == null ? null : +r.moc3.toFixed(1), mtd: r.mtd,
       fc_wk: r.fc4 == null ? null : +r.fc4.toFixed(1), oos_week: r.oosWk === null ? null : IV.weeks[r.oosWk], oos_week_amz_only: r.oosWkAmz === null ? null : IV.weeks[r.oosWkAmz], lost_units_16w: Math.round(r.lost),
