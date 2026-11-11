@@ -684,7 +684,7 @@ function paintTable(rows){
       <td>${h.esc(r.pic)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td>${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 34))}</span></td>
       <td class="num"${stockHeat(r)} title="${r.ams3 > 0 ? 'Đủ bán ' + (r.tot / r.ams3).toFixed(1) + ' tháng theo AMS 3M · đỏ ≈ 0 · xanh ≥ 2 tháng' : 'Chưa có AMS 3M: không tô màu'}"><b>${fi(r.tot)}</b></td><td class="num">${fi(r.y4a)}</td>
-      <td class="num${r.amz <= 0 ? ' iv-zero' : ''}"${r.amzSrc === 'file' ? ' title="SKU không có dòng ASIN trong 04_AMZ_sellable details: dùng tồn AMZ của 06_ USA_Sellable INV"' : ''}>${fi(r.amz)}${r.amzSrc === 'file' ? '<span class="vs">file 06</span>' : ''}</td>
+      <td class="num${r.amz <= 0 ? ' iv-zero' : ''}"${r.amzSrc === 'file' ? ' title="SKU không có dòng ASIN trong 04_AMZ_sellable details: dùng tồn AMZ của 06_ USA_Sellable INV"' : ''}>${fi(r.amz)}</td>
       <td class="num"${incHeat(r)} title="${h.esc(incTitle(r))}">${r.inc4 ? fi(r.inc4) : '—'}</td>
       ${mocCell(r.moc26, r.a26)}${amsCell(r.a26, 'AMS ' + yr)}${mocCell(r.moc3, r.a3)}${amsCell(r.a3, 'AMS 3M')}
       <td class="num">${r.mtd == null ? '—' : fi(r.mtd)}</td>
