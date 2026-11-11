@@ -652,8 +652,8 @@ const HEAT = {red: [244, 199, 195], yel: [251, 236, 186], grn: [204, 235, 214], 
 const SC_MOC = [[0, HEAT.red], [1, HEAT.yel], [2, HEAT.grn], [4, HEAT.grn], [8, HEAT.org]];
 const SC_STOCK = [[0, HEAT.red], [1, HEAT.yel], [2, HEAT.grn]];
 const SC_INC = [[0, HEAT.red], [0.5, HEAT.yel], [1, HEAT.grn]];
-// AMS năm: magnitude, single hue light → dark (percentile among the SKUs on screen)
-const SC_AMS = [[0, [240, 245, 252]], [1, [128, 170, 228]]];
+// AMS năm: rank among the SKUs on screen, đỏ (bán ít) → vàng → xanh (bán chạy)
+const SC_AMS = [[0, HEAT.red], [0.5, HEAT.yel], [1, HEAT.grn]];
 function heat(v, stops){
   if(v == null || !isFinite(v)) return '';
   let c = stops[stops.length - 1][1];
@@ -684,7 +684,7 @@ function paintTable(rows){
   const incTip = L => L.map(l => `${l.source} ${fi(l.qty)} u · ETA ${md(l.eta_salable_date)}${l.etaUse && l.etaUse !== l.eta_salable_date ? ' (dùng ' + md(l.etaUse) + ')' : ''} · ${l.po_name}${l.container_number ? ' · ' + l.container_number : ''}`).join('\n');
   document.getElementById('ivTableHint').innerHTML = `SALABLE = tồn sellable on-hand (AMZ: Amazon sellable on-hand theo ASIN). Incoming 4W = lô chưa đến hạn có ETA trong tuần ${md(IV.weeks[0])} → ${md(addD(IV.weeks[3], 6))}${IV.src ? ' · chỉ kho ' + IV.src : ''}. ` +
     (DD ? `AMS ${yr}: ${md(IV.per.ytd.from)} → ${md(DD.maxDate)} · AMS 3M: ${md(IV.per.m3.from)} → ${md(DD.maxDate)} (90 ngày) · MTD: ${md(IV.per.mStart)} → ${md(DD.maxDate)}. Rê chuột vào tiêu đề AMS / MOC để xem rule, vào ô để xem số ngày bị loại. ` : '<b>Chưa tải được số bán theo ngày: AMS / MOC / MTD để trống.</b> ') +
-    'Bấm một dòng để xem chart theo SKU.<br>Màu ô (so với AMS 3M của chính SKU): ' + HEAT_LEGEND + ' · SALABLE và MOC ' + yr + ' = số tháng tồn, Incoming 4W = số tháng bán mà lô 4 tuần tới bù được. AMS ' + yr + ': <span class="iv-heat"><i style="background:rgb(240,245,252)"></i>bán ít<i style="background:rgb(128,170,228)"></i>bán chạy</span> (xếp hạng giữa các SKU đang lọc).';
+    'Bấm một dòng để xem chart theo SKU.<br>Màu ô (so với AMS 3M của chính SKU): ' + HEAT_LEGEND + ' · SALABLE và MOC ' + yr + ' = số tháng tồn, Incoming 4W = số tháng bán mà lô 4 tuần tới bù được. AMS ' + yr + ': <span class="iv-heat"><i style="background:rgb(' + HEAT.red + ')"></i>bán ít<i style="background:rgb(' + HEAT.yel + ')"></i>trung bình<i style="background:rgb(' + HEAT.grn + ')"></i>bán chạy</span> (xếp hạng giữa các SKU đang lọc).';
   document.getElementById('ivBody').innerHTML = tr.slice(0, 600).map(r => `<tr class="main${IV.sel === r.sku ? ' sel' : ''}" data-sku="${h.esc(r.sku)}" style="cursor:pointer">
       <td>${h.esc(r.pic)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td>${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 34))}</span></td>
