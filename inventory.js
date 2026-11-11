@@ -408,7 +408,7 @@ function build(host){
         <th data-k="flagRank">Flag</th>
       </tr></thead><tbody id="ivBody"></tbody></table></div>
     </div>
-    <div class="iv-sec"><div class="iv-sec-t">Chi tiết một SKU</div><div class="iv-sec-d">Dùng khi một SKU có cờ: xem tồn AMZ dự phóng theo tuần và hàng về để quyết định kéo hàng Y4A, đẩy tồn sang Amazon hay giảm ads / promo. Bấm một dòng ở bảng SKU hoặc danh sách lô để mở.</div></div>
+    <div class="iv-sec"><div class="iv-sec-t">Dự phóng tồn kho 1 SKU</div><div class="iv-sec-d">Dùng khi một SKU có cờ: xem tồn AMZ dự phóng theo tuần và hàng về để quyết định kéo hàng Y4A, đẩy tồn sang Amazon hay giảm ads / promo. Bấm một dòng ở bảng SKU hoặc danh sách lô để mở.</div></div>
     <div class="card" id="ivDetail"></div>
     <div class="iv-sec"><div class="iv-sec-t">Follow-up PO</div><div class="iv-sec-d">Dùng hằng ngày: tìm đúng PO / lô cần đuổi với Amazon, forwarder hoặc kho (đã đến hạn mà chưa về, chưa có ETA, bị lùi ETA).</div></div>
     <div class="card" id="ivPoCard">
