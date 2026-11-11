@@ -373,7 +373,18 @@ function build(host){
     <div class="btr-src iv-asof" id="ivSrc"></div>
     <div class="card iv-hero">
       <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="iv-ghost-tg" title="Cột ma (viền nét đứt) = units của các lô đang incoming lẽ ra về tuần đó theo ETA ban đầu.&#10;Cột ma cao hơn cột màu = hàng đã bị đẩy đi khỏi tuần đó; thấp hơn = tuần đó nhận hàng dồn tới.&#10;Lô đã về rồi không còn trong tracker nên không tính. Rê chuột vào đỉnh cột ma để xem chi tiết."><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu <span class="iv-info" aria-hidden="true">ⓘ</span></label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
+        <span class="iv-def" tabindex="0" role="button" aria-label="Xem định nghĩa cột ma">ⓘ Xem định nghĩa<span class="iv-def-pop" role="tooltip">
+          <b>Cột ma (viền nét đứt) = kế hoạch theo ETA ban đầu</b>
+          <span class="iv-def-p">Ở mỗi cột tuần: units của các lô lẽ ra về tuần đó theo <b>Original ETA</b>. Cột ma cao hơn cột màu = hàng bị lùi / kéo đi khỏi tuần đó; thấp hơn = tuần đó nhận hàng dồn tới. Rê chuột vào đỉnh cột ma để xem chi tiết; bấm để lọc danh sách lô.</span>
+          <b>Cột “Đã đến hạn, vẫn incoming”</b>
+          <span class="iv-def-p"><b>Cột màu:</b> các lô có <b>Current ETA đã qua</b> (trước ngày của file incoming) mà vẫn còn trong tracker, tức là đến hạn rồi nhưng chưa thành hàng sellable. Đây là những lô cần follow ngay.</span>
+          <span class="iv-def-p"><b>Cột ma:</b> các lô có <b>Original ETA đã qua</b>, tức là theo kế hoạch ban đầu lẽ ra đã về rồi. Cột này không phải một tuần cụ thể mà cộng dồn mọi lô trễ so với kế hoạch tính tới hôm nay, nên thường cao hơn nhiều so với các cột tuần.</span>
+          <b>Cách đọc chênh lệch</b>
+          <span class="iv-def-p">• <b>Vẫn quá hạn, chưa về:</b> Original ETA và Current ETA đều đã qua.<br>• <b>Đã dời ETA ra sau (trễ):</b> Original ETA đã qua, nhưng Current ETA được dời sang tuần sau, nên lô nằm ở cột tuần mới, không còn ở cột này.<br>• <b>Lô kéo sớm tới:</b> Original ETA ở tuần sau, nhưng Current ETA bị dời sớm hơn rồi đã qua mà hàng chưa về, nên lô rơi vào cột này.<br>• <b>Cột ma cao hơn cột màu</b> nghĩa là phần lớn hàng trễ đã được hẹn lại ngày mới; phần đó xem ở các cột tuần phía sau.</span>
+          <b>Ghi chú</b>
+          <span class="iv-def-p">Chỉ tính các lô còn trong tracker (lô đã về thì không còn). Lô thiếu Original ETA được coi là đúng hạn (Original = Current).</span>
+        </span></span>
         <div class="cv-toggle" id="ivMode" role="group" aria-label="Chia màu theo"><button class="cv-btn" data-m="pl" type="button">Main PL</button><button class="cv-btn" data-m="sku" type="button">SKU</button><button class="cv-btn" data-m="stage" type="button">Hàng đang ở đâu</button></div></div></div>
       <div class="hint" id="ivWeeklyHint" style="margin:6px 0 0"></div>
       <div class="iv-special" id="ivSpecial"></div>
@@ -956,7 +967,12 @@ if(typeof document !== 'undefined'){
 .iv-grp{cursor:pointer}
 .iv-dlots{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12.5px}
 #ivLotTable td.iv-hist{white-space:normal;min-width:180px}
-.iv-info{color:var(--muted);font-weight:400;cursor:help}
+.iv-def{position:relative;font-size:11.5px;font-weight:700;color:var(--navy);cursor:help;border-bottom:1px dashed var(--navy);white-space:nowrap;outline:none}
+.iv-def-pop{display:none;position:absolute;right:0;top:calc(100% + 8px);width:480px;max-width:calc(100vw - 40px);z-index:30;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,40,89,.14);font-weight:400;color:var(--ink);white-space:normal;text-align:left;line-height:1.45;cursor:default}
+.iv-def:hover .iv-def-pop,.iv-def:focus .iv-def-pop,.iv-def:focus-within .iv-def-pop{display:block}
+.iv-def-pop>b{display:block;color:var(--navy);margin-top:8px;font-size:12px}
+.iv-def-pop>b:first-child{margin-top:0}
+.iv-def-p{display:block;margin-top:3px;font-size:11.5px}
 .iv-ghost-tg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;white-space:nowrap}
 #ivLotTable td{white-space:nowrap}
 .iv-late-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
