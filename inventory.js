@@ -257,9 +257,11 @@ function compute(){
     if(fcW && S && S.maxDate >= wk0){ // part of week 0 already sold: count only the days left
       const left = Math.max(0, 7 - (daysBetween(wk0, S.maxDate) + 1)); fcW[0] = fcW[0] * left / 7;
     }
-    const proj = (start, inc) => { let st = start, oosWk = null, lost = 0; const p = [];
-      for(let i = 0; i < HZN; i++){ st += inc[i]; const d = fcW ? fcW[i] : 0; if(st < d && oosWk === null && d > 0) oosWk = i; lost += Math.max(0, d - st); st = Math.max(0, st - d); p.push(st); }
-      return {p, oosWk, lost}; };
+    const proj = (start, inc) => { let st = start, oosWk = null, lost = 0, nShort = 0, backWk = null; const p = [];
+      for(let i = 0; i < HZN; i++){ st += inc[i]; const d = fcW ? fcW[i] : 0; const short = d > 0 && st < d;
+        if(short && oosWk === null) oosWk = i; if(short) nShort++; if(!short && oosWk !== null && backWk === null && i > oosWk) backWk = i;
+        lost += Math.max(0, d - st); st = Math.max(0, st - d); p.push(st); }
+      return {p, oosWk, lost, nShort, backWk}; };
     const pA = proj(amz, incA), pT = proj(tot, incA.map((v, i) => v + incY[i]));
     const nextOf = src => L.filter(l => l.source === src).sort((a, b) => a.eta < b.eta ? -1 : 1)[0] || null;
     const nA = nextOf('AMZ'), nY = nextOf('Y4A');
@@ -349,9 +351,9 @@ INV.render = async function(){
   const h = H();
   if(!host.dataset.built){ build(host); host.dataset.built = '1'; }
   if(!IV.data || IV.loadedFor !== IV.country){
-    host.querySelector('#ivBody').innerHTML = '<tr><td colspan="13" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming và số bán…</td></tr>';
+    host.querySelector('#ivBody').innerHTML = '<tr><td colspan="14" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming và số bán…</td></tr>';
     try { await load(); }
-    catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="13" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
+    catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="14" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
     compute();
     if(IV.pic && !IV.rows.some(r => r.pic === IV.pic)) IV.pic = '';
     fillFilters();
@@ -405,6 +407,7 @@ function build(host){
         <th data-k="moc26" class="num" data-rule="1">MOC <span class="iv-yr">${yr}</span></th><th data-k="moc3" class="num" data-rule="1">MOC 3M</th>
         <th data-k="ams26" class="num" data-rule="1">AMS <span class="iv-yr">${yr}</span></th><th data-k="ams3" class="num" data-rule="1">AMS 3M</th>
         <th data-k="mtd" class="num" title="Actual units bán từ đầu tháng tới ngày có dữ liệu sales gần nhất">MTD Sale</th>
+        <th data-k="oosSort" class="num" title="Dự phóng tồn AMZ (như dash cũ): tồn AMZ + hàng về kho Amazon theo ETA đang chọn − forecast mỗi tuần.&#10;Từ = tuần đầu tiên tồn AMZ không đủ forecast · số tuần thiếu hàng trong 16 tuần tới · tuần có hàng lại.&#10;Mất = units forecast không đáp ứng được trong 16 tuần tới.">OOS AMZ</th>
         <th data-k="flagRank">Flag</th>
       </tr></thead><tbody id="ivBody"></tbody></table></div>
     </div>
@@ -458,7 +461,7 @@ function build(host){
   $('#ivAi').onclick = () => askAi(false);
   host.querySelectorAll('#ivMode .cv-btn').forEach(b => b.onclick = () => { IV.mode = b.dataset.m; paintWeekly(); });
   $('#ivGhost').onchange = e => { IV.ghost = e.target.checked; paintWeekly(); };
-  host.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(IV.sort === k) IV.dir *= -1; else { IV.sort = k; IV.dir = ['pic','sku','pl','flagRank'].includes(k) ? 1 : -1; } re(); });
+  host.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(IV.sort === k) IV.dir *= -1; else { IV.sort = k; IV.dir = ['pic','sku','pl','flagRank','oosSort'].includes(k) ? 1 : -1; } re(); });
   host.querySelectorAll('#ivTable thead th[data-rule]').forEach(th => th.title = INV.AMS_RULE);
   bindLotBar(host);
 }
@@ -666,7 +669,7 @@ function paintTable(rows){
   const h = H(), DD = IV.daily, yr = DD ? DD.year : (IV.logDate || iso(new Date())).slice(0, 4);
   document.querySelectorAll('#ivTable .iv-yr').forEach(s => s.textContent = yr);
   // Incoming 4W: lots not yet due, ETA in the current week + the 3 next (Sunday start), per the selected warehouse
-  rows.forEach(r => { const L = r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4); r.inc4 = sumQ(L); r.inc4L = L; });
+  rows.forEach(r => { const L = r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4); r.inc4 = sumQ(L); r.inc4L = L; r.oosSort = r.oosWk === null ? 999 : r.oosWk; });
   const val = (r, k) => r[k];
   const tr = [...rows].sort((a, b) => { const va = val(a, IV.sort), vb = val(b, IV.sort); const c = typeof va === 'string' || typeof vb === 'string' ? String(va ?? '').localeCompare(String(vb ?? '')) : (va ?? -1e18) - (vb ?? -1e18); return IV.dir * c || a.sku.localeCompare(b.sku); });
   IV.sorted = tr;
@@ -676,6 +679,14 @@ function paintTable(rows){
   const amsCell = (a, label, bg) => `<td class="num"${bg || ''} title=""${h.esc(amsTip(a, label))}">${a && a.ams != null ? a.ams.toFixed(1) : '—'}${a && a.note === 'Không đủ baseline để xác định OOS' ? '<span class="vs">không đủ baseline</span>' : a && a.nOos ? `<span class="vs">loại ${a.nOos} ngày OOS</span>` : ''}</td>`;
   const mocCell = (m, a, color) => `<td class="num"${color ? heat(m, SC_MOC) : ''} title=""${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS' + (color ? ' · đỏ &lt; 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)' : '')}">${m == null ? '—' : f1(m)}</td>`;
   const stockHeat = r => r.ams3 > 0 ? heat(r.tot / r.ams3, SC_STOCK) : '';
+  // OOS AMZ: since which week, for how long, units lost (16-week projection, same as the old dashboard)
+  const oosCell = r => {
+    if(!r.fcW) return '<td class="num" title="Chưa có số bán để forecast">—</td>';
+    if(r.oosWk === null) return `<td class="num" title="Tồn AMZ + hàng về kho Amazon đủ forecast trong ${HZN} tuần tới">—</td>`;
+    const now = r.oosWk === 0 && r.amz <= 0, from = now ? 'Đang hết' : 'Từ ' + md(IV.weeks[r.oosWk]);
+    const back = r.pA.backWk !== null ? 'đủ hàng lại lần đầu tuần ' + md(IV.weeks[r.pA.backWk]) + (r.pA.nShort > r.pA.backWk - r.oosWk ? ', sau đó còn thiếu tiếp' : '') : `chưa đủ hàng lại trong ${HZN} tuần`;
+    return `<td class="num iv-oos" title="${h.esc(`${from} · thiếu hàng ${r.pA.nShort}/${HZN} tuần · ${back}\nMất ~${fi(r.lost)} u (forecast ${r.fc4 == null ? '—' : r.fc4.toFixed(1)} u/tuần, mô hình ${r.model})`)}"><b style="color:var(--red)">${from}</b><span class="vs">${r.pA.nShort} tuần · mất ~${fi(r.lost)} u</span></td>`;
+  };
   const amsSorted = rows.map(r => r.ams26).filter(v => v > 0).sort((a, b) => a - b);
   const amsHeat = v => { if(!(v > 0) || !amsSorted.length) return ''; let lo = 0, hi = amsSorted.length; while(lo < hi){ const m = (lo + hi) >> 1; if(amsSorted[m] < v) lo = m + 1; else hi = m; }
     const t = amsSorted.length > 1 ? lo / (amsSorted.length - 1) : 1; return heat(t, SC_AMS); };
@@ -693,8 +704,9 @@ function paintTable(rows){
       <td class="num"${incHeat(r)} title="${h.esc(incTitle(r))}">${r.inc4 ? fi(r.inc4) : '—'}</td>
       ${mocCell(r.moc26, r.a26, true)}${mocCell(r.moc3, r.a3)}${amsCell(r.a26, 'AMS ' + yr, amsHeat(r.ams26))}${amsCell(r.a3, 'AMS 3M')}
       <td class="num">${r.mtd == null ? '—' : fi(r.mtd)}</td>
+      ${oosCell(r)}
       <td class="iv-flag" title="${h.esc(r.why.join(' · '))}">${r.flags.length ? r.flags.map(f => `<span class="badge ${f.c}">${h.esc(f.t)}</span>`).join('') : '<span class="badge green">OK</span>'}</td></tr>`).join('')
-    || '<tr><td colspan="13" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: chờ flow tự động mỗi giờ)') + '.</td></tr>';
+    || '<tr><td colspan="14" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: chờ flow tự động mỗi giờ)') + '.</td></tr>';
   document.querySelectorAll('#ivBody tr[data-sku]').forEach(t => t.onclick = () => { IV.sel = t.dataset.sku; document.querySelectorAll('#ivBody tr.sel').forEach(x => x.classList.remove('sel')); t.classList.add('sel'); detail(); document.getElementById('ivDetail').scrollIntoView({behavior: 'smooth', block: 'start'}); });
   document.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.setAttribute('aria-sort', th.dataset.k === IV.sort ? (IV.dir > 0 ? 'ascending' : 'descending') : 'none'));
 }
