@@ -321,7 +321,7 @@ const inScope = (r, skip) => (skip === 'pic' || !IV.pic || r.pic === IV.pic) && 
   (!IV.risk || r.risk === IV.risk) && (!IV.q || [r.sku, r.name, r.pl, r.subPl].join(' ').toLowerCase().includes(IV.q));
 const filtered = () => IV.rows.filter(r => inScope(r));
 const srcOk = l => !IV.src || l.source === IV.src;
-// Sales person → Main PL list of that person; PIC + Main PL → SKU list
+// PIC → Main PL list of that person; PIC + Main PL → SKU list
 function fillFilters(){
   const h = H(), host = document.getElementById('view-inv'); if(!host) return;
   const opt = (list, cur, lbl) => '<option value="">All</option>' + list.map(v => `<option value="${h.esc(v)}"${v === cur ? ' selected' : ''}>${h.esc(lbl ? lbl(v) : v)}</option>`).join('');
@@ -333,7 +333,7 @@ function fillFilters(){
   host.querySelector('#ivPl').innerHTML = opt(pls, IV.pl);
   host.querySelector('#ivSku').innerHTML = opt(skuRows.map(r => r.sku), IV.sku, s => s + ' · ' + String(names.get(s) || '').slice(0, 34));
 }
-// chart mode follows the filters: Main PL selected → SKU, else (sales person or nothing) → Main PL.
+// chart mode follows the filters: Main PL selected → SKU, else (PIC or nothing) → Main PL.
 // "Hàng đang ở đâu" is a deliberate view and is kept.
 function autoMode(){ if(IV.mode !== 'stage') IV.mode = IV.pl ? 'sku' : 'pl'; }
 function setPic(v){
@@ -366,7 +366,7 @@ INV.render = async function(){
 function build(host){
   const h = H(), yr = String(new Date().getFullYear());
   host.innerHTML = `<div class="filterbar iv-filters">
-      <div class="fld"><label for="ivPic">Sales person (PIC)</label><select id="ivPic"><option value="">All</option></select></div>
+      <div class="fld"><label for="ivPic">PIC</label><select id="ivPic"><option value="">All</option></select></div>
       <div class="fld"><label for="ivPl">Main PL</label><select id="ivPl"><option value="">All</option></select></div>
       <div class="fld"><label for="ivSku">SKU</label><select id="ivSku"><option value="">All</option></select></div>
       <div class="fld"><label for="ivSrc2">Kho đến</label><select id="ivSrc2"><option value="">AMZ + Y4A</option><option value="AMZ">AMZ (kho Amazon)</option><option value="Y4A">Y4A (kho mình)</option></select></div>
@@ -644,7 +644,7 @@ function paintWeekly(rows, lines){
     `<span class="iv-chip plain"><b>${fi(sumQ(lines.filter(l => typeof l.bucket === 'number' && l.bucket < 4)))} u</b> về trong 4 tuần tới <span>tuần ${md(W[0])} → ${md(addD(W[3], 6))}</span></span>`;
   document.querySelectorAll('#ivSpecial button[data-c]').forEach(b => b.onclick = () => openLots({kind: 'week', cat: b.dataset.c, group: null, mode: IV.mode}));
   document.getElementById('ivWeeklyHint').innerHTML = `Chia màu theo <b>${MODE_VI[mode]}</b>${mode !== 'stage' && S.top && S.keys.includes(OTHER) ? ` (top ${S.top.size}, còn lại gộp vào “Khác”)` : ''}. ` +
-    `Lọc Main PL → tự chuyển sang SKU; lọc sales person → theo Main PL. Hai cột đầu (nền vàng, sọc) là lô không xếp được vào tuần: ETA đã qua mà chưa về, và chưa có ETA. Bấm cột để xem lô.`;
+    `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Hai cột đầu (nền vàng, sọc) là lô không xếp được vào tuần: ETA đã qua mà chưa về, và chưa có ETA. Bấm cột để xem lô.`;
 }
 
 // ---------------------------------------------------------------- 2) Theo dõi theo SKU
