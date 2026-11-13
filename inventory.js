@@ -376,6 +376,8 @@ function build(host){
       <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button">↻ Tải lại</button></div>
     </div>
     <div class="btr-src iv-asof" id="ivSrc"></div>
+    <div class="iv-pics-head"><b>Tổng hợp theo PIC</b> · bấm một PIC để lọc cả trang, bấm lại để bỏ lọc</div>
+    <div class="iv-pics" id="ivPicCards"></div>
     <div class="card iv-hero">
       <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
@@ -436,15 +438,7 @@ function build(host){
         <div id="ivLtable"></div>
       </div>
     </div>
-    <div class="iv-sec"><div class="iv-sec-t">Phân tích</div><div class="iv-sec-d">Dùng cho review tuần / báo cáo: so sánh giữa các PIC, product line nào hay trễ và ETA thường bị lùi bao lâu. Để nhìn xu hướng, không dùng để follow từng lô.</div></div>
-    <div class="card"><h3>Tổng hợp theo PIC</h3>
-      <div class="hint">So sánh giữa các PIC: tồn, hàng về, hàng trễ và rủi ro OOS của các SKU mình phụ trách (theo follow-up). Bấm một PIC để lọc cả trang; bấm lại để bỏ lọc.</div>
-      <div class="tablewrap" style="max-height:420px"><table id="ivPicTable"><thead><tr>
-        <th>PIC</th><th class="num">SKU</th><th class="num">Tồn AMZ</th><th class="num">Tồn Y4A</th><th class="num">Forecast / tuần</th><th class="num">WOC AMZ</th>
-        <th class="num">Incoming AMZ</th><th class="num">Incoming Y4A</th><th class="num">Units ETA lùi</th><th class="num">Units quá ETA</th>
-        <th class="num">OOS ≤2 tuần</th><th class="num">OOS 8 tuần</th><th class="num">Units có thể mất</th><th class="num">Tồn cao</th>
-      </tr></thead><tbody id="ivPicBody"></tbody></table></div>
-    </div>
+    <div class="iv-sec"><div class="iv-sec-t">Phân tích</div><div class="iv-sec-d">Dùng cho review tuần / báo cáo: product line nào hay trễ và ETA thường bị lùi bao lâu. Để nhìn xu hướng, không dùng để follow từng lô.</div></div>
     <div class="card iv-late" id="ivLate"><h3 style="margin:0">Phân tích hàng trễ</h3>
       <div class="iv-late-grid">
         <div><div class="hint" style="margin:8px 0 4px"><b>Hàng trễ theo Main PL</b>: units ETA lùi so với ban đầu và đã quá ETA. Rê chuột để xem số SKU và số ngày trễ.</div><div id="ivPlDelay" class="plot" style="height:360px;min-height:360px"></div></div>
@@ -817,24 +811,35 @@ async function fillHistory(host, shown){
   });
 }
 
-// ---------------------------------------------------------------- Tổng hợp theo PIC (every filter except PIC, so a click can switch PIC)
+// ---------------------------------------------------------------- Tổng hợp theo PIC: one compact card per PIC, right above the chart.
+// Uses every filter except PIC (so a click can switch PIC); same definitions as the SKU table.
 function paintPic(){
-  const h = H();
-  const base = IV.rows.filter(r => inScope(r, 'pic'));
+  const h = H(), host = document.getElementById('ivPicCards'); if(!host) return;
   const byPic = new Map();
-  base.forEach(r => { const a = byPic.get(r.pic) || {pic: r.pic, n: 0, amz: 0, y4a: 0, fc: 0, incA: 0, incY: 0, dl: 0, od: 0, o2: 0, o8: 0, lost: 0, high: 0};
-    a.n++; a.amz += r.amz; a.y4a += r.y4a; a.fc += r.fc4 || 0; a.incA += r.incAmzTot; a.incY += r.incY4aTot; a.dl += r.delayQty; a.od += r.overdueQty;
-    if(r.risk === 'OOS ≤2 tuần') a.o2++; if(r.risk === 'OOS trong 8 tuần') a.o8++; if(r.oosWk !== null && r.oosWk < 8) a.lost += r.lost; if(r.wocT > 26) a.high++;
+  IV.rows.filter(r => inScope(r, 'pic')).forEach(r => {
+    const a = byPic.get(r.pic) || {pic: r.pic, n: 0, tot: 0, amz: 0, y4a: 0, ams3: 0, inc4: 0, o2: 0, o8: 0, lost: 0, ds: 0, due: 0, dueSku: 0, high: 0};
+    const inc4 = sumQ(r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4)), due = sumQ(r.lines.filter(l => l.due && srcOk(l)));
+    a.n++; a.tot += r.tot; a.amz += r.amz; a.y4a += r.y4a; a.ams3 += r.ams3 > 0 ? r.ams3 : 0; a.inc4 += inc4;
+    if(r.risk === 'OOS ≤2 tuần') a.o2++; if(r.risk === 'OOS trong 8 tuần') a.o8++; if(r.oosWk !== null && r.oosWk < 8) a.lost += r.lost;
+    if(r.tot > 0 && r.amz <= 0) a.ds++; if(due){ a.due += due; a.dueSku++; } if(r.moc3 != null && r.moc3 > 6) a.high++;
     byPic.set(r.pic, a); });
-  const pics = [...byPic.values()].sort((a, b) => (b.o2 * 1e6 + b.o8 * 1e3 + b.od) - (a.o2 * 1e6 + a.o8 * 1e3 + a.od) || a.pic.localeCompare(b.pic));
-  const red = v => v ? `<b style="color:var(--red)">${fi(v)}</b>` : '—';
-  document.getElementById('ivPicBody').innerHTML = pics.map(a => `<tr data-pic="${h.esc(a.pic)}" style="cursor:pointer"${IV.pic === a.pic ? ' class="sel"' : ''}>
-      <td><b>${h.esc(a.pic)}</b></td><td class="num">${a.n}</td><td class="num">${fi(a.amz)}</td><td class="num">${fi(a.y4a)}</td><td class="num">${a.fc ? a.fc.toFixed(0) : '—'}</td>
-      <td class="num">${a.fc ? (a.amz / a.fc).toFixed(1) : '—'}</td><td class="num">${fi(a.incA)}</td><td class="num">${fi(a.incY)}</td><td class="num">${a.dl ? fi(a.dl) : '—'}</td>
-      <td class="num">${red(a.od)}</td><td class="num">${red(a.o2)}</td><td class="num">${a.o8 ? `<b style="color:var(--amber)">${a.o8}</b>` : '—'}</td>
-      <td class="num">${a.lost ? fi(a.lost) : '—'}</td><td class="num">${a.high || '—'}</td></tr>`).join('')
-    || '<tr><td colspan="14" style="padding:14px;color:var(--muted)">Chưa có dữ liệu.</td></tr>';
-  document.querySelectorAll('#ivPicBody tr[data-pic]').forEach(t => t.onclick = () => setPic(IV.pic === t.dataset.pic ? '' : t.dataset.pic));
+  const pics = [...byPic.values()].sort((a, b) => (b.o2 * 1e6 + b.o8 * 1e3 + b.ds * 10 + (b.due ? 1 : 0)) - (a.o2 * 1e6 + a.o8 * 1e3 + a.ds * 10 + (a.due ? 1 : 0)) || a.pic.localeCompare(b.pic));
+  const chip = (cls, txt, tip) => `<span class="badge ${cls}" title="${h.esc(tip)}">${txt}</span>`;
+  host.innerHTML = pics.map(a => {
+    const moc = a.ams3 > 0 ? a.tot / a.ams3 : null;
+    const chips = [
+      a.o2 ? chip('red', `OOS ≤2 tuần: ${a.o2}`, `${a.o2} SKU hết hàng (AMZ + Y4A) trong 2 tuần tới · tổng mất ~${fi(a.lost)} u trong 16 tuần (gồm cả SKU OOS trong 8 tuần)`) : '',
+      a.o8 ? chip('amber', `OOS 8 tuần: ${a.o8}`, `${a.o8} SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới`) : '',
+      a.ds ? chip('amber', `Cần book DS: ${a.ds}`, `${a.ds} SKU AMZ đã hết nhưng Y4A còn hàng`) : '',
+      a.due ? chip('red', `Quá ETA: ${fi(a.due)} u`, `${fi(a.due)} u của ${a.dueSku} SKU có ETA đã qua mà vẫn incoming: cần follow PO`) : '',
+      a.high ? chip('gray', `Tồn cao: ${a.high}`, `${a.high} SKU có MOC 3M > 6 tháng`) : '',
+    ].filter(Boolean).join('');
+    return `<button type="button" class="iv-pic${IV.pic === a.pic ? ' sel' : ''}" data-pic="${h.esc(a.pic)}" aria-pressed="${IV.pic === a.pic}">
+      <span class="t">${h.esc(a.pic)}<span>${a.n} SKU</span></span>
+      <span class="m" title="Tồn sellable AMZ ${fi(a.amz)} + Y4A ${fi(a.y4a)} · MOC 3M = tổng tồn ÷ tổng AMS 3M · Về 4 tuần = lô chưa đến hạn có ETA trong tuần này + 3 tuần tới">Tồn <b>${fi(a.tot)}</b> · MOC 3M <b class="${moc != null && moc < 1 ? 'lo' : moc != null && moc > 6 ? 'hi' : ''}">${moc == null ? '—' : f1(moc)}</b> · Về 4 tuần <b>${fi(a.inc4)}</b></span>
+      <span class="c">${chips || '<span class="badge green">Không có cảnh báo</span>'}</span></button>`;
+  }).join('') || '<div class="hint">Chưa có dữ liệu.</div>';
+  host.querySelectorAll('.iv-pic[data-pic]').forEach(b => b.onclick = () => setPic(IV.pic === b.dataset.pic ? '' : b.dataset.pic));
 }
 
 // ---------------------------------------------------------------- 4) Phân tích hàng trễ (collapsed by default)
@@ -976,8 +981,20 @@ if(typeof document !== 'undefined'){
 .iv-heat i{display:inline-block;width:14px;height:10px;border-radius:3px;margin-left:6px;border:1px solid rgba(0,0,0,.06)}
 #ivTable td.iv-flag{min-width:260px;max-width:360px;white-space:normal}
 #ivTable td.iv-flag .badge{display:inline-block;margin:1px 4px 1px 0;white-space:normal;line-height:1.35}
-#ivTable tr.sel td,#ivPicTable tr.sel td{background:#FFF3EA}
-#ivPicTable tbody tr:hover td,#ivTable tbody tr:hover td,#ivLotTable tbody tr:hover td{background:#F7F9FC}
+#ivTable tr.sel td{background:#FFF3EA}
+#ivTable tbody tr:hover td,#ivLotTable tbody tr:hover td{background:#F7F9FC}
+.iv-pics-head{font-size:11.5px;color:var(--muted);margin:0 0 6px}
+.iv-pics-head b{color:var(--navy);font-size:12px}
+.iv-pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin:0 0 14px}
+.iv-pic{display:flex;flex-direction:column;gap:4px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;text-align:left;font-family:inherit;color:var(--ink);box-shadow:var(--shadow)}
+.iv-pic:hover{border-color:#C9D3E0}
+.iv-pic.sel{border-color:var(--orange);background:#FFF8F2;box-shadow:0 0 0 2px rgba(255,112,0,.18)}
+.iv-pic .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-weight:800;color:var(--navy);font-size:12.5px}
+.iv-pic .t span{font-size:10.5px;color:var(--muted);font-weight:600;white-space:nowrap}
+.iv-pic .m{font-size:11px;color:var(--muted)}
+.iv-pic .m b{color:var(--ink)} .iv-pic .m b.lo{color:var(--red)} .iv-pic .m b.hi{color:var(--amber)}
+.iv-pic .c{display:flex;flex-wrap:wrap;gap:4px}
+.iv-pic .c .badge{font-size:10px;padding:1px 7px}
 .iv-lots-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin:12px 0 6px;font-size:12.5px}
 .iv-lotbar{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:end;margin:0 0 8px}
 .iv-lotbar label{display:flex;flex-direction:column;gap:3px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
