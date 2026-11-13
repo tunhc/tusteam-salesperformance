@@ -450,13 +450,6 @@ function build(host){
       <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button" title="Tải lại toàn bộ từ database, kể cả số bán đang lưu tạm trên máy">↻ Tải lại</button></div>
     </div>
     <div class="btr-src iv-asof" id="ivSrc"></div>
-    <div class="card iv-pics-card"><div class="iv-pics-head"><h3 style="margin:0">Tổng hợp theo PIC</h3><span class="hint" style="margin:0">Bấm một dòng để lọc cả trang, bấm lại (hoặc dòng Tổng) để bỏ lọc. Cùng định nghĩa với bảng SKU.</span></div>
-      <div class="tablewrap" style="max-height:none"><table id="ivPicTable"><thead><tr>
-        <th>PIC</th><th class="num">SKU</th><th class="num" title="Tồn sellable AMZ + Y4A">Tồn AMZ+Y4A</th>
-        <th class="num" title="Lô chưa đến hạn có ETA trong tuần này + 3 tuần tới">Về 4 tuần</th>
-        <th class="num" title="SKU hết hàng (AMZ + Y4A) trong 2 tuần tới">OOS ≤2 tuần</th><th class="num" title="SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới">OOS 8 tuần</th><th class="num" title="Units có ETA đã qua mà vẫn incoming">Quá ETA (u)</th>
-        <th class="num" title="Số SKU có MOC 3M (SALABLE AMZ+Y4A ÷ AMS 3M) lớn hơn 6 tháng">Tồn cao (MOC 3M &gt; 6)</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
-      </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-hero">
       <div class="iv-head"><div class="iv-title"><h3 style="margin:0" id="ivHeroTitle">Incoming theo tuần</h3>
         <div class="iv-seg" id="ivView" role="tablist" aria-label="Kiểu xem"><button class="iv-seg-btn" data-v="chart" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 14h12M4 12V7M8 12V3M12 12V9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Chart</button><button class="iv-seg-btn" data-v="table" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M2 7h12M2 10h12M6 3v10" stroke="currentColor" stroke-width="1.4"/></svg>Bảng</button></div>
@@ -523,7 +516,14 @@ function build(host){
         <div id="ivLtable"></div>
       </div>
     </div>
-    <div class="iv-sec"><div class="iv-sec-t">Phân tích</div><div class="iv-sec-d">Dùng cho review tuần / báo cáo: product line nào hay trễ và ETA thường bị lùi bao lâu. Để nhìn xu hướng, không dùng để follow từng lô.</div></div>
+    <div class="iv-sec"><div class="iv-sec-t">Phân tích</div><div class="iv-sec-d">Dùng cho review tuần / báo cáo: tổng hợp theo PIC, product line nào hay trễ và ETA thường bị lùi bao lâu. Để nhìn xu hướng, không dùng để follow từng lô.</div></div>
+    <div class="card iv-pics-card"><div class="iv-pics-head"><h3 style="margin:0">Tổng hợp theo PIC</h3><span class="hint" style="margin:0">Bấm một dòng để lọc cả trang, bấm lại (hoặc dòng Tổng) để bỏ lọc. Cùng định nghĩa với bảng SKU.</span></div>
+      <div class="tablewrap" style="max-height:none"><table id="ivPicTable"><thead><tr>
+        <th>PIC</th><th class="num">SKU</th><th class="num" title="Tồn sellable AMZ + Y4A">Tồn AMZ+Y4A</th>
+        <th class="num" title="Lô chưa đến hạn có ETA trong tuần này + 3 tuần tới">Về 4 tuần</th>
+        <th class="num" title="SKU hết hàng (AMZ + Y4A) trong 2 tuần tới">OOS ≤2 tuần</th><th class="num" title="SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới">OOS 8 tuần</th><th class="num" title="Units có ETA đã qua mà vẫn incoming">Quá ETA (u)</th>
+        <th class="num" title="Số SKU có MOC 3M (SALABLE AMZ+Y4A ÷ AMS 3M) lớn hơn 6 tháng">Tồn cao (MOC 3M &gt; 6)</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
+      </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-late" id="ivLate"><h3 style="margin:0">Phân tích hàng trễ</h3>
       <div class="iv-late-grid">
         <div><div class="hint" style="margin:8px 0 4px"><b>Hàng trễ theo Main PL</b>: units ETA lùi so với ban đầu và đã quá ETA. Rê chuột để xem số SKU và số ngày trễ.</div><div id="ivPlDelay" class="plot" style="height:360px;min-height:360px"></div></div>
