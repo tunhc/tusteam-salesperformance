@@ -139,12 +139,19 @@ async function load(){
   // (they used to wait for the inventory to finish first)
   const needSales = c === 'USA' && (!IV.sales || !IV.daily);
   const sales = !needSales ? null : sb.rpc('sales_date_bounds').then(b => b.data && b.data[0] && b.data[0].max_date, e => { console.warn(e); return null; })
-    .then(max => max && Promise.all([
-      IV.sales ? null : loadSales(max).then(s => { IV.sales = s; }),
-      IV.daily ? null : loadDaily(max).then(d => { IV.daily = d; }),
-    ]));
+    .then(async max => {
+      if(!max) return;
+      const key = cacheKey(c, max), hit = !IV.noCache && readSalesCache(key);
+      if(hit){ IV.sales = hit.sales; IV.daily = hit.daily; IV.salesCachedAt = hit.at; return; }
+      await Promise.all([
+        IV.sales ? null : loadSales(max).then(s => { IV.sales = s; }),
+        IV.daily ? null : loadDaily(max).then(d => { IV.daily = d; }),
+      ]);
+      IV.salesCachedAt = null; IV.noCache = false;
+      if(IV.sales && IV.daily) writeSalesCache(key, IV.sales, IV.daily);
+    });
   const [inc, sell, asin, ups] = await Promise.all([
-    h.selectAll('incoming_detail', q => q.eq('country', c)),
+    selectPar('incoming_detail', q => q.eq('country', c)),
     h.selectAll('inventory_sellable', q => q.eq('country', c)),
     h.selectAll('amz_inventory_asin', q => q.eq('country', c)).catch(() => []),
     sb.from('inventory_uploads').select('*').order('uploaded_at', {ascending: false}).limit(1).then(r => r.data || [], () => []),
@@ -152,6 +159,43 @@ async function load(){
   IV.data = {inc, sell, asin, up: ups[0] || null};
   IV.loadedFor = c;
   await sales;
+}
+// all rows of a table, pages fetched in parallel (count first, then ranges ordered by id);
+// falls back to the page-by-page helper if the count is not available
+async function selectPar(table, build){
+  const h = H(), size = 1000;
+  try {
+    const {count, error} = await build(sb.from(table).select('id', {count: 'exact', head: true}));
+    if(error || typeof count !== 'number') throw error || new Error('no count');
+    const pages = await Promise.all(Array.from({length: Math.max(1, Math.ceil(count / size))}, (_, i) =>
+      build(sb.from(table).select('*')).order('id', {ascending: true}).range(i * size, i * size + size - 1).then(r => { if(r.error) throw r.error; return r.data || []; })));
+    const all = pages.flat();
+    if(all.length < count) throw new Error('short read');   // rows changed while reading: read again page by page
+    return all;
+  } catch(e){ return h.selectAll(table, build); }
+}
+// ---- browser cache of the sales history (it changes once a day): reused while the latest sales date,
+// the country and the follow-up SKU list are the same, for at most CACHE_H hours. "↻ Tải lại" bypasses it.
+const CACHE_K = 'iv.salesCache.v1', CACHE_H = 6;
+function cacheKey(c, max){ const sk = (skuScope() || []).slice().sort().join(','); let x = 0; for(let i = 0; i < sk.length; i++) x = (x * 31 + sk.charCodeAt(i)) | 0; return c + '|' + max + '|' + sk.length + ':' + x; }
+function readSalesCache(key){
+  try {
+    const o = JSON.parse(localStorage.getItem(CACHE_K) || 'null');
+    if(!o || o.key !== key || Date.now() - o.at > CACHE_H * 3600e3) return null;
+    const S = o.sales, D = o.daily;
+    const sales = {weeks: S.weeks, maxDate: S.maxDate, lastSat: S.lastSat, by: new Map(Object.entries(S.by))};
+    const by = new Map(Object.entries(D.by).map(([k, [di, u]]) => [k, new Map(di.map((d, j) => [D.dataDays[d], u[j]]))]));
+    return {at: o.at, sales, daily: {from: D.from, maxDate: D.maxDate, year: D.year, dataDays: D.dataDays, by}};
+  } catch(e){ return null; }
+}
+function writeSalesCache(key, sales, daily){
+  try {
+    const di = new Map(daily.dataDays.map((d, i) => [d, i])), by = {};
+    daily.by.forEach((m, k) => { const a = [], u = []; m.forEach((v, d) => { if(di.has(d)){ a.push(di.get(d)); u.push(v); } }); by[k] = [a, u]; });
+    localStorage.setItem(CACHE_K, JSON.stringify({key, at: Date.now(),
+      sales: {weeks: sales.weeks, maxDate: sales.maxDate, lastSat: sales.lastSat, by: Object.fromEntries(sales.by)},
+      daily: {from: daily.from, maxDate: daily.maxDate, year: daily.year, dataDays: daily.dataDays, by}}));
+  } catch(e){ try { localStorage.removeItem(CACHE_K); } catch(_){} }   // quota / private mode: just don't cache
 }
 // only the follow-up SKUs (the tab never shows others); empty follow-up → every SKU
 const skuScope = () => { const s = [...new Set(followUp().map(r => r.sku).filter(Boolean))]; return s.length ? s : null; };
@@ -380,7 +424,7 @@ function build(host){
       <div class="fld"><label for="ivRisk">Rủi ro</label><select id="ivRisk"><option value="">All</option><option>OOS ≤2 tuần</option><option>OOS trong 8 tuần</option><option>Hàng quá ETA</option><option>ETA bị lùi</option><option>Tồn cao</option><option>OK</option></select></div>
       <div class="fld"><label for="ivEta">ETA</label><select id="ivEta"><option value="file">ETA trong file</option><option value="safe">ETA thận trọng (+ độ trễ TB)</option></select></div>
       <div class="fld"><label for="ivQ">Tìm SKU / tên</label><input id="ivQ" type="search" placeholder="VD: DXD3, Kettlebell…"></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button">↻ Tải lại</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button" title="Tải lại toàn bộ từ database, kể cả số bán đang lưu tạm trên máy">↻ Tải lại</button></div>
     </div>
     <div class="btr-src iv-asof" id="ivSrc"></div>
     <div class="card iv-pics-card"><div class="iv-pics-head"><h3 style="margin:0">Tổng hợp theo PIC</h3><span class="hint" style="margin:0">Bấm một dòng để lọc cả trang, bấm lại (hoặc dòng Tổng) để bỏ lọc. Cùng định nghĩa với bảng SKU.</span></div>
@@ -471,7 +515,7 @@ function build(host){
   $('#ivRisk').onchange = e => { IV.risk = e.target.value; re(); };
   $('#ivEta').onchange = e => { IV.etaMode = e.target.value; compute(); re(); };
   $('#ivQ').oninput = e => { IV.q = e.target.value.trim().toLowerCase(); re(); };
-  $('#ivReload').onclick = () => { IV.data = null; IV.sales = null; IV.daily = null; IV.hist = new Map(); INV.render(); };
+  $('#ivReload').onclick = () => { IV.data = null; IV.sales = null; IV.daily = null; IV.noCache = true; IV.hist = new Map(); INV.render(); };
   $('#ivExport').onclick = exportXlsx;
   $('#ivAi').onclick = () => askAi(false);
   host.querySelectorAll('#ivMode .cv-btn').forEach(b => b.onclick = () => { IV.mode = b.dataset.m; paintWeekly(); });
@@ -502,7 +546,8 @@ function paint(){
   document.getElementById('ivSrc').innerHTML =
     st('Inventory as of', `Y4A ${mdy(y4aAt)} · AMZ ${mdy(amzAt)}`, 'Tồn Y4A: 06_ USA_Sellable INV · tồn AMZ (sellable on-hand): 04_AMZ_sellable details') +
     st('Incoming as of', `AMZ ${mdy(logA)} · Y4A ${mdy(logY)}`, 'log_date của 01_AMZ_incoming_details / 02_Y4A_incoming_details') +
-    st('Sales through', IV.daily ? mdy(IV.daily.maxDate) : IV.sales ? mdy(IV.sales.maxDate) : '—', 'Ngày có dữ liệu sales gần nhất (sales_daily)') +
+    st('Sales through', (IV.daily ? mdy(IV.daily.maxDate) : IV.sales ? mdy(IV.sales.maxDate) : '—') + (IV.salesCachedAt ? ' <span class="iv-cache">· lưu tạm lúc ' + new Date(IV.salesCachedAt).toTimeString().slice(0, 5) + '</span>' : ''),
+      'Ngày có dữ liệu sales gần nhất (sales_daily)' + (IV.salesCachedAt ? '. Số bán đang dùng bản lưu tạm trên máy (tự làm mới khi có ngày sales mới hoặc sau ' + CACHE_H + ' giờ); bấm ↻ Tải lại để lấy lại ngay.' : '')) +
     (up ? `<span>Tự động cập nhật lần cuối: <b>${(d => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`)(new Date(up.uploaded_at))}</b> (mỗi giờ)</span>` : '<span>Chưa có lần cập nhật nào: chờ flow tự động (mỗi giờ)</span>') +
     `<span>USA · <b>${rows.length}</b>/${IV.rows.length} SKU của follow-up</span>`;
   paintWeekly(rows, lines);
@@ -1067,6 +1112,7 @@ if(typeof document !== 'undefined'){
 .iv-filters input[type=search]{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;background:#fff;color:var(--ink);font-family:inherit}
 .iv-asof{margin:0 0 12px;padding:0 2px}
 .iv-hero{border-top:3px solid var(--orange)}
+.iv-cache{font-weight:600;color:var(--muted)}
 .iv-sec{margin:28px 0 12px;padding:2px 0 2px 12px;border-left:4px solid var(--navy)}
 .iv-sec-t{font-size:15px;font-weight:900;color:var(--navy);letter-spacing:.2px}
 .iv-sec-d{font-size:11.5px;color:var(--muted);margin-top:2px}
