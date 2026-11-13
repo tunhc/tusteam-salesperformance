@@ -117,7 +117,7 @@ INV.ams = function(series, dataDays, calDays){
 };
 
 // ---------------------------------------------------------------- state
-const IV = {country: 'USA', pic: '', pl: '', sku: '', src: '', risk: '', q: '', etaMode: 'file', gran: 'week', dwk: 0, mode: 'pl',
+const IV = {country: 'USA', pic: '', pl: '', spl: '', sku: '', src: '', risk: '', q: '', etaMode: 'file', gran: 'week', dwk: 0, mode: 'pl',
   data: null, loadedFor: null, sales: null, daily: null, rows: [], sort: 'flagRank', dir: 1, sel: null,
   lf: null, ghost: false, view: 'chart', grid: 'inc', memo: {pl: new Map(), sku: new Map()}};
 const HZN = 16;   // weeks on the chart / projection
@@ -368,35 +368,47 @@ function compute(){
 }
 
 // ---------------------------------------------------------------- filters
-const inScope = (r, skip) => (skip === 'pic' || !IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl) && (!IV.sku || r.sku === IV.sku) &&
+const splOf = r => r.subPl || 'Unclassified';
+const inScope = (r, skip) => (skip === 'pic' || !IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl) && (!IV.spl || splOf(r) === IV.spl) && (!IV.sku || r.sku === IV.sku) &&
   (!IV.risk || r.risk === IV.risk) && (!IV.q || [r.sku, r.name, r.pl, r.subPl].join(' ').toLowerCase().includes(IV.q));
 const filtered = () => IV.rows.filter(r => inScope(r));
 const srcOk = l => !IV.src || l.source === IV.src;
-// PIC → Main PL list of that person; PIC + Main PL → SKU list
+// PIC → Main PL list of that person; PIC + Main PL → Sub PL list (as on Sales Performance); all three → SKU list
 function fillFilters(){
   const h = H(), host = document.getElementById('view-inv'); if(!host) return;
   const opt = (list, cur, lbl) => '<option value="">All</option>' + list.map(v => `<option value="${h.esc(v)}"${v === cur ? ' selected' : ''}>${h.esc(lbl ? lbl(v) : v)}</option>`).join('');
   const pics = [...new Set(IV.rows.map(r => r.pic).filter(Boolean))].sort();
   const pls = [...new Set(IV.rows.filter(r => !IV.pic || r.pic === IV.pic).map(r => r.pl).filter(Boolean))].sort();
-  const skuRows = IV.rows.filter(r => (!IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl)).sort((a, b) => a.sku.localeCompare(b.sku));
+  const spls = [...new Set(IV.rows.filter(r => (!IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl)).map(splOf))].sort();
+  const skuRows = IV.rows.filter(r => (!IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl) && (!IV.spl || splOf(r) === IV.spl)).sort((a, b) => a.sku.localeCompare(b.sku));
   const names = new Map(skuRows.map(r => [r.sku, r.name]));
   host.querySelector('#ivPic').innerHTML = opt(pics, IV.pic);
   host.querySelector('#ivPl').innerHTML = opt(pls, IV.pl);
+  host.querySelector('#ivSpl').innerHTML = opt(spls, IV.spl);
   host.querySelector('#ivSku').innerHTML = opt(skuRows.map(r => r.sku), IV.sku, s => s + ' · ' + String(names.get(s) || '').slice(0, 34));
 }
-// chart mode follows the filters: Main PL selected → SKU, else (PIC or nothing) → Main PL.
-// "Hàng đang ở đâu" is a deliberate view and is kept.
-function autoMode(){ if(IV.mode !== 'stage') IV.mode = IV.pl ? 'sku' : 'pl'; }
+// chart mode follows the filters: Main PL selected (or a Sub PL that sits in one Main PL) → SKU,
+// else (PIC, a Sub PL across several Main PL, or nothing) → Main PL. "Hàng đang ở đâu" is a deliberate view and is kept.
+function autoMode(){
+  if(IV.mode === 'stage') return;
+  const onePl = IV.spl && new Set(IV.rows.filter(r => splOf(r) === IV.spl && (!IV.pic || r.pic === IV.pic)).map(r => r.pl)).size === 1;
+  IV.mode = IV.pl || onePl ? 'sku' : 'pl';
+}
+// drop a Sub PL / SKU that is no longer in the narrower scope
+function trimFilters(){
+  const ok = r => (!IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl);
+  if(IV.spl && !IV.rows.some(r => ok(r) && splOf(r) === IV.spl)) IV.spl = '';
+  if(IV.sku && !IV.rows.some(r => ok(r) && (!IV.spl || splOf(r) === IV.spl) && r.sku === IV.sku)) IV.sku = '';
+}
+function setSpl(v){ IV.spl = v; trimFilters(); autoMode(); fillFilters(); paint(); }
 function setPic(v){
   IV.pic = v;
   if(IV.pl && !IV.rows.some(r => r.pl === IV.pl && (!v || r.pic === v))) IV.pl = '';
-  if(IV.sku && !IV.rows.some(r => r.sku === IV.sku && (!v || r.pic === v) && (!IV.pl || r.pl === IV.pl))) IV.sku = '';
-  autoMode(); fillFilters(); paint();
+  trimFilters(); autoMode(); fillFilters(); paint();
 }
 function setPl(v){
   IV.pl = v;
-  if(IV.sku && !IV.rows.some(r => r.sku === IV.sku && r.pl === v)) IV.sku = v ? '' : IV.sku;
-  autoMode(); fillFilters(); paint();
+  trimFilters(); autoMode(); fillFilters(); paint();
 }
 
 // ---------------------------------------------------------------- render
@@ -410,6 +422,7 @@ INV.render = async function(){
     catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="14" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
     compute();
     if(IV.pic && !IV.rows.some(r => r.pic === IV.pic)) IV.pic = '';
+    trimFilters();
     fillFilters();
   }
   paint();
@@ -419,6 +432,7 @@ function build(host){
   host.innerHTML = `<div class="filterbar iv-filters">
       <div class="fld"><label for="ivPic">PIC</label><select id="ivPic"><option value="">All</option></select></div>
       <div class="fld"><label for="ivPl">Main PL</label><select id="ivPl"><option value="">All</option></select></div>
+      <div class="fld"><label for="ivSpl">Sub PL</label><select id="ivSpl"><option value="">All</option></select></div>
       <div class="fld"><label for="ivSku">SKU</label><select id="ivSku"><option value="">All</option></select></div>
       <div class="fld"><label for="ivSrc2">Kho đến</label><select id="ivSrc2"><option value="">AMZ + Y4A</option><option value="AMZ">AMZ (kho Amazon)</option><option value="Y4A">Y4A (kho mình)</option></select></div>
       <div class="fld"><label for="ivRisk">Rủi ro</label><select id="ivRisk"><option value="">All</option><option>OOS ≤2 tuần</option><option>OOS trong 8 tuần</option><option>Hàng quá ETA</option><option>ETA bị lùi</option><option>Tồn cao</option><option>OK</option></select></div>
@@ -510,6 +524,7 @@ function build(host){
   const $ = s => host.querySelector(s), re = () => paint();
   $('#ivPic').onchange = e => setPic(e.target.value);
   $('#ivPl').onchange = e => setPl(e.target.value);
+  $('#ivSpl').onchange = e => setSpl(e.target.value);
   $('#ivSku').onchange = e => { IV.sku = e.target.value; re(); };
   $('#ivSrc2').onchange = e => { IV.src = e.target.value; re(); };
   $('#ivRisk').onchange = e => { IV.risk = e.target.value; re(); };
@@ -751,7 +766,7 @@ function paintWeekly(rows, lines){
     document.querySelectorAll('#ivSpecial button[data-shift]').forEach(b => b.onclick = () => shiftDay(+b.dataset.shift)); }
   document.querySelectorAll('#ivSpecial button[data-c]').forEach(b => b.onclick = () => openLots({kind: 'week', cat: b.dataset.c, group: null, mode: IV.mode}));
   document.getElementById('ivWeeklyHint').innerHTML = `Chia màu theo <b>${MODE_VI[mode]}</b>${mode !== 'stage' && S.top && S.keys.includes(OTHER) ? ` (top ${S.top.size}, còn lại gộp vào “Khác”)` : ''}. ` +
-    `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.` +
+    `Lọc Main PL (hoặc Sub PL chỉ thuộc 1 Main PL) → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.` +
     (IV.gran === 'day' ? ` Xem theo ngày: mỗi lần 4 tuần, dùng ◀ ▶ cạnh nút Tuần/Ngày để xem tiếp đến hết ${HZN} tuần (${md(addD(IV.d0, IV.nd - 1))}).` : '');
   if(table){
     document.getElementById('ivWeeklyHint').innerHTML = IV.grid === 'inc'
@@ -1107,7 +1122,7 @@ if(typeof document !== 'undefined'){
   css.textContent = `.iv-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
 .iv-filters{margin-bottom:8px}
 .iv-filters select{min-width:0;width:140px;text-overflow:ellipsis}
-.iv-filters #ivPic{width:150px} .iv-filters #ivPl{width:170px} .iv-filters #ivSku{width:220px} .iv-filters #ivEta{width:170px}
+.iv-filters #ivPic{width:150px} .iv-filters #ivPl{width:170px} .iv-filters #ivSpl{width:170px} .iv-filters #ivSku{width:220px} .iv-filters #ivEta{width:170px}
 .iv-filters input[type=search]{width:160px;min-width:0}
 .iv-filters input[type=search]{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;background:#fff;color:var(--ink);font-family:inherit}
 .iv-asof{margin:0 0 12px;padding:0 2px}
