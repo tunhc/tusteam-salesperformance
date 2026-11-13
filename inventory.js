@@ -378,11 +378,10 @@ function build(host){
     <div class="btr-src iv-asof" id="ivSrc"></div>
     <div class="card iv-pics-card"><div class="iv-pics-head"><h3 style="margin:0">Tổng hợp theo PIC</h3><span class="hint" style="margin:0">Bấm một dòng để lọc cả trang, bấm lại (hoặc dòng Tổng) để bỏ lọc. Cùng định nghĩa với bảng SKU.</span></div>
       <div class="tablewrap" style="max-height:none"><table id="ivPicTable"><thead><tr>
-        <th>PIC</th><th class="num">SKU</th><th class="num" title="Tồn sellable AMZ + Y4A">Tồn AMZ+Y4A</th><th class="num" title="Tổng tồn ÷ tổng AMS 3M">MOC 3M</th>
+        <th>PIC</th><th class="num">SKU</th><th class="num" title="Tồn sellable AMZ + Y4A">Tồn AMZ+Y4A</th>
         <th class="num" title="Lô chưa đến hạn có ETA trong tuần này + 3 tuần tới">Về 4 tuần</th>
-        <th class="num" title="SKU hết hàng (AMZ + Y4A) trong 2 tuần tới">OOS ≤2 tuần</th><th class="num" title="SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới">OOS 8 tuần</th>
-        <th class="num" title="SKU AMZ đã hết nhưng Y4A còn hàng">Cần book DS</th><th class="num" title="Units có ETA đã qua mà vẫn incoming">Quá ETA (u)</th>
-        <th class="num" title="SKU có MOC 3M > 6 tháng">Tồn cao</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
+        <th class="num" title="SKU hết hàng (AMZ + Y4A) trong 2 tuần tới">OOS ≤2 tuần</th><th class="num" title="SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới">OOS 8 tuần</th><th class="num" title="Units có ETA đã qua mà vẫn incoming">Quá ETA (u)</th>
+        <th class="num" title="Số SKU có MOC 3M (SALABLE AMZ+Y4A ÷ AMS 3M) lớn hơn 6 tháng">Tồn cao (MOC 3M &gt; 6)</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
       </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-hero">
       <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
@@ -660,6 +659,8 @@ const SC_STOCK = [[0, HEAT.red], [1, HEAT.yel], [2, HEAT.grn]];
 const SC_INC = [[0, HEAT.red], [0.5, HEAT.yel], [1, HEAT.grn]];
 // AMS năm: rank among the SKUs on screen, đỏ (bán ít) → vàng → xanh (bán chạy)
 const SC_AMS = [[0, HEAT.red], [0.5, HEAT.yel], [1, HEAT.grn]];
+// Units có thể mất (PIC table): white → red
+const SC_LOST = [[0, [255, 255, 255]], [1, [240, 160, 156]]];
 function heat(v, stops){
   if(v == null || !isFinite(v)) return '';
   let c = stops[stops.length - 1][1];
@@ -679,8 +680,8 @@ function paintTable(rows){
   const amsTip = (a, label) => !a ? 'Chưa có số bán theo ngày' : `${label}: ${a.ams == null ? '—' : a.ams.toFixed(1) + ' u/tháng'}\n` +
     `${a.nData} ngày có dữ liệu · ${a.nMissing} ngày thiếu dữ liệu (bỏ qua)\n` +
     (a.note ? a.note : `Median ${a.median.toFixed(2)} u/ngày → ngưỡng OOS ${(a.median * OOS_SHARE).toFixed(2)} · loại ${a.nOos} ngày nghi OOS · còn ${a.nValid} ngày hợp lệ`) + '\n\n' + INV.AMS_RULE;
-  const amsCell = (a, label, bg) => `<td class="num"${bg || ''} title=""${h.esc(amsTip(a, label))}">${a && a.ams != null ? a.ams.toFixed(1) : '—'}${a && a.note === 'Không đủ baseline để xác định OOS' ? '<span class="vs">không đủ baseline</span>' : a && a.nOos ? `<span class="vs">loại ${a.nOos} ngày OOS</span>` : ''}</td>`;
-  const mocCell = (m, a, color) => `<td class="num"${color ? heat(m, SC_MOC) : ''} title=""${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS' + (color ? ' · đỏ &lt; 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)' : '')}">${m == null ? '—' : f1(m)}</td>`;
+  const amsCell = (a, label, bg) => `<td class="num"${bg || ''} title="${h.esc(amsTip(a, label))}">${a && a.ams != null ? a.ams.toFixed(1) : '—'}${a && a.note === 'Không đủ baseline để xác định OOS' ? '<span class="vs">không đủ baseline</span>' : a && a.nOos ? `<span class="vs">loại ${a.nOos} ngày OOS</span>` : ''}</td>`;
+  const mocCell = (m, a, color) => `<td class="num"${color ? heat(m, SC_MOC) : ''} title="${m == null ? (a && a.ams === 0 ? 'AMS = 0' : 'Thiếu dữ liệu') : 'SALABLE AMZ+Y4A ÷ AMS' + (color ? ' · đỏ &lt; 1 tháng · xanh 2–4 tháng · cam ≥ 8 tháng (tồn cao)' : '')}">${m == null ? '—' : f1(m)}</td>`;
   const stockHeat = r => r.ams3 > 0 ? heat(r.tot / r.ams3, SC_STOCK) : '';
   // OOS AMZ: since which week, for how long, units lost (16-week projection, same as the old dashboard)
   const oosCell = r => {
@@ -831,13 +832,15 @@ function paintPic(){
   IV.rows.filter(r => inScope(r, 'pic')).forEach(r => { if(!byPic.has(r.pic)) byPic.set(r.pic, blank(r.pic)); add(byPic.get(r.pic), r); add(all, r); });
   const pics = [...byPic.values()].sort((a, b) => (b.o2 * 1e6 + b.o8 * 1e3 + b.ds * 10) - (a.o2 * 1e6 + a.o8 * 1e3 + a.ds * 10) || a.pic.localeCompare(b.pic));
   const cnt = (v, c) => v ? `<b style="color:var(--${c})">${fi(v)}</b>` : '<span class="iv-z">—</span>';
-  const row = (a, total) => { const moc = a.ams3 > 0 ? a.tot / a.ams3 : null;
+  // Units có thể mất: white → red by size, relative to the largest PIC (total row not shaded)
+  const maxLost = Math.max(0, ...pics.map(a => a.lost));
+  const lostCell = (v, total) => `<td class="num"${!total && v > 0 && maxLost > 0 ? heat(v / maxLost, SC_LOST) : ''}>${v ? fi(v) : '<span class="iv-z">—</span>'}</td>`;
+  const row = (a, total) => {
     return `<tr data-pic="${total ? '' : h.esc(a.pic)}" class="${total ? 'iv-tot' : ''}${!total && IV.pic === a.pic ? ' sel' : ''}">
-      <td>${total ? '<b>Tổng team</b>' + (IV.pic ? '<span class="vs">bấm để bỏ lọc PIC</span>' : '') : `<b>${h.esc(a.pic)}</b>`}</td><td class="num">${a.n}</td><td class="num">${fi(a.tot)}</td>
-      <td class="num"${heat(moc, SC_MOC)}>${moc == null ? '—' : f1(moc)}</td><td class="num">${fi(a.inc4)}</td>
-      <td class="num">${cnt(a.o2, 'red')}</td><td class="num">${cnt(a.o8, 'amber')}</td><td class="num">${cnt(a.ds, 'amber')}</td><td class="num">${cnt(a.due, 'red')}</td>
-      <td class="num">${a.high || '<span class="iv-z">—</span>'}</td><td class="num">${a.lost ? fi(a.lost) : '<span class="iv-z">—</span>'}</td></tr>`; };
-  body.innerHTML = pics.length ? pics.map(a => row(a, false)).join('') + row(all, true) : '<tr><td colspan="11" style="padding:14px;color:var(--muted)">Chưa có dữ liệu.</td></tr>';
+      <td>${total ? '<b>Tổng team</b>' + (IV.pic ? '<span class="vs">bấm để bỏ lọc PIC</span>' : '') : `<b>${h.esc(a.pic)}</b>`}</td><td class="num">${a.n}</td><td class="num">${fi(a.tot)}</td><td class="num">${fi(a.inc4)}</td>
+      <td class="num">${cnt(a.o2, 'red')}</td><td class="num">${cnt(a.o8, 'amber')}</td><td class="num">${cnt(a.due, 'red')}</td>
+      <td class="num">${a.high || '<span class="iv-z">—</span>'}</td>${lostCell(a.lost, total)}</tr>`; };
+  body.innerHTML = pics.length ? pics.map(a => row(a, false)).join('') + row(all, true) : '<tr><td colspan="9" style="padding:14px;color:var(--muted)">Chưa có dữ liệu.</td></tr>';
   body.querySelectorAll('tr[data-pic]').forEach(t => t.onclick = () => setPic(!t.dataset.pic || IV.pic === t.dataset.pic ? '' : t.dataset.pic));
 }
 
