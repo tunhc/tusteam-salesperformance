@@ -119,7 +119,7 @@ INV.ams = function(series, dataDays, calDays){
 // ---------------------------------------------------------------- state
 const IV = {country: 'USA', pic: '', pl: '', sku: '', src: '', risk: '', q: '', etaMode: 'file', mode: 'pl',
   data: null, loadedFor: null, sales: null, daily: null, rows: [], sort: 'flagRank', dir: 1, sel: null,
-  lf: null, ghost: false, memo: {pl: new Map(), sku: new Map()}};
+  lf: null, ghost: false, view: 'chart', grid: 'inc', memo: {pl: new Map(), sku: new Map()}};
 const HZN = 16;   // weeks on the chart / projection
 // USA only; the SKU list, PIC, Main PL / Sub PL and lifecycle come from the follow-up (table skus)
 const followUp = () => (typeof ROWS !== 'undefined' && Array.isArray(ROWS) ? ROWS : []);
@@ -385,7 +385,10 @@ function build(host){
       </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-hero">
       <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="cv-toggle" id="ivView" role="group" aria-label="Kiểu xem"><button class="cv-btn" data-v="chart" type="button">Chart</button><button class="cv-btn" data-v="table" type="button">Bảng</button></div>
+        <div class="cv-toggle" id="ivGridMode" role="group" aria-label="Nội dung bảng" hidden><button class="cv-btn" data-g="inc" type="button">Hàng về</button><button class="cv-btn" data-g="proj" type="button">Tồn dự phóng (AMZ + Y4A)</button></div>
+        <span id="ivChartCtl" style="display:contents"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
         <span class="iv-def" tabindex="0" role="button" aria-label="Xem định nghĩa cột ma">ⓘ Xem định nghĩa<span class="iv-def-pop" role="tooltip">
           <b>Cột ma (viền nét đứt) = kế hoạch theo ETA ban đầu</b>
           <span class="iv-def-p">Ở mỗi cột tuần: units của các lô lẽ ra về tuần đó theo <b>Original ETA</b>. Cột ma cao hơn cột màu = hàng bị lùi / kéo đi khỏi tuần đó; thấp hơn = tuần đó nhận hàng dồn tới. Rê chuột vào đỉnh cột ma để xem chi tiết; bấm để lọc danh sách lô.</span>
@@ -397,10 +400,11 @@ function build(host){
           <b>Ghi chú</b>
           <span class="iv-def-p">Chỉ tính các lô còn trong tracker (lô đã về thì không còn). Lô thiếu Original ETA được coi là đúng hạn (Original = Current).</span>
         </span></span>
-        <div class="cv-toggle" id="ivMode" role="group" aria-label="Chia màu theo"><button class="cv-btn" data-m="pl" type="button">Main PL</button><button class="cv-btn" data-m="sku" type="button">SKU</button><button class="cv-btn" data-m="stage" type="button">Hàng đang ở đâu</button></div></div></div>
+        <div class="cv-toggle" id="ivMode" role="group" aria-label="Chia màu theo"><button class="cv-btn" data-m="pl" type="button">Main PL</button><button class="cv-btn" data-m="sku" type="button">SKU</button><button class="cv-btn" data-m="stage" type="button">Hàng đang ở đâu</button></div></span></div></div>
       <div class="hint" id="ivWeeklyHint" style="margin:6px 0 0"></div>
       <div class="iv-special" id="ivSpecial"></div>
       <div id="ivWeekly" class="plot" style="height:420px"></div>
+      <div id="ivGridWrap" hidden><div class="tablewrap iv-grid" style="max-height:620px"><table id="ivGrid"><thead id="ivGridHead"></thead><tbody id="ivGridBody"></tbody></table></div></div>
     </div>
     <div class="kpis iv-kpis" id="ivKpis"></div>
     <div class="card">
@@ -463,6 +467,8 @@ function build(host){
   $('#ivAi').onclick = () => askAi(false);
   host.querySelectorAll('#ivMode .cv-btn').forEach(b => b.onclick = () => { IV.mode = b.dataset.m; paintWeekly(); });
   $('#ivGhost').onchange = e => { IV.ghost = e.target.checked; paintWeekly(); };
+  host.querySelectorAll('#ivView .cv-btn').forEach(b => b.onclick = () => { IV.view = b.dataset.v; paintWeekly(); });
+  host.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.onclick = () => { IV.grid = b.dataset.g; paintWeekly(); });
   host.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(IV.sort === k) IV.dir *= -1; else { IV.sort = k; IV.dir = ['pic','sku','pl','flagRank','oosSort'].includes(k) ? 1 : -1; } re(); });
   host.querySelectorAll('#ivTable thead th[data-rule]').forEach(th => th.title = INV.AMS_RULE);
   bindLotBar(host);
@@ -552,6 +558,11 @@ function paintWeekly(rows, lines){
   const h = H(); if(!IV.data) return;
   rows = rows || filtered(); lines = lines || scopeLines(rows);
   document.querySelectorAll('#ivMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.m === IV.mode));
+  const table = IV.view === 'table';
+  document.querySelectorAll('#ivView .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.v === IV.view));
+  document.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.g === IV.grid));
+  document.getElementById('ivGridMode').hidden = !table; document.getElementById('ivChartCtl').style.display = table ? 'none' : 'contents';
+  document.getElementById('ivWeekly').style.display = table ? 'none' : ''; document.getElementById('ivGridWrap').hidden = !table;
   const {cats, lbl, plain} = weekCats(), mode = IV.mode, S = seriesOf(lines, mode);
   const keyOf = l => mode !== 'stage' && S.top && !S.top.has(groupOf(l, mode)) ? OTHER : groupOf(l, mode);
   const x = cats.map(lbl), ci = new Map(cats.map((c, i) => [c, i]));
@@ -626,7 +637,7 @@ function paintWeekly(rows, lines){
   }
   const afterEmpty = !totals[totals.length - 1] && !(IV.ghost && plan[plan.length - 1]);
   const W = IV.weeks;
-  h.draw('ivWeekly', traces, h.lay({barmode: 'stack', bargap: .28, hovermode: 'closest', hoverlabel: {bgcolor: '#fff', bordercolor: '#E4E5E6', align: 'left', font: {color: '#1B2733', size: 11.5}}, margin: {l: 56, r: 12, t: 30, b: 58},
+  if(!table) h.draw('ivWeekly', traces, h.lay({barmode: 'stack', bargap: .28, hovermode: 'closest', hoverlabel: {bgcolor: '#fff', bordercolor: '#E4E5E6', align: 'left', font: {color: '#1B2733', size: 11.5}}, margin: {l: 56, r: 12, t: 30, b: 58},
     legend: {orientation: 'h', y: 1.1, x: 0, font: {size: 10.5}, traceorder: 'normal'},
     xaxis: h.ax({type: 'category', categoryorder: 'array', categoryarray: x, range: [-0.5, x.length - (afterEmpty ? 1.5 : 0.5)], tickfont: {size: 10.5, color: '#66707C'},
       title: {text: IV.etaMode === 'safe' ? 'Tuần (bắt đầu Chủ nhật) theo ETA thận trọng = Current Sellable ETA + độ trễ TB' : 'Tuần (bắt đầu Chủ nhật) theo Current Sellable ETA', font: {size: 11, color: '#66707C'}}}),
@@ -634,7 +645,7 @@ function paintWeekly(rows, lines){
     shapes: [{type: 'rect', xref: 'x', yref: 'paper', x0: -0.5, x1: 1.5, y0: 0, y1: 1, fillcolor: '#FBF3DF', opacity: .55, line: {width: 0}, layer: 'below'},
              {type: 'line', xref: 'x', yref: 'paper', x0: 1.5, x1: 1.5, y0: 0, y1: 1, line: {color: '#B8860B', width: 1, dash: 'dot'}}, ...ghostShapes]}));
   const g = document.getElementById('ivWeekly');
-  onClick(g, p => { if(p.customdata[0] === 'ghost') return openLots({kind: 'orig', cat: p.customdata[1]}); const [c, , k] = p.customdata; openLots({kind: 'week', cat: c, group: k, mode: IV.mode}); });
+  if(!table) onClick(g, p => { if(p.customdata[0] === 'ghost') return openLots({kind: 'orig', cat: p.customdata[1]}); const [c, , k] = p.customdata; openLots({kind: 'week', cat: c, group: k, mode: IV.mode}); });
   // separately visible: lots past their ETA and lots without an ETA
   const due = lines.filter(l => l.due), noEta = lines.filter(l => l.noEta), sk = a => new Set(a.map(l => l.sku)).size;
   document.getElementById('ivSpecial').innerHTML =
@@ -644,6 +655,43 @@ function paintWeekly(rows, lines){
   document.querySelectorAll('#ivSpecial button[data-c]').forEach(b => b.onclick = () => openLots({kind: 'week', cat: b.dataset.c, group: null, mode: IV.mode}));
   document.getElementById('ivWeeklyHint').innerHTML = `Chia màu theo <b>${MODE_VI[mode]}</b>${mode !== 'stage' && S.top && S.keys.includes(OTHER) ? ` (top ${S.top.size}, còn lại gộp vào “Khác”)` : ''}. ` +
     `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Hai cột đầu (nền vàng, sọc) là lô không xếp được vào tuần: ETA đã qua mà chưa về, và chưa có ETA. Bấm cột để xem lô.`;
+  if(table){
+    document.getElementById('ivWeeklyHint').innerHTML = IV.grid === 'inc'
+      ? `Mỗi dòng một SKU, mỗi cột một tuần (bắt đầu Chủ nhật, theo ${IV.etaMode === 'safe' ? 'ETA thận trọng' : 'Current Sellable ETA'}). <b style="color:#2a78d6">Xanh dương</b> = về kho Amazon, <b style="color:#1baf7a">xanh lá</b> = về kho Y4A. Nền vàng = có lô ETA bị lùi so với ban đầu; cột “Đã đến hạn” nền đỏ = ETA đã qua mà chưa về. Rê chuột vào ô để xem lô, bấm ô để lọc danh sách lô, bấm SKU để xem dự phóng.`
+      : `Tồn AMZ + Y4A cuối mỗi tuần sau khi cộng hàng về (cả 2 kho) và trừ forecast. Ô đỏ = tuần không đủ hàng bán (cùng cách tính cột OOS). Rê chuột vào ô để xem chi tiết, bấm SKU để xem dự phóng.`;
+    paintGrid(rows, lines);
+  }
+}
+// Bảng hàng về theo tuần (the chart as a table): one row per SKU, one column per week
+function paintGrid(rows, lines){
+  const h = H(), {cats, plain} = weekCats(), W = IV.weeks, proj = IV.grid === 'proj';
+  const bySku = new Map(); lines.forEach(l => { if(!bySku.has(l.sku)) bySku.set(l.sku, []); bySku.get(l.sku).push(l); });
+  // SKUs with lots past ETA first, then by the earliest week something arrives, then the rest
+  const first = r => { const L = bySku.get(r.sku) || []; return L.length ? Math.min(...L.map(l => bOrd(l.bucket))) : 999; };
+  const list = proj ? rows.filter(r => r.fcW).sort((a, b) => (a.oosWk ?? 99) - (b.oosWk ?? 99) || a.sku.localeCompare(b.sku))
+                    : [...rows].sort((a, b) => first(a) - first(b) || a.sku.localeCompare(b.sku));
+  const colCats = proj ? W.map((_, i) => i) : cats;
+  const head = c => c === 'due' ? 'Đã đến hạn' : c === 'noeta' ? 'Chưa<br>có ETA' : c === 'after' ? 'Sau<br>' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này' : 'Tuần') + '<br>' + md(W[c]);
+  document.getElementById('ivGridHead').innerHTML = `<tr><th class="g-sku">SKU</th><th class="g-pl">Main PL</th><th class="g-inv num">Tồn AMZ</th><th class="g-inv2 num">Tồn Y4A</th>` +
+    colCats.map(c => `<th class="num g-wk${c === 'due' ? ' g-hdue' : c === 'noeta' ? ' g-hno' : ''}" title="${h.esc(plain(c))}">${head(c)}</th>`).join('') + (proj ? '' : '<th class="num g-wk">Tổng<br>về</th>') + '</tr>';
+  const tip = ls => ls.map(l => `${l.source === 'AMZ' ? 'Amazon' : 'Y4A'} ${fi(l.qty)} u · ${l.po_name}${l.container_number ? ' · ' + l.container_number : ''} · ETA ${md(l.eta_salable_date)}${l.eta_salable_original && l.eta_salable_original !== l.eta_salable_date ? ' (ban đầu ' + md(l.eta_salable_original) + ')' : ''} · ${l.physical_status || ''}${l.due ? ' · QUÁ ETA ' + l.overdue + 'n' : (l.slip || 0) > 0 ? ' · lùi ' + l.slip + 'n' : ''}`).join('\n');
+  document.getElementById('ivGridBody').innerHTML = list.slice(0, 600).map(r => {
+    const L = bySku.get(r.sku) || [];
+    let cells;
+    if(!proj) cells = cats.map(c => { const ls = L.filter(l => l.bucket === c); if(!ls.length) return `<td class="num g-c${c === 'due' ? ' g-cdue' : c === 'noeta' ? ' g-cno' : ''}"></td>`;
+        const a = sumQ(ls.filter(l => l.source === 'AMZ')), y = sumQ(ls.filter(l => l.source === 'Y4A'));
+        const cls = c === 'due' ? ' g-od' : ls.some(l => (l.slip || 0) > 0) ? ' g-dl' : '';
+        return `<td class="num g-c${cls}" data-c="${c}" title="${h.esc(tip(ls))}">${a ? `<span class="g-a">${fi(a)}</span>` : ''}${y ? `<span class="g-y">${fi(y)}</span>` : ''}</td>`; }).join('') +
+        `<td class="num"><b>${fi(sumQ(L))}</b></td>`;
+    else cells = W.map((_, i) => { const inc = r.incA[i] + r.incY[i], prev = i === 0 ? r.tot : r.pT.p[i - 1], short = r.fcW[i] > 0 && prev + inc < r.fcW[i];
+        return `<td class="num g-c${short ? ' g-od' : ''}" title="${h.esc(`Tuần ${md(W[i])}: tồn đầu ${fi(prev)} + hàng về ${fi(inc)} (AMZ ${fi(r.incA[i])} · Y4A ${fi(r.incY[i])}) − forecast ${r.fcW[i].toFixed(1)} → tồn cuối ${fi(r.pT.p[i])}${short ? ' · THIẾU HÀNG' : ''}`)}">${fi(r.pT.p[i])}</td>`; }).join('');
+    return `<tr data-sku="${h.esc(r.sku)}"${IV.sel === r.sku ? ' class="sel"' : ''}><td class="g-sku">${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 26))}</span></td>
+      <td class="g-pl">${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td><td class="num g-inv">${fi(r.amz)}</td><td class="num g-inv2">${fi(r.y4a)}</td>${cells}</tr>`;
+  }).join('') || `<tr><td colspan="${colCats.length + 5}" style="padding:18px;color:var(--muted)">${proj ? 'Không có SKU nào có forecast trong phạm vi đang lọc.' : 'Không có SKU nào khớp bộ lọc.'}</td></tr>`;
+  document.querySelectorAll('#ivGridBody tr[data-sku]').forEach(t => {
+    t.querySelectorAll('td[data-c]').forEach(td => td.onclick = e => { e.stopPropagation(); openLots({kind: 'week', cat: td.dataset.c, group: t.dataset.sku, mode: 'sku'}); });
+    t.querySelector('.g-sku').onclick = () => { IV.sel = t.dataset.sku; detail(); document.getElementById('ivDetail').scrollIntoView({behavior: 'smooth', block: 'start'}); };
+  });
 }
 
 // ---------------------------------------------------------------- 2) Theo dõi theo SKU
@@ -986,6 +1034,27 @@ if(typeof document !== 'undefined'){
 #ivTable tr.sel td{background:#FFF3EA}
 #ivTable tbody tr:hover td,#ivLotTable tbody tr:hover td{background:#F7F9FC}
 .iv-pics-card{padding:12px 16px}
+#ivGrid{border-collapse:separate;border-spacing:0}
+#ivGrid th,#ivGrid td{white-space:nowrap;padding:6px 8px}
+#ivGrid .g-wk{min-width:58px;text-align:center}
+#ivGrid td.g-c{text-align:center;font-size:12px;cursor:pointer}
+#ivGrid td.g-c:empty{cursor:default}
+#ivGrid .g-a{display:block;color:#2a78d6;font-weight:800}
+#ivGrid .g-y{display:block;color:#1baf7a;font-weight:800}
+#ivGrid td.g-dl{background:#FFF6DB}
+#ivGrid td.g-od{background:#FDE8E8}
+#ivGrid td.g-cdue,#ivGrid td.g-cno{background:#FBF8EE}
+#ivGrid thead .g-hdue,#ivGrid thead .g-hno{background:#5A4A12}
+#ivGrid .vs{font-size:10.5px;color:var(--muted);display:block}
+#ivGrid .g-sku,#ivGrid .g-pl,#ivGrid .g-inv,#ivGrid .g-inv2{position:sticky;z-index:1;background:var(--card,#fff)}
+#ivGrid thead th{z-index:2}
+#ivGrid thead .g-sku,#ivGrid thead .g-pl,#ivGrid thead .g-inv,#ivGrid thead .g-inv2{z-index:3;background:var(--navy)}
+#ivGrid .g-sku{left:0;min-width:150px;max-width:150px;overflow:hidden;cursor:pointer}
+#ivGrid .g-pl{left:150px;min-width:140px;max-width:140px;overflow:hidden;white-space:normal}
+#ivGrid .g-inv{left:290px;min-width:64px}
+#ivGrid .g-inv2{left:354px;min-width:64px;box-shadow:2px 0 0 var(--line)}
+#ivGrid tbody tr:hover td{filter:brightness(.98)}
+#ivGrid tr.sel td.g-sku{background:#FFF3EA}
 .iv-pics-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px}
 #ivPicTable td,#ivPicTable th{padding:6px 10px}
 #ivPicTable tbody tr{cursor:pointer}
