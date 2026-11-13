@@ -432,7 +432,7 @@ function build(host){
   host.innerHTML = `<div class="filterbar iv-filters">
       <div class="fld"><label for="ivPic">PIC</label><select id="ivPic"><option value="">All</option></select></div>
       <div class="fld"><label for="ivPl">Main PL</label><select id="ivPl"><option value="">All</option></select></div>
-      <div class="fld"><label for="ivSpl">Sub PL</label><select id="ivSpl"><option value="">All</option></select></div>
+      <div class="fld"><label for="ivSpl">Old Product Line</label><select id="ivSpl"><option value="">All</option></select></div>
       <div class="fld"><label for="ivSku">SKU</label><select id="ivSku"><option value="">All</option></select></div>
       <div class="fld"><label for="ivSrc2">Kho đến</label><select id="ivSrc2"><option value="">AMZ + Y4A</option><option value="AMZ">AMZ (kho Amazon)</option><option value="Y4A">Y4A (kho mình)</option></select></div>
       <div class="fld"><label for="ivRisk">Rủi ro</label><select id="ivRisk"><option value="">All</option><option>OOS ≤2 tuần</option><option>OOS trong 8 tuần</option><option>Hàng quá ETA</option><option>ETA bị lùi</option><option>Tồn cao</option><option>OK</option></select></div>
@@ -766,7 +766,7 @@ function paintWeekly(rows, lines){
     document.querySelectorAll('#ivSpecial button[data-shift]').forEach(b => b.onclick = () => shiftDay(+b.dataset.shift)); }
   document.querySelectorAll('#ivSpecial button[data-c]').forEach(b => b.onclick = () => openLots({kind: 'week', cat: b.dataset.c, group: null, mode: IV.mode}));
   document.getElementById('ivWeeklyHint').innerHTML = `Chia màu theo <b>${MODE_VI[mode]}</b>${mode !== 'stage' && S.top && S.keys.includes(OTHER) ? ` (top ${S.top.size}, còn lại gộp vào “Khác”)` : ''}. ` +
-    `Lọc Main PL (hoặc Sub PL chỉ thuộc 1 Main PL) → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.` +
+    `Lọc Main PL (hoặc Old Product Line chỉ thuộc 1 Main PL) → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.` +
     (IV.gran === 'day' ? ` Xem theo ngày: mỗi lần 4 tuần, dùng ◀ ▶ cạnh nút Tuần/Ngày để xem tiếp đến hết ${HZN} tuần (${md(addD(IV.d0, IV.nd - 1))}).` : '');
   if(table){
     document.getElementById('ivWeeklyHint').innerHTML = IV.grid === 'inc'
@@ -1069,7 +1069,7 @@ function exportXlsx(){
   const rows = filtered(), wb = XLSX.utils.book_new(), yr = IV.daily ? IV.daily.year : (IV.logDate || iso(new Date())).slice(0, 4);
   rows.forEach(r => { if(r.inc4 == null) r.inc4 = sumQ(r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4)); });
   const n1 = v => v == null || !isFinite(v) ? '' : +v.toFixed(1);
-  const a = rows.map(r => ({'PIC': r.pic, 'Main PL': r.pl, 'Sub PL': r.subPl, 'SKU': r.sku, 'Product': r.name, 'Lifecycle': r.lifecycle,
+  const a = rows.map(r => ({'PIC': r.pic, 'Main PL': r.pl, 'Old Product Line': r.subPl, 'SKU': r.sku, 'Product': r.name, 'Lifecycle': r.lifecycle,
     'SALABLE AMZ+Y4A': r.tot, 'SALABLE Y4A': r.y4a, 'SALABLE AMZ (on-hand)': r.amz, 'SALABLE AMZ source': r.amzSrc === 'asin' ? '04_AMZ_sellable details' : '06_USA_Sellable INV',
     'Incoming 4W': r.inc4, ['MOC ' + yr]: n1(r.moc26), ['AMS ' + yr]: n1(r.ams26), 'MOC 3M': n1(r.moc3), 'AMS 3M': n1(r.ams3), 'MTD Sale': r.mtd == null ? '' : r.mtd,
     ['AMS ' + yr + ' note']: r.a26 ? r.a26.note || `loại ${r.a26.nOos} ngày nghi OOS / ${r.a26.nData} ngày có dữ liệu` : '', 'AMS 3M note': r.a3 ? r.a3.note || `loại ${r.a3.nOos} ngày nghi OOS / ${r.a3.nData} ngày có dữ liệu` : '',
@@ -1122,7 +1122,7 @@ if(typeof document !== 'undefined'){
   css.textContent = `.iv-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
 .iv-filters{margin-bottom:8px}
 .iv-filters select{min-width:0;width:140px;text-overflow:ellipsis}
-.iv-filters #ivPic{width:150px} .iv-filters #ivPl{width:170px} .iv-filters #ivSpl{width:170px} .iv-filters #ivSku{width:220px} .iv-filters #ivEta{width:170px}
+.iv-filters #ivPic{width:150px} .iv-filters #ivPl{width:170px} .iv-filters #ivSpl{width:190px} .iv-filters #ivSku{width:220px} .iv-filters #ivEta{width:170px}
 .iv-filters input[type=search]{width:160px;min-width:0}
 .iv-filters input[type=search]{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;background:#fff;color:var(--ink);font-family:inherit}
 .iv-asof{margin:0 0 12px;padding:0 2px}
