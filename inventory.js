@@ -117,7 +117,7 @@ INV.ams = function(series, dataDays, calDays){
 };
 
 // ---------------------------------------------------------------- state
-const IV = {country: 'USA', pic: '', pl: '', sku: '', src: '', risk: '', q: '', etaMode: 'file', mode: 'pl',
+const IV = {country: 'USA', pic: '', pl: '', sku: '', src: '', risk: '', q: '', etaMode: 'file', gran: 'week', mode: 'pl',
   data: null, loadedFor: null, sales: null, daily: null, rows: [], sort: 'flagRank', dir: 1, sel: null,
   lf: null, ghost: false, view: 'chart', grid: 'inc', memo: {pl: new Map(), sku: new Map()}};
 const HZN = 16;   // weeks on the chart / projection
@@ -203,6 +203,10 @@ function compute(){
   const logDate = D.inc.reduce((m, r) => r.log_date > m ? r.log_date : m, '') || iso(new Date());
   const wk0 = sunday(logDate), weeks = Array.from({length: HZN}, (_, i) => addD(wk0, i * 7));
   const buf = slipBuffers(D.inc); IV.buf = buf; IV.logDate = logDate; IV.weeks = weeks;
+  // day view: one column per day from the earliest file date through the Saturday of the 4th week
+  const d0 = D.inc.reduce((m, r) => r.log_date && (!m || r.log_date < m) ? r.log_date : m, '') || logDate, nd = daysBetween(d0, addD(wk0, 27)) + 1;
+  IV.d0 = d0; IV.nd = nd;
+  const dayOf = s => { const i = daysBetween(d0, s); return i >= nd ? 'after' : Math.max(0, i); };
   const sell = new Map(D.sell.map(r => [r.sku, r]));
   const asinBy = new Map(); D.asin.forEach(r => { if(!r.sku) return; if(!asinBy.has(r.sku)) asinBy.set(r.sku, []); asinBy.get(r.sku).push(r); });
   const lines = D.inc.map(r => {
@@ -218,12 +222,13 @@ function compute(){
     // "cột ma": the week the lot was planned in by its Original ETA (no buffer); past → 'due', none → null
     const org = orig0, owi = org && org >= r.log_date ? Math.floor(daysBetween(wk0, org) / 7) : null;
     const obucket = !org ? null : org < r.log_date ? 'due' : owi >= HZN ? 'after' : Math.max(0, owi);
+    const db = due ? 'due' : dayOf(etaUse), dob = !org ? null : org < r.log_date ? 'due' : dayOf(org);
     const k = info.get(r.sku) || {};
-    return {...r, qty, slip, overdue, due, etaUse, bucket, obucket, eta: etaOf(r, r.log_date, buf),
+    return {...r, qty, slip, overdue, due, etaUse, bucket, obucket, db, dob, eta: etaOf(r, r.log_date, buf),
       pl: k.mainPL || r.product_line || '—', pic: k.pic || 'Unassigned',
       stage: STAGES.includes(r.physical_status) ? r.physical_status : OTHER};
   });
-  IV.lines = lines;
+  IV.lines = lines; applyGran();
   const bySku = new Map(); lines.forEach(l => { if(!bySku.has(l.sku)) bySku.set(l.sku, []); bySku.get(l.sku).push(l); });
   // AMS periods
   const DD = IV.daily, S = IV.sales;
@@ -383,8 +388,9 @@ function build(host){
         <th class="num" title="Số SKU có MOC 3M (SALABLE AMZ+Y4A ÷ AMS 3M) lớn hơn 6 tháng">Tồn cao (MOC 3M &gt; 6)</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
       </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-hero">
-      <div class="iv-head"><div class="iv-title"><h3 style="margin:0">Incoming theo tuần</h3>
-        <div class="iv-seg" id="ivView" role="tablist" aria-label="Kiểu xem"><button class="iv-seg-btn" data-v="chart" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 14h12M4 12V7M8 12V3M12 12V9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Chart</button><button class="iv-seg-btn" data-v="table" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M2 7h12M2 10h12M6 3v10" stroke="currentColor" stroke-width="1.4"/></svg>Bảng</button></div></div>
+      <div class="iv-head"><div class="iv-title"><h3 style="margin:0" id="ivHeroTitle">Incoming theo tuần</h3>
+        <div class="iv-seg" id="ivView" role="tablist" aria-label="Kiểu xem"><button class="iv-seg-btn" data-v="chart" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 14h12M4 12V7M8 12V3M12 12V9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Chart</button><button class="iv-seg-btn" data-v="table" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M2 7h12M2 10h12M6 3v10" stroke="currentColor" stroke-width="1.4"/></svg>Bảng</button></div>
+        <div class="iv-seg" id="ivGran" role="tablist" aria-label="Xem theo"><button class="iv-seg-btn" data-gr="week" type="button" role="tab">Tuần</button><button class="iv-seg-btn" data-gr="day" type="button" role="tab">Ngày</button></div></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div class="cv-toggle" id="ivGridMode" role="group" aria-label="Nội dung bảng" style="display:none"><button class="cv-btn" data-g="inc" type="button">Hàng về</button><button class="cv-btn" data-g="proj" type="button">Tồn dự phóng (AMZ + Y4A)</button></div>
         <span id="ivChartCtl" style="display:contents"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
@@ -467,6 +473,8 @@ function build(host){
   host.querySelectorAll('#ivMode .cv-btn').forEach(b => b.onclick = () => { IV.mode = b.dataset.m; paintWeekly(); });
   $('#ivGhost').onchange = e => { IV.ghost = e.target.checked; paintWeekly(); };
   host.querySelectorAll('#ivView .iv-seg-btn').forEach(b => b.onclick = () => { IV.view = b.dataset.v; paintWeekly(); });
+  host.querySelectorAll('#ivGran .iv-seg-btn').forEach(b => b.onclick = () => { if(IV.gran === b.dataset.gr) return; IV.gran = b.dataset.gr; applyGran();
+    if(IV.lf){ IV.lf.wk = ''; IV.lf.owk = ''; } paintWeekly(); syncLotBar(); renderLots(); });
   host.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.onclick = () => { IV.grid = b.dataset.g; paintWeekly(); });
   host.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(IV.sort === k) IV.dir *= -1; else { IV.sort = k; IV.dir = ['pic','sku','pl','flagRank','oosSort'].includes(k) ? 1 : -1; } re(); });
   host.querySelectorAll('#ivTable thead th[data-rule]').forEach(th => th.title = INV.AMS_RULE);
@@ -518,7 +526,18 @@ function paint(){
 }
 
 // ---------------------------------------------------------------- 1) Incoming theo tuần
+// chart buckets follow the Tuần / Ngày toggle; l.bucket stays weekly (Incoming 4W, OOS, export)
+function applyGran(){ const d = IV.gran === 'day'; (IV.lines || []).forEach(l => { l.cb = d ? l.db : l.bucket; l.cob = d ? l.dob : l.obucket; }); }
+const DOW_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const dayAt = c => addD(IV.d0, +c), dowVi = s => DOW_VI[dow(s)];
+const unitVi = () => IV.gran === 'day' ? 'ngày' : 'tuần';
 function weekCats(){
+  if(IV.gran === 'day'){
+    const n = IV.nd, cats = ['due', ...Array.from({length: n}, (_, i) => i), 'after'], end = addD(IV.d0, n);
+    const lbl = c => c === 'due' ? 'Đã đến hạn,<br>vẫn incoming' : c === 'after' ? 'Từ<br>' + md(end) : dowVi(dayAt(c)) + '<br>' + md(dayAt(c));
+    const plain = c => c === 'due' ? 'ETA đã đến hạn, vẫn incoming' : c === 'after' ? 'Từ ' + md(end) + ' trở đi' : 'Ngày ' + dowVi(dayAt(c)) + ' ' + md(dayAt(c));
+    return {cats, lbl, plain};
+  }
   const W = IV.weeks;
   const cats = ['due', ...W.map((_, i) => i), 'after'];
   const lbl = c => c === 'due' ? 'Đã đến hạn,<br>vẫn incoming' : c === 'after' ? 'Từ ' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này<br>' : '') + md(W[c]);
@@ -548,9 +567,10 @@ function seriesOf(lines, mode){
   return {keys: ranked.length > top.length ? [...top, OTHER] : top, top: new Set(top), color: k => k === OTHER ? C.other : cmap.get(k)};
 }
 // short labels of a week bucket, for the "bị đẩy" tooltips
-const bucketShort = c => { const W = IV.weeks; if(c === 'due') return 'đã qua'; if(c === 'after') return 'sau ' + md(addD(W[0], HZN * 7 - 1)); return 'tuần ' + md(W[+c]); };
+const bucketShort = c => { const W = IV.weeks; if(c === 'due') return 'đã qua';
+  if(IV.gran === 'day') return c === 'after' ? 'sau ' + md(addD(IV.d0, IV.nd - 1)) : 'ngày ' + md(dayAt(c)); if(c === 'after') return 'sau ' + md(addD(W[0], HZN * 7 - 1)); return 'tuần ' + md(W[+c]); };
 // time order of week buckets: ETA đã qua < tuần 0..15 < sau 16 tuần — tells a delay (later) from a pull-in (earlier)
-const bOrd = c => c === 'due' ? -1 : c === 'after' ? HZN : +c;
+const bOrd = c => c === 'due' ? -1 : c === 'after' ? 1e6 : +c;
 const ghostFrom = (o, c) => (bOrd(o) < bOrd(c) ? 'lùi từ ' : 'kéo sớm từ ') + (o === 'due' ? 'ETA ban đầu đã qua' : bucketShort(o));
 const ghostTo = k => k === 'due' ? 'quá hạn, chưa về' : bucketShort(k);
 function paintWeekly(rows, lines){
@@ -559,16 +579,20 @@ function paintWeekly(rows, lines){
   document.querySelectorAll('#ivMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.m === IV.mode));
   const table = IV.view === 'table';
   document.querySelectorAll('#ivView .iv-seg-btn').forEach(b => { b.classList.toggle('active', b.dataset.v === IV.view); b.setAttribute('aria-selected', b.dataset.v === IV.view); });
+  document.querySelectorAll('#ivGran .iv-seg-btn').forEach(b => { b.classList.toggle('active', b.dataset.gr === IV.gran); b.setAttribute('aria-selected', b.dataset.gr === IV.gran); });
+  document.getElementById('ivGran').style.display = table && IV.grid === 'proj' ? 'none' : '';
+  document.getElementById('ivHeroTitle').textContent = IV.gran === 'day' && !(table && IV.grid === 'proj') ? 'Incoming theo ngày' : 'Incoming theo tuần';
   document.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.g === IV.grid));
   document.getElementById('ivGridMode').style.display = table ? '' : 'none'; document.getElementById('ivChartCtl').style.display = table ? 'none' : 'contents';
   document.getElementById('ivWeekly').style.display = table ? 'none' : ''; document.getElementById('ivGridWrap').hidden = !table;
-  const {cats, lbl, plain} = weekCats(), mode = IV.mode, S = seriesOf(lines, mode);
+  // day view: the 'sau 4 tuần' column would dwarf the daily bars, so it becomes a chip instead
+  const wc = weekCats(), {lbl, plain} = wc, cats = IV.gran === 'day' ? wc.cats.filter(c => c !== 'after') : wc.cats, mode = IV.mode, S = seriesOf(lines, mode);
   const keyOf = l => mode !== 'stage' && S.top && !S.top.has(groupOf(l, mode)) ? OTHER : groupOf(l, mode);
   const x = cats.map(lbl), ci = new Map(cats.map((c, i) => [c, i]));
   const cell = new Map(), det = new Map();
-  lines.forEach(l => { const k = keyOf(l) + '|' + ci.get(l.bucket); cell.set(k, (cell.get(k) || 0) + l.qty);
+  lines.forEach(l => { const k = keyOf(l) + '|' + ci.get(l.cb); cell.set(k, (cell.get(k) || 0) + l.qty);
     const d = det.get(k) || {st: {}, src: {AMZ: 0, Y4A: 0}, sku: new Map(), lots: 0, from: new Map()}; d.st[l.stage] = (d.st[l.stage] || 0) + l.qty; d.src[l.source] = (d.src[l.source] || 0) + l.qty;
-    const o = l.obucket == null ? 'none' : l.obucket === l.bucket ? 'same' : String(l.obucket); d.from.set(o, (d.from.get(o) || 0) + l.qty);
+    const o = l.cob == null ? 'none' : l.cob === l.cb ? 'same' : String(l.cob); d.from.set(o, (d.from.get(o) || 0) + l.qty);
     d.sku.set(l.sku, (d.sku.get(l.sku) || 0) + l.qty); d.lots++; det.set(k, d); });
   // hover detail of one segment: where the goods are (% per stage), destination warehouse, and for "Khác" / Main PL the SKUs inside
   const pct = (v, t) => t ? Math.round(v / t * 100) + '%' : '—';
@@ -578,7 +602,7 @@ function paintWeekly(rows, lines){
     if(mode !== 'sku' || k === OTHER){ const top = [...d.sku.entries()].sort((a, b) => b[1] - a[1]); out.push(`<b>${top.length} SKU</b>${top.length > 1 ? ', nhiều nhất' : ''}: ` + top.slice(0, 3).map(([s, q]) => `${s} ${fi(q)} u`).join(' · ') + (top.length > 3 ? ' · …' : '')); }
     if(d.from.size > 1 || !d.from.has('same')){
       const moved = [...d.from.entries()].filter(([o]) => o !== 'same' && o !== 'none').sort((a, b) => b[1] - a[1]);
-      out.push('<b>Theo ETA ban đầu</b>: ' + [d.from.get('same') ? `đúng tuần này ${fi(d.from.get('same'))} u` : '', ...moved.slice(0, 3).map(([o, q]) => `${ghostFrom(o, cats[i])} ${fi(q)} u`), moved.length > 3 ? '…' : '', d.from.get('none') ? `không có ETA ban đầu ${fi(d.from.get('none'))} u` : ''].filter(Boolean).join(' · '));
+      out.push('<b>Theo ETA ban đầu</b>: ' + [d.from.get('same') ? `đúng ${unitVi()} này ${fi(d.from.get('same'))} u` : '', ...moved.slice(0, 3).map(([o, q]) => `${ghostFrom(o, cats[i])} ${fi(q)} u`), moved.length > 3 ? '…' : '', d.from.get('none') ? `không có ETA ban đầu ${fi(d.from.get('none'))} u` : ''].filter(Boolean).join(' · '));
     }
     out.push(`${d.lots} lô`);
     return out.join('<br>'); };
@@ -593,12 +617,12 @@ function paintWeekly(rows, lines){
   const totals = cats.map((_, i) => S.keys.reduce((t, k) => t + (cell.get(k + '|' + i) || 0), 0));
   traces.push({type: 'scatter', mode: 'text', x, y: totals, text: totals.map(v => v ? fi(v) : ''), textposition: 'top center', textfont: {size: 10.5, color: '#1B2733'}, hoverinfo: 'skip', showlegend: false, cliponaxis: false});
   // cột ma: per column, units of the lots still incoming whose Original ETA fell in that week (dashed outline, no fill)
-  const plan = cats.map(c => sumQ(lines.filter(l => l.obucket === c)));
+  const plan = cats.map(c => sumQ(lines.filter(l => l.cob === c)));
   // ghost tooltip as two sums that add up:
   //   Kế hoạch = giữ tuần này + bị đẩy đi        Thực tế = giữ tuần này + dồn tới (from other weeks / no Original ETA)
-  const wkS = k => { const W = IV.weeks; return k === 'due' ? 'quá hạn' : k === 'none' ? 'không có ETA ban đầu' : k === 'after' ? 'sau ' + md(addD(W[0], HZN * 7 - 1)) : 'tuần ' + md(W[+k]); };
+  const wkS = k => k === 'due' ? 'quá hạn' : k === 'none' ? 'không có ETA ban đầu' : bucketShort(k), U = unitVi(), day = IV.gran === 'day';
   const split = (L, key) => { const m = new Map(); L.forEach(l => { const k = l[key] == null ? 'none' : String(l[key]); m.set(k, (m.get(k) || 0) + l.qty); });
-    const a = [...m.entries()].sort((x, y) => y[1] - x[1]); return a.slice(0, 3).map(([k, q]) => `${key === 'obucket' && k === 'due' ? 'ETA ban đầu đã qua' : wkS(k)} ${fi(q)}`).join(' · ') + (a.length > 3 ? ' · …' : ''); };
+    const a = [...m.entries()].sort((x, y) => y[1] - x[1]); return a.slice(0, 3).map(([k, q]) => `${key === 'cob' && k === 'due' ? 'ETA ban đầu đã qua' : wkS(k)} ${fi(q)}`).join(' · ') + (a.length > 3 ? ' · …' : ''); };
   // which Main PL / SKU / stage (per the selected mode) moved, and to / from which weeks
   // one indented line per Main PL / SKU / stage (per the selected mode), with the weeks it went to / came from
   const byGroup = (L, key, arrow) => {
@@ -614,17 +638,17 @@ function paintWeekly(rows, lines){
   const part = (L, title, key, arrow, color) => L.length ? `<br>${title}: <b style="color:${color}">${fi(sumQ(L))} u</b> ${arrow} ${split(L, key)}` + byGroup(L, key, arrow) : '';
   const ghostShapes = [], ghostTip = cats.map((c, i) => {
     if(!plan[i]) return '';
-    const o = bOrd(c), L = lines.filter(l => l.obucket === c), keep = L.filter(l => l.bucket === c);
-    const outLate = L.filter(l => l.bucket !== c && bOrd(l.bucket) > o), outEarly = L.filter(l => l.bucket !== c && bOrd(l.bucket) < o);
-    const inn = lines.filter(l => l.bucket === c && l.obucket !== c), inLate = inn.filter(l => bOrd(l.obucket) < o), inEarly = inn.filter(l => bOrd(l.obucket) > o);
-    const same = sumQ(keep), due = c === 'due', here = due ? 'ở cột này' : 'tuần này', d = totals[i] - plan[i];
+    const o = bOrd(c), L = lines.filter(l => l.cob === c), keep = L.filter(l => l.cb === c);
+    const outLate = L.filter(l => l.cb !== c && bOrd(l.cb) > o), outEarly = L.filter(l => l.cb !== c && bOrd(l.cb) < o);
+    const inn = lines.filter(l => l.cb === c && l.cob !== c), inLate = inn.filter(l => bOrd(l.cob) < o), inEarly = inn.filter(l => bOrd(l.cob) > o);
+    const same = sumQ(keep), due = c === 'due', here = due ? 'ở cột này' : U + ' này', d = totals[i] - plan[i];
     return `<b>Kế hoạch ban đầu</b> (theo Original ETA): <b>${fi(plan[i])} u</b> · ${L.length} lô` +
-      `<br>${due ? 'Vẫn quá hạn, chưa về' : 'Vẫn về đúng tuần này'}: ${fi(same)} u${pc(same, plan[i])}` +
-      part(outLate, due ? 'Đã dời ETA ra sau (trễ)' : 'Bị lùi sang tuần sau (trễ)', 'bucket', '→', '#D64545') +
-      part(outEarly, 'Được kéo sớm sang tuần trước', 'bucket', '→', '#1E8E5A') +
-      part(inLate, 'Lô trễ dồn tới từ tuần trước', 'obucket', '←', '#D64545') +
-      part(inEarly, 'Lô kéo sớm tới từ tuần sau', 'obucket', '←', '#1E8E5A') +
-      `<br><b>Thực tế đang về ${here}: ${fi(totals[i])} u</b> = ${fi(same)} ${due ? 'vẫn quá hạn' : 'đúng tuần'}${inLate.length ? ` + ${fi(sumQ(inLate))} trễ tới` : ''}${inEarly.length ? ` + ${fi(sumQ(inEarly))} kéo sớm tới` : ''}` +
+      `<br>${due ? 'Vẫn quá hạn, chưa về' : 'Vẫn về đúng ' + U + ' này'}: ${fi(same)} u${pc(same, plan[i])}` +
+      part(outLate, due ? 'Đã dời ETA ra sau (trễ)' : `Bị lùi sang ${U} sau (trễ)`, 'cb', '→', '#D64545') +
+      part(outEarly, `Được kéo sớm sang ${U} trước`, 'cb', '→', '#1E8E5A') +
+      part(inLate, `Lô trễ dồn tới từ ${U} trước`, 'cob', '←', '#D64545') +
+      part(inEarly, `Lô kéo sớm tới từ ${U} sau`, 'cob', '←', '#1E8E5A') +
+      `<br><b>Thực tế đang về ${here}: ${fi(totals[i])} u</b> = ${fi(same)} ${due ? 'vẫn quá hạn' : 'đúng ' + U}${inLate.length ? ` + ${fi(sumQ(inLate))} trễ tới` : ''}${inEarly.length ? ` + ${fi(sumQ(inEarly))} kéo sớm tới` : ''}` +
       `<br><span style="color:${d < 0 ? '#D64545' : '#1E8E5A'}">${d < 0 ? 'Thiếu' : d > 0 ? 'Dư' : 'Bằng'} ${fi(Math.abs(d))} u so với kế hoạch</span>`;
   });
   if(IV.ghost){
@@ -634,15 +658,17 @@ function paintWeekly(rows, lines){
       customdata: cats.map((c, i) => ['ghost', String(c), ghostTip[i]]), hovertemplate: '%{customdata[2]}<extra>bấm để xem lô</extra>'});
     traces.push({type: 'scatter', mode: 'lines', name: 'Cột ma = kế hoạch theo ETA ban đầu', x: [x[2]], y: [null], line: {color: '#1B2733', width: 1.3, dash: 'dash'}, hoverinfo: 'skip', legendgroup: 'ghost'});
   }
-  const afterEmpty = !totals[totals.length - 1] && !(IV.ghost && plan[plan.length - 1]);
+  const afterEmpty = !day && !totals[totals.length - 1] && !(IV.ghost && plan[plan.length - 1]);
   const W = IV.weeks;
-  if(!table) h.draw('ivWeekly', traces, h.lay({barmode: 'stack', bargap: .28, hovermode: 'closest', hoverlabel: {bgcolor: '#fff', bordercolor: '#E4E5E6', align: 'left', font: {color: '#1B2733', size: 11.5}}, margin: {l: 56, r: 12, t: 30, b: 58},
+  // day view: dotted line at each Sunday (start of a week)
+  const wkLines = day ? cats.map((c, i) => typeof c === 'number' && c > 0 && dow(dayAt(c)) === 0 ? {type: 'line', xref: 'x', yref: 'paper', x0: i - 0.5, x1: i - 0.5, y0: 0, y1: 1, line: {color: '#B9C0C8', width: 1, dash: 'dot'}} : null).filter(Boolean) : [];
+  if(!table) h.draw('ivWeekly', traces, h.lay({barmode: 'stack', bargap: day ? .18 : .28, hovermode: 'closest', hoverlabel: {bgcolor: '#fff', bordercolor: '#E4E5E6', align: 'left', font: {color: '#1B2733', size: 11.5}}, margin: {l: 56, r: 12, t: 30, b: 58},
     legend: {orientation: 'h', y: 1.1, x: 0, font: {size: 10.5}, traceorder: 'normal'},
-    xaxis: h.ax({type: 'category', categoryorder: 'array', categoryarray: x, range: [-0.5, x.length - (afterEmpty ? 1.5 : 0.5)], tickfont: {size: 10.5, color: '#66707C'},
-      title: {text: IV.etaMode === 'safe' ? 'Tuần (bắt đầu Chủ nhật) theo ETA thận trọng = Current Sellable ETA + độ trễ TB' : 'Tuần (bắt đầu Chủ nhật) theo Current Sellable ETA', font: {size: 11, color: '#66707C'}}}),
+    xaxis: h.ax({type: 'category', categoryorder: 'array', categoryarray: x, range: [-0.5, x.length - (afterEmpty ? 1.5 : 0.5)], tickfont: {size: day ? 9.5 : 10.5, color: '#66707C'},
+      title: {text: (day ? 'Ngày (đường chấm = đầu tuần, Chủ nhật)' : 'Tuần (bắt đầu Chủ nhật)') + (IV.etaMode === 'safe' ? ' theo ETA thận trọng = Current Sellable ETA + độ trễ TB' : ' theo Current Sellable ETA'), font: {size: 11, color: '#66707C'}}}),
     yaxis: h.ax({tickformat: ',.0f', title: {text: 'Incoming units', font: {size: 11, color: '#66707C'}}}),
     shapes: [{type: 'rect', xref: 'x', yref: 'paper', x0: -0.5, x1: 0.5, y0: 0, y1: 1, fillcolor: '#FBF3DF', opacity: .55, line: {width: 0}, layer: 'below'},
-             {type: 'line', xref: 'x', yref: 'paper', x0: 0.5, x1: 0.5, y0: 0, y1: 1, line: {color: '#B8860B', width: 1, dash: 'dot'}}, ...ghostShapes]}));
+             {type: 'line', xref: 'x', yref: 'paper', x0: 0.5, x1: 0.5, y0: 0, y1: 1, line: {color: '#B8860B', width: 1, dash: 'dot'}}, ...wkLines, ...ghostShapes]}));
   const g = document.getElementById('ivWeekly');
   if(!table) onClick(g, p => { if(p.customdata[0] === 'ghost') return openLots({kind: 'orig', cat: p.customdata[1]}); const [c, , k] = p.customdata; openLots({kind: 'week', cat: c, group: k, mode: IV.mode}); });
   // separately visible: lots past their ETA and lots without an ETA
@@ -650,12 +676,15 @@ function paintWeekly(rows, lines){
   document.getElementById('ivSpecial').innerHTML =
     `<button type="button" class="iv-chip red" data-c="due"${due.length ? '' : ' disabled'}><b>${fi(sumQ(due))} u</b> ETA đã đến hạn, vẫn incoming <span>${due.length} lô · ${sk(due)} SKU${due.length ? ' · quá tối đa ' + Math.max(...due.map(l => l.overdue)) + ' ngày' : ''}</span></button>` +
     `<span class="iv-chip plain"><b>${fi(sumQ(lines.filter(l => typeof l.bucket === 'number' && l.bucket < 4)))} u</b> về trong 4 tuần tới <span>tuần ${md(W[0])} → ${md(addD(W[3], 6))}</span></span>`;
+  if(IV.gran === 'day'){ const af = lines.filter(l => l.cb === 'after');
+    document.getElementById('ivSpecial').innerHTML += `<button type="button" class="iv-chip plain" data-c="after"${af.length ? '' : ' disabled'}><b>${fi(sumQ(af))} u</b> về ${bucketShort('after')} <span>${af.length} lô · xem chế độ Tuần</span></button>`; }
   document.querySelectorAll('#ivSpecial button[data-c]').forEach(b => b.onclick = () => openLots({kind: 'week', cat: b.dataset.c, group: null, mode: IV.mode}));
   document.getElementById('ivWeeklyHint').innerHTML = `Chia màu theo <b>${MODE_VI[mode]}</b>${mode !== 'stage' && S.top && S.keys.includes(OTHER) ? ` (top ${S.top.size}, còn lại gộp vào “Khác”)` : ''}. ` +
-    `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.`;
+    `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.` +
+    (IV.gran === 'day' ? ` Xem theo ngày: từ ${md(IV.d0)} (ngày file) đến ${md(addD(IV.d0, IV.nd - 1))} (hết 4 tuần); hàng về sau đó nằm ở ô “về sau …” phía trên.` : '');
   if(table){
     document.getElementById('ivWeeklyHint').innerHTML = IV.grid === 'inc'
-      ? `Mỗi dòng 1 SKU, cột theo tuần ${IV.etaMode === 'safe' ? '(ETA thận trọng)' : '(Current ETA)'}. <b style="color:#2a78d6">Xanh dương</b> = về kho Amazon, <b style="color:#1baf7a">xanh lá</b> = về kho Y4A · nền vàng = có lô bị lùi ETA · rê chuột xem lô, bấm ô để lọc danh sách lô.`
+      ? `Mỗi dòng 1 SKU, cột theo ${unitVi()} ${IV.etaMode === 'safe' ? '(ETA thận trọng)' : '(Current ETA)'}. <b style="color:#2a78d6">Xanh dương</b> = về kho Amazon, <b style="color:#1baf7a">xanh lá</b> = về kho Y4A · nền vàng = có lô bị lùi ETA · rê chuột xem lô, bấm ô để lọc danh sách lô.`
       : `Tồn AMZ + Y4A cuối mỗi tuần sau khi cộng hàng về và trừ forecast · ô đỏ = tuần thiếu hàng (như cột OOS) · bấm SKU để xem dự phóng.`;
     paintGrid(rows, lines);
   }
@@ -665,21 +694,23 @@ function paintGrid(rows, lines){
   const h = H(), {cats, plain} = weekCats(), W = IV.weeks, proj = IV.grid === 'proj';
   const bySku = new Map(); lines.forEach(l => { if(!bySku.has(l.sku)) bySku.set(l.sku, []); bySku.get(l.sku).push(l); });
   // SKUs with lots past ETA first, then by the earliest week something arrives, then the rest
-  const first = r => { const L = bySku.get(r.sku) || []; return L.length ? Math.min(...L.map(l => bOrd(l.bucket))) : 999; };
+  const first = r => { const L = bySku.get(r.sku) || []; return L.length ? Math.min(...L.map(l => bOrd(l.cb))) : 1e7; };
   const list = proj ? rows.filter(r => r.fcW).sort((a, b) => (a.oosWk ?? 99) - (b.oosWk ?? 99) || a.sku.localeCompare(b.sku))
                     : [...rows].sort((a, b) => first(a) - first(b) || a.sku.localeCompare(b.sku));
   const colCats = proj ? W.map((_, i) => i) : cats;
-  const head = c => c === 'due' ? 'Đã đến hạn' : c === 'after' ? 'Sau<br>' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này' : 'Tuần') + '<br>' + md(W[c]);
+  const day = IV.gran === 'day' && !proj;
+  const head = c => c === 'due' ? 'Đã đến hạn' : c === 'after' ? 'Sau<br>' + md(day ? addD(IV.d0, IV.nd - 1) : addD(W[0], HZN * 7)) : day ? dowVi(dayAt(c)) + '<br>' + md(dayAt(c)) : (c === 0 ? 'Tuần này' : 'Tuần') + '<br>' + md(W[c]);
+  const wkStart = c => day && typeof c === 'number' && c > 0 && dow(dayAt(c)) === 0 ? ' g-sun' : '';
   document.getElementById('ivGridHead').innerHTML = `<tr><th class="g-sku">SKU</th><th class="g-pl">Main PL</th><th class="g-inv num">Tồn AMZ</th><th class="g-inv2 num">Tồn Y4A</th>` +
-    colCats.map(c => `<th class="num g-wk${c === 'due' ? ' g-hdue' : ''}" title="${h.esc(plain(c))}">${head(c)}</th>`).join('') + (proj ? '' : '<th class="num g-wk">Tổng<br>về</th>') + '</tr>';
+    colCats.map(c => `<th class="num g-wk${c === 'due' ? ' g-hdue' : ''}${wkStart(c)}" title="${h.esc(plain(c))}">${head(c)}</th>`).join('') + (proj ? '' : '<th class="num g-wk">Tổng<br>về</th>') + '</tr>';
   const tip = ls => ls.map(l => `${l.source === 'AMZ' ? 'Amazon' : 'Y4A'} ${fi(l.qty)} u · ${l.po_name}${l.container_number ? ' · ' + l.container_number : ''} · ETA ${md(l.eta_salable_date)}${l.eta_salable_original && l.eta_salable_original !== l.eta_salable_date ? ' (ban đầu ' + md(l.eta_salable_original) + ')' : ''} · ${l.physical_status || ''}${l.due ? ' · QUÁ ETA ' + l.overdue + 'n' : (l.slip || 0) > 0 ? ' · lùi ' + l.slip + 'n' : ''}`).join('\n');
   document.getElementById('ivGridBody').innerHTML = list.slice(0, 600).map(r => {
     const L = bySku.get(r.sku) || [];
     let cells;
-    if(!proj) cells = cats.map(c => { const ls = L.filter(l => l.bucket === c); if(!ls.length) return `<td class="num g-c${c === 'due' ? ' g-cdue' : ''}"></td>`;
+    if(!proj) cells = cats.map(c => { const ls = L.filter(l => l.cb === c); if(!ls.length) return `<td class="num g-c${c === 'due' ? ' g-cdue' : ''}${wkStart(c)}"></td>`;
         const a = sumQ(ls.filter(l => l.source === 'AMZ')), y = sumQ(ls.filter(l => l.source === 'Y4A'));
         const cls = c === 'due' ? ' g-od' : ls.some(l => (l.slip || 0) > 0) ? ' g-dl' : '';
-        return `<td class="num g-c${cls}" data-c="${c}" title="${h.esc(tip(ls))}">${a ? `<span class="g-a">${fi(a)}</span>` : ''}${y ? `<span class="g-y">${fi(y)}</span>` : ''}</td>`; }).join('') +
+        return `<td class="num g-c${cls}${wkStart(c)}" data-c="${c}" title="${h.esc(tip(ls))}">${a ? `<span class="g-a">${fi(a)}</span>` : ''}${y ? `<span class="g-y">${fi(y)}</span>` : ''}</td>`; }).join('') +
         `<td class="num"><b>${fi(sumQ(L))}</b></td>`;
     else cells = W.map((_, i) => { const inc = r.incA[i] + r.incY[i], prev = i === 0 ? r.tot : r.pT.p[i - 1], short = r.fcW[i] > 0 && prev + inc < r.fcW[i];
         return `<td class="num g-c${short ? ' g-od' : ''}" title="${h.esc(`Tuần ${md(W[i])}: tồn đầu ${fi(prev)} + hàng về ${fi(inc)} (AMZ ${fi(r.incA[i])} · Y4A ${fi(r.incY[i])}) − forecast ${r.fcW[i].toFixed(1)} → tồn cuối ${fi(r.pT.p[i])}${short ? ' · THIẾU HÀNG' : ''}`)}">${fi(r.pT.p[i])}</td>`; }).join('');
@@ -798,7 +829,7 @@ function lotFilter(lines){
     else inGroup = l => groupOf(l, mode) === key;
   }
   const owk = !f.owk ? null : /^\d+$/.test(f.owk) ? +f.owk : f.owk;
-  return lines.filter(l => (wk === null || l.bucket === wk) && (owk === null || l.obucket === owk) && (!f.sku || l.sku === f.sku) && (!f.status || poStatus(l) === f.status) && (!f.stage || l.stage === f.stage) &&
+  return lines.filter(l => (wk === null || l.cb === wk) && (owk === null || l.cob === owk) && (!f.sku || l.sku === f.sku) && (!f.status || poStatus(l) === f.status) && (!f.stage || l.stage === f.stage) &&
     (!f.src || l.source === f.src) && inGroup(l) && (!q || [l.po_name, l.sku, l.container_number, l.pl, l.pic].join(' ').toLowerCase().includes(q)));
 }
 // put the current lot filters into the controls (week options follow the weeks of the chart)
@@ -1021,6 +1052,8 @@ if(typeof document !== 'undefined'){
 .iv-seg-btn+.iv-seg-btn{border-left:1px solid var(--navy)}
 .iv-seg-btn:hover{background:#EEF1F5}
 .iv-seg-btn.active{background:var(--navy);color:#fff}
+#ivGran .iv-seg-btn{padding:6px 10px}
+.iv-grid .g-sun{border-left:1px dashed #B9C0C8}
 .iv-special{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
 .iv-chip{display:inline-flex;align-items:baseline;gap:6px;border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 12px;font-size:12px;color:var(--ink);font-family:inherit;cursor:pointer}
 .iv-chip span{font-size:11px;color:var(--muted)}
