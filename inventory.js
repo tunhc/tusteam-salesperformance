@@ -135,6 +135,14 @@ const OTHER = 'Khác';
 // ---------------------------------------------------------------- load
 async function load(){
   const h = H(), c = IV.country;
+  // sales start as soon as the date bounds are known, in parallel with the inventory tables
+  // (they used to wait for the inventory to finish first)
+  const needSales = c === 'USA' && (!IV.sales || !IV.daily);
+  const sales = !needSales ? null : sb.rpc('sales_date_bounds').then(b => b.data && b.data[0] && b.data[0].max_date, e => { console.warn(e); return null; })
+    .then(max => max && Promise.all([
+      IV.sales ? null : loadSales(max).then(s => { IV.sales = s; }),
+      IV.daily ? null : loadDaily(max).then(d => { IV.daily = d; }),
+    ]));
   const [inc, sell, asin, ups] = await Promise.all([
     h.selectAll('incoming_detail', q => q.eq('country', c)),
     h.selectAll('inventory_sellable', q => q.eq('country', c)),
@@ -143,24 +151,19 @@ async function load(){
   ]);
   IV.data = {inc, sell, asin, up: ups[0] || null};
   IV.loadedFor = c;
-  const tasks = [];
-  if(c === 'USA' && (!IV.sales || !IV.daily)){
-    let max = null;
-    try { const b = await sb.rpc('sales_date_bounds'); max = b.data && b.data[0] && b.data[0].max_date; } catch(e){ console.warn(e); }
-    if(max){
-      if(!IV.sales) tasks.push(loadSales(max).then(s => { IV.sales = s; }));
-      if(!IV.daily) tasks.push(loadDaily(max).then(d => { IV.daily = d; }));
-    }
-  }
-  await Promise.all(tasks);
+  await sales;
 }
+// only the follow-up SKUs (the tab never shows others); empty follow-up → every SKU
+const skuScope = () => { const s = [...new Set(followUp().map(r => r.sku).filter(Boolean))]; return s.length ? s : null; };
 // complete weeks of sales per SKU (Sunday start), 78 weeks back — forecast
 async function loadSales(max){
   const h = H();
   try {
     const lastSat = dow(max) === 6 ? max : addD(sunday(max), -1);
     const from = addD(sunday(lastSat), -77 * 7);
-    const rows = await h.rpcAll('sales_trend_by_sku', {p_from: from, p_to: lastSat, p_grain: 'week', p_skus: null});
+    // 13-week chunks fetched in parallel: one 78-week request meant ~12 pages one after another
+    const ch = []; for(let a = from; a <= lastSat; a = addD(a, 13 * 7)){ const b = addD(a, 13 * 7 - 1); ch.push([a, b < lastSat ? b : lastSat]); }
+    const rows = (await Promise.all(ch.map(([p, q]) => h.rpcAll('sales_trend_by_sku', {p_from: p, p_to: q, p_grain: 'week', p_skus: skuScope()})))).flat();
     const weeks = []; for(let w = from; w <= lastSat; w = addD(w, 7)) weeks.push(w);
     const idx = new Map(weeks.map((w, i) => [w, i])), by = new Map();
     rows.forEach(r => { const i = idx.get(String(r.period).slice(0, 10)); if(i == null) return; if(!by.has(r.sku)) by.set(r.sku, Array(weeks.length).fill(0)); by.get(r.sku)[i] += +r.units || 0; });
@@ -168,14 +171,14 @@ async function loadSales(max){
   } catch(e){ console.warn(e); return null; }
 }
 // daily units per SKU from Jan 1 of the latest sales year (or 90 days back, whichever is earlier)
-// to the latest sales date — AMS <năm> / AMS 3M / MTD. Fetched one month per request, in parallel.
+// to the latest sales date — AMS <năm> / AMS 3M / MTD. Fetched half a month per request, in parallel.
 async function loadDaily(max){
   const h = H();
   try {
     const yStart = max.slice(0, 4) + '-01-01', from = [yStart, addD(max, -89)].sort()[0];
     const chunks = []; let a = from;
-    while(a <= max){ const nx = addD(a.slice(0, 8) + '28', 4).slice(0, 8) + '01'; const b = addD(nx, -1) < max ? addD(nx, -1) : max; chunks.push([a, b]); a = nx; }
-    const parts = await Promise.all(chunks.map(([p, q]) => h.rpcAll('sales_trend_by_sku', {p_from: p, p_to: q, p_grain: 'day', p_skus: null})));
+    while(a <= max){ const nx = a.slice(8) < '16' ? a.slice(0, 8) + '16' : addD(a.slice(0, 8) + '28', 4).slice(0, 8) + '01'; const b = addD(nx, -1) < max ? addD(nx, -1) : max; chunks.push([a, b]); a = nx; }
+    const parts = await Promise.all(chunks.map(([p, q]) => h.rpcAll('sales_trend_by_sku', {p_from: p, p_to: q, p_grain: 'day', p_skus: skuScope()})));
     const by = new Map(), days = new Set();
     parts.flat().forEach(r => { const d = String(r.period).slice(0, 10); days.add(d); if(!by.has(r.sku)) by.set(r.sku, new Map()); const m = by.get(r.sku); m.set(d, (m.get(d) || 0) + (+r.units || 0)); });
     return {from, maxDate: max, year: max.slice(0, 4), dataDays: [...days].sort(), by};
@@ -391,7 +394,7 @@ function build(host){
       <div class="iv-head"><div class="iv-title"><h3 style="margin:0" id="ivHeroTitle">Incoming theo tuần</h3>
         <div class="iv-seg" id="ivView" role="tablist" aria-label="Kiểu xem"><button class="iv-seg-btn" data-v="chart" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 14h12M4 12V7M8 12V3M12 12V9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Chart</button><button class="iv-seg-btn" data-v="table" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M2 7h12M2 10h12M6 3v10" stroke="currentColor" stroke-width="1.4"/></svg>Bảng</button></div>
         <div class="iv-seg" id="ivGran" role="tablist" aria-label="Xem theo"><button class="iv-seg-btn" data-gr="week" type="button" role="tab">Tuần</button><button class="iv-seg-btn" data-gr="day" type="button" role="tab">Ngày</button></div>
-        <span class="iv-dwin" id="ivDwin" style="display:none"><button type="button" data-s="-1" title="Lùi 1 tuần">◀</button><span id="ivDwinLbl"></span><button type="button" data-s="1" title="Tới 1 tuần">▶</button></span></div>
+        <span class="iv-dwin" id="ivDwin" style="display:none"><button type="button" data-s="-1" title="Lùi 1 tuần" aria-label="Lùi 1 tuần">◀</button><span id="ivDwinLbl"></span><button type="button" data-s="1" title="Tới 1 tuần" aria-label="Tới 1 tuần">▶</button></span></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div class="cv-toggle" id="ivGridMode" role="group" aria-label="Nội dung bảng" style="display:none"><button class="cv-btn" data-g="inc" type="button">Hàng về</button><button class="cv-btn" data-g="proj" type="button">Tồn dự phóng (AMZ + Y4A)</button></div>
         <span id="ivChartCtl" style="display:contents"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
@@ -1076,11 +1079,11 @@ if(typeof document !== 'undefined'){
 .iv-seg-btn:hover{background:#EEF1F5}
 .iv-seg-btn.active{background:var(--navy);color:#fff}
 #ivGran .iv-seg-btn{padding:6px 10px}
-.iv-dwin{display:inline-flex;align-items:center;gap:6px;font:600 11.5px/1 inherit;font-family:inherit;color:var(--navy)}
-.iv-dwin button{border:1px solid var(--navy);background:#fff;color:var(--navy);border-radius:6px;padding:4px 8px;cursor:pointer;font:700 11px/1 inherit;font-family:inherit}
-.iv-dwin button:hover:not(:disabled){background:#EEF1F5}
-.iv-dwin button:disabled{opacity:.35;cursor:default}
-#ivDwinLbl{min-width:150px;text-align:center;white-space:nowrap}
+.iv-dwin{display:inline-flex;align-items:stretch;border:1.5px solid var(--orange);border-radius:8px;overflow:hidden;background:#FFF3EA;box-shadow:0 1px 3px rgba(255,112,0,.18)}
+.iv-dwin button{border:0;background:var(--orange);color:#fff;padding:0 12px;cursor:pointer;font-weight:800;font-size:13px;line-height:1;font-family:inherit;display:inline-flex;align-items:center;gap:4px}
+.iv-dwin button:hover:not(:disabled){background:var(--orange-dark)}
+.iv-dwin button:disabled{background:#F4D9C4;color:#fff;cursor:default}
+#ivDwinLbl{min-width:170px;padding:7px 10px;text-align:center;white-space:nowrap;font-weight:800;font-size:12.5px;line-height:1;color:var(--navy)}
 .iv-grid .g-sun{border-left:1px dashed #B9C0C8}
 .iv-special{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
 .iv-chip{display:inline-flex;align-items:baseline;gap:6px;border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 12px;font-size:12px;color:var(--ink);font-family:inherit;cursor:pointer}
