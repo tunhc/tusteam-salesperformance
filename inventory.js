@@ -369,7 +369,16 @@ function compute(){
 
 // ---------------------------------------------------------------- filters
 const splOf = r => r.subPl || 'Unclassified';
-const inScope = (r, skip) => (skip === 'pic' || !IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl) && (!IV.spl || splOf(r) === IV.spl) && (!IV.sku || r.sku === IV.sku) &&
+// header quick search ("Tìm nhanh SKU / ASIN / tên sản phẩm", window.GS): same match as the other tabs, on the follow-up row
+let gsMap = null, gsFor = null;
+const gsOk = r => {
+  const G = window.GS; if(!G || (!G.sku && !G.text)) return true;
+  if(G.sku) return r.sku === G.sku;
+  const fu = followUp(); if(gsFor !== fu){ gsFor = fu; gsMap = new Map(fu.map(x => [x.sku, x])); }
+  const k = gsMap.get(r.sku) || {sku: r.sku, productName: r.name, asin: ''};
+  return window.V2 && V2.matchGS ? V2.matchGS(k) : true;
+};
+const inScope = (r, skip) => gsOk(r) && (skip === 'pic' || !IV.pic || r.pic === IV.pic) && (!IV.pl || r.pl === IV.pl) && (!IV.spl || splOf(r) === IV.spl) && (!IV.sku || r.sku === IV.sku) &&
   (!IV.risk || r.risk === IV.risk) && (!IV.q || [r.sku, r.name, r.pl, r.subPl].join(' ').toLowerCase().includes(IV.q));
 const filtered = () => IV.rows.filter(r => inScope(r));
 const srcOk = l => !IV.src || l.source === IV.src;
