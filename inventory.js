@@ -376,8 +376,14 @@ function build(host){
       <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button">↻ Tải lại</button></div>
     </div>
     <div class="btr-src iv-asof" id="ivSrc"></div>
-    <div class="iv-pics-head"><b>Tổng hợp theo PIC</b> · bấm một PIC để lọc cả trang, bấm lại để bỏ lọc</div>
-    <div class="iv-pics" id="ivPicCards"></div>
+    <div class="card iv-pics-card"><div class="iv-pics-head"><h3 style="margin:0">Tổng hợp theo PIC</h3><span class="hint" style="margin:0">Bấm một dòng để lọc cả trang, bấm lại (hoặc dòng Tổng) để bỏ lọc. Cùng định nghĩa với bảng SKU.</span></div>
+      <div class="tablewrap" style="max-height:none"><table id="ivPicTable"><thead><tr>
+        <th>PIC</th><th class="num">SKU</th><th class="num" title="Tồn sellable AMZ + Y4A">Tồn AMZ+Y4A</th><th class="num" title="Tổng tồn ÷ tổng AMS 3M">MOC 3M</th>
+        <th class="num" title="Lô chưa đến hạn có ETA trong tuần này + 3 tuần tới">Về 4 tuần</th>
+        <th class="num" title="SKU hết hàng (AMZ + Y4A) trong 2 tuần tới">OOS ≤2 tuần</th><th class="num" title="SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới">OOS 8 tuần</th>
+        <th class="num" title="SKU AMZ đã hết nhưng Y4A còn hàng">Cần book DS</th><th class="num" title="Units có ETA đã qua mà vẫn incoming">Quá ETA (u)</th>
+        <th class="num" title="SKU có MOC 3M > 6 tháng">Tồn cao</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
+      </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-hero">
       <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
@@ -811,35 +817,28 @@ async function fillHistory(host, shown){
   });
 }
 
-// ---------------------------------------------------------------- Tổng hợp theo PIC: one compact card per PIC, right above the chart.
+// ---------------------------------------------------------------- Tổng hợp theo PIC: one row per PIC + team total, right above the chart.
 // Uses every filter except PIC (so a click can switch PIC); same definitions as the SKU table.
 function paintPic(){
-  const h = H(), host = document.getElementById('ivPicCards'); if(!host) return;
-  const byPic = new Map();
-  IV.rows.filter(r => inScope(r, 'pic')).forEach(r => {
-    const a = byPic.get(r.pic) || {pic: r.pic, n: 0, tot: 0, amz: 0, y4a: 0, ams3: 0, inc4: 0, o2: 0, o8: 0, lost: 0, ds: 0, due: 0, dueSku: 0, high: 0};
+  const h = H(), body = document.getElementById('ivPicBody'); if(!body) return;
+  const add = (a, r) => {
     const inc4 = sumQ(r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4)), due = sumQ(r.lines.filter(l => l.due && srcOk(l)));
-    a.n++; a.tot += r.tot; a.amz += r.amz; a.y4a += r.y4a; a.ams3 += r.ams3 > 0 ? r.ams3 : 0; a.inc4 += inc4;
+    a.n++; a.tot += r.tot; a.ams3 += r.ams3 > 0 ? r.ams3 : 0; a.inc4 += inc4; a.due += due;
     if(r.risk === 'OOS ≤2 tuần') a.o2++; if(r.risk === 'OOS trong 8 tuần') a.o8++; if(r.oosWk !== null && r.oosWk < 8) a.lost += r.lost;
-    if(r.tot > 0 && r.amz <= 0) a.ds++; if(due){ a.due += due; a.dueSku++; } if(r.moc3 != null && r.moc3 > 6) a.high++;
-    byPic.set(r.pic, a); });
-  const pics = [...byPic.values()].sort((a, b) => (b.o2 * 1e6 + b.o8 * 1e3 + b.ds * 10 + (b.due ? 1 : 0)) - (a.o2 * 1e6 + a.o8 * 1e3 + a.ds * 10 + (a.due ? 1 : 0)) || a.pic.localeCompare(b.pic));
-  const chip = (cls, txt, tip) => `<span class="badge ${cls}" title="${h.esc(tip)}">${txt}</span>`;
-  host.innerHTML = pics.map(a => {
-    const moc = a.ams3 > 0 ? a.tot / a.ams3 : null;
-    const chips = [
-      a.o2 ? chip('red', `OOS ≤2 tuần: ${a.o2}`, `${a.o2} SKU hết hàng (AMZ + Y4A) trong 2 tuần tới · tổng mất ~${fi(a.lost)} u trong 16 tuần (gồm cả SKU OOS trong 8 tuần)`) : '',
-      a.o8 ? chip('amber', `OOS 8 tuần: ${a.o8}`, `${a.o8} SKU hết hàng (AMZ + Y4A) trong 3–8 tuần tới`) : '',
-      a.ds ? chip('amber', `Cần book DS: ${a.ds}`, `${a.ds} SKU AMZ đã hết nhưng Y4A còn hàng`) : '',
-      a.due ? chip('red', `Quá ETA: ${fi(a.due)} u`, `${fi(a.due)} u của ${a.dueSku} SKU có ETA đã qua mà vẫn incoming: cần follow PO`) : '',
-      a.high ? chip('gray', `Tồn cao: ${a.high}`, `${a.high} SKU có MOC 3M > 6 tháng`) : '',
-    ].filter(Boolean).join('');
-    return `<button type="button" class="iv-pic${IV.pic === a.pic ? ' sel' : ''}" data-pic="${h.esc(a.pic)}" aria-pressed="${IV.pic === a.pic}">
-      <span class="t">${h.esc(a.pic)}<span>${a.n} SKU</span></span>
-      <span class="m" title="Tồn sellable AMZ ${fi(a.amz)} + Y4A ${fi(a.y4a)} · MOC 3M = tổng tồn ÷ tổng AMS 3M · Về 4 tuần = lô chưa đến hạn có ETA trong tuần này + 3 tuần tới">Tồn <b>${fi(a.tot)}</b> · MOC 3M <b class="${moc != null && moc < 1 ? 'lo' : moc != null && moc > 6 ? 'hi' : ''}">${moc == null ? '—' : f1(moc)}</b> · Về 4 tuần <b>${fi(a.inc4)}</b></span>
-      <span class="c">${chips || '<span class="badge green">Không có cảnh báo</span>'}</span></button>`;
-  }).join('') || '<div class="hint">Chưa có dữ liệu.</div>';
-  host.querySelectorAll('.iv-pic[data-pic]').forEach(b => b.onclick = () => setPic(IV.pic === b.dataset.pic ? '' : b.dataset.pic));
+    if(r.tot > 0 && r.amz <= 0) a.ds++; if(r.moc3 != null && r.moc3 > 6) a.high++; };
+  const blank = pic => ({pic, n: 0, tot: 0, ams3: 0, inc4: 0, due: 0, o2: 0, o8: 0, lost: 0, ds: 0, high: 0});
+  const byPic = new Map(), all = blank('Tổng team');
+  IV.rows.filter(r => inScope(r, 'pic')).forEach(r => { if(!byPic.has(r.pic)) byPic.set(r.pic, blank(r.pic)); add(byPic.get(r.pic), r); add(all, r); });
+  const pics = [...byPic.values()].sort((a, b) => (b.o2 * 1e6 + b.o8 * 1e3 + b.ds * 10) - (a.o2 * 1e6 + a.o8 * 1e3 + a.ds * 10) || a.pic.localeCompare(b.pic));
+  const cnt = (v, c) => v ? `<b style="color:var(--${c})">${fi(v)}</b>` : '<span class="iv-z">—</span>';
+  const row = (a, total) => { const moc = a.ams3 > 0 ? a.tot / a.ams3 : null;
+    return `<tr data-pic="${total ? '' : h.esc(a.pic)}" class="${total ? 'iv-tot' : ''}${!total && IV.pic === a.pic ? ' sel' : ''}">
+      <td>${total ? '<b>Tổng team</b>' + (IV.pic ? '<span class="vs">bấm để bỏ lọc PIC</span>' : '') : `<b>${h.esc(a.pic)}</b>`}</td><td class="num">${a.n}</td><td class="num">${fi(a.tot)}</td>
+      <td class="num"${heat(moc, SC_MOC)}>${moc == null ? '—' : f1(moc)}</td><td class="num">${fi(a.inc4)}</td>
+      <td class="num">${cnt(a.o2, 'red')}</td><td class="num">${cnt(a.o8, 'amber')}</td><td class="num">${cnt(a.ds, 'amber')}</td><td class="num">${cnt(a.due, 'red')}</td>
+      <td class="num">${a.high || '<span class="iv-z">—</span>'}</td><td class="num">${a.lost ? fi(a.lost) : '<span class="iv-z">—</span>'}</td></tr>`; };
+  body.innerHTML = pics.length ? pics.map(a => row(a, false)).join('') + row(all, true) : '<tr><td colspan="11" style="padding:14px;color:var(--muted)">Chưa có dữ liệu.</td></tr>';
+  body.querySelectorAll('tr[data-pic]').forEach(t => t.onclick = () => setPic(!t.dataset.pic || IV.pic === t.dataset.pic ? '' : t.dataset.pic));
 }
 
 // ---------------------------------------------------------------- 4) Phân tích hàng trễ (collapsed by default)
@@ -983,18 +982,16 @@ if(typeof document !== 'undefined'){
 #ivTable td.iv-flag .badge{display:inline-block;margin:1px 4px 1px 0;white-space:normal;line-height:1.35}
 #ivTable tr.sel td{background:#FFF3EA}
 #ivTable tbody tr:hover td,#ivLotTable tbody tr:hover td{background:#F7F9FC}
-.iv-pics-head{font-size:11.5px;color:var(--muted);margin:0 0 6px}
-.iv-pics-head b{color:var(--navy);font-size:12px}
-.iv-pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin:0 0 14px}
-.iv-pic{display:flex;flex-direction:column;gap:4px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;text-align:left;font-family:inherit;color:var(--ink);box-shadow:var(--shadow)}
-.iv-pic:hover{border-color:#C9D3E0}
-.iv-pic.sel{border-color:var(--orange);background:#FFF8F2;box-shadow:0 0 0 2px rgba(255,112,0,.18)}
-.iv-pic .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-weight:800;color:var(--navy);font-size:12.5px}
-.iv-pic .t span{font-size:10.5px;color:var(--muted);font-weight:600;white-space:nowrap}
-.iv-pic .m{font-size:11px;color:var(--muted)}
-.iv-pic .m b{color:var(--ink)} .iv-pic .m b.lo{color:var(--red)} .iv-pic .m b.hi{color:var(--amber)}
-.iv-pic .c{display:flex;flex-wrap:wrap;gap:4px}
-.iv-pic .c .badge{font-size:10px;padding:1px 7px}
+.iv-pics-card{padding:12px 16px}
+.iv-pics-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+#ivPicTable td,#ivPicTable th{padding:6px 10px}
+#ivPicTable tbody tr{cursor:pointer}
+#ivPicTable tbody tr:hover td{background:#F7F9FC}
+#ivPicTable tr.sel td{background:#FFF3EA}
+#ivPicTable tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--orange)}
+#ivPicTable tr.iv-tot td{border-top:2px solid var(--line);background:#F7F9FC}
+#ivPicTable .vs{font-size:10.5px;color:var(--muted);display:block;font-weight:400}
+#ivPicTable .iv-z{color:#B8BFC8}
 .iv-lots-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin:12px 0 6px;font-size:12.5px}
 .iv-lotbar{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:end;margin:0 0 8px}
 .iv-lotbar label{display:flex;flex-direction:column;gap:3px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
