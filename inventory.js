@@ -403,7 +403,7 @@ function build(host){
       <div class="hint" id="ivWeeklyHint" style="margin:6px 0 0"></div>
       <div class="iv-special" id="ivSpecial"></div>
       <div id="ivWeekly" class="plot" style="height:420px"></div>
-      <div id="ivGridWrap" hidden><div class="tablewrap iv-grid" style="max-height:620px"><table id="ivGrid"><thead id="ivGridHead"></thead><tbody id="ivGridBody"></tbody></table></div></div>
+      <div id="ivGridWrap" hidden><div class="tablewrap iv-grid" style="height:420px;max-height:420px"><table id="ivGrid"><thead id="ivGridHead"></thead><tbody id="ivGridBody"></tbody></table></div></div>
     </div>
     <div class="kpis iv-kpis" id="ivKpis"></div>
     <div class="card">
@@ -655,8 +655,8 @@ function paintWeekly(rows, lines){
     `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.`;
   if(table){
     document.getElementById('ivWeeklyHint').innerHTML = IV.grid === 'inc'
-      ? `Mỗi dòng một SKU, mỗi cột một tuần (bắt đầu Chủ nhật, theo ${IV.etaMode === 'safe' ? 'ETA thận trọng' : 'Current Sellable ETA'}). <b style="color:#2a78d6">Xanh dương</b> = về kho Amazon, <b style="color:#1baf7a">xanh lá</b> = về kho Y4A. Nền vàng = có lô ETA bị lùi so với ban đầu; cột “Đã đến hạn” nền đỏ = ETA đã qua mà chưa về. Rê chuột vào ô để xem lô, bấm ô để lọc danh sách lô, bấm SKU để xem dự phóng.`
-      : `Tồn AMZ + Y4A cuối mỗi tuần sau khi cộng hàng về (cả 2 kho) và trừ forecast. Ô đỏ = tuần không đủ hàng bán (cùng cách tính cột OOS). Rê chuột vào ô để xem chi tiết, bấm SKU để xem dự phóng.`;
+      ? `Mỗi dòng 1 SKU, cột theo tuần ${IV.etaMode === 'safe' ? '(ETA thận trọng)' : '(Current ETA)'}. <b style="color:#2a78d6">Xanh dương</b> = về kho Amazon, <b style="color:#1baf7a">xanh lá</b> = về kho Y4A · nền vàng = có lô bị lùi ETA · rê chuột xem lô, bấm ô để lọc danh sách lô.`
+      : `Tồn AMZ + Y4A cuối mỗi tuần sau khi cộng hàng về và trừ forecast · ô đỏ = tuần thiếu hàng (như cột OOS) · bấm SKU để xem dự phóng.`;
     paintGrid(rows, lines);
   }
 }
@@ -683,8 +683,8 @@ function paintGrid(rows, lines){
         `<td class="num"><b>${fi(sumQ(L))}</b></td>`;
     else cells = W.map((_, i) => { const inc = r.incA[i] + r.incY[i], prev = i === 0 ? r.tot : r.pT.p[i - 1], short = r.fcW[i] > 0 && prev + inc < r.fcW[i];
         return `<td class="num g-c${short ? ' g-od' : ''}" title="${h.esc(`Tuần ${md(W[i])}: tồn đầu ${fi(prev)} + hàng về ${fi(inc)} (AMZ ${fi(r.incA[i])} · Y4A ${fi(r.incY[i])}) − forecast ${r.fcW[i].toFixed(1)} → tồn cuối ${fi(r.pT.p[i])}${short ? ' · THIẾU HÀNG' : ''}`)}">${fi(r.pT.p[i])}</td>`; }).join('');
-    return `<tr data-sku="${h.esc(r.sku)}"${IV.sel === r.sku ? ' class="sel"' : ''}><td class="g-sku">${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 26))}</span></td>
-      <td class="g-pl">${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td><td class="num g-inv">${fi(r.amz)}</td><td class="num g-inv2">${fi(r.y4a)}</td>${cells}</tr>`;
+    return `<tr data-sku="${h.esc(r.sku)}"${IV.sel === r.sku ? ' class="sel"' : ''}><td class="g-sku" title="${h.esc(r.sku + ' · ' + r.name)}">${link(r.sku)} <span class="g-nm">${h.esc(r.name)}</span></td>
+      <td class="g-pl" title="${h.esc(r.pl + (r.subPl && r.subPl !== 'Unclassified' ? ' · ' + r.subPl : ''))}">${h.esc(r.pl)}</td><td class="num g-inv">${fi(r.amz)}</td><td class="num g-inv2">${fi(r.y4a)}</td>${cells}</tr>`;
   }).join('') || `<tr><td colspan="${colCats.length + 5}" style="padding:18px;color:var(--muted)">${proj ? 'Không có SKU nào có forecast trong phạm vi đang lọc.' : 'Không có SKU nào khớp bộ lọc.'}</td></tr>`;
   document.querySelectorAll('#ivGridBody tr[data-sku]').forEach(t => {
     t.querySelectorAll('td[data-c]').forEach(td => td.onclick = e => { e.stopPropagation(); openLots({kind: 'week', cat: td.dataset.c, group: t.dataset.sku, mode: 'sku'}); });
@@ -1039,12 +1039,15 @@ if(typeof document !== 'undefined'){
 #ivTable tbody tr:hover td,#ivLotTable tbody tr:hover td{background:#F7F9FC}
 .iv-pics-card{padding:12px 16px}
 #ivGrid{border-collapse:separate;border-spacing:0}
-#ivGrid th,#ivGrid td{white-space:nowrap;padding:6px 8px}
-#ivGrid .g-wk{min-width:58px;text-align:center}
-#ivGrid td.g-c{text-align:center;font-size:12px;cursor:pointer}
+#ivGrid th{white-space:nowrap;padding:5px 6px;font-size:10px;line-height:1.2}
+#ivGrid td{white-space:nowrap;padding:3px 6px;font-size:11.5px;line-height:1.35}
+#ivGrid .g-wk{min-width:52px;text-align:center}
+#ivGrid td.g-c{text-align:center;font-size:11.5px;cursor:pointer}
 #ivGrid td.g-c:empty{cursor:default}
-#ivGrid .g-a{display:block;color:#2a78d6;font-weight:800}
-#ivGrid .g-y{display:block;color:#1baf7a;font-weight:800}
+#ivGrid .g-a{color:#2a78d6;font-weight:800}
+#ivGrid .g-y{color:#1baf7a;font-weight:800}
+#ivGrid .g-a+.g-y{margin-left:5px}
+#ivGrid .g-nm{font-size:10.5px;color:var(--muted)}
 #ivGrid td.g-dl{background:#FFF6DB}
 #ivGrid td.g-od{background:#FDE8E8}
 #ivGrid td.g-cdue{background:#FBF8EE}
@@ -1053,10 +1056,10 @@ if(typeof document !== 'undefined'){
 #ivGrid .g-sku,#ivGrid .g-pl,#ivGrid .g-inv,#ivGrid .g-inv2{position:sticky;z-index:1;background:var(--card,#fff)}
 #ivGrid thead th{z-index:2}
 #ivGrid thead .g-sku,#ivGrid thead .g-pl,#ivGrid thead .g-inv,#ivGrid thead .g-inv2{z-index:3;background:var(--navy)}
-#ivGrid .g-sku{left:0;min-width:150px;max-width:150px;overflow:hidden;cursor:pointer}
-#ivGrid .g-pl{left:150px;min-width:140px;max-width:140px;overflow:hidden;white-space:normal}
-#ivGrid .g-inv{left:290px;min-width:64px}
-#ivGrid .g-inv2{left:354px;min-width:64px;box-shadow:2px 0 0 var(--line)}
+#ivGrid .g-sku{left:0;min-width:170px;max-width:170px;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+#ivGrid .g-pl{left:170px;min-width:130px;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+#ivGrid .g-inv{left:300px;min-width:58px}
+#ivGrid .g-inv2{left:358px;min-width:58px;box-shadow:2px 0 0 var(--line)}
 #ivGrid tbody tr:hover td{filter:brightness(.98)}
 #ivGrid tr.sel td.g-sku{background:#FFF3EA}
 .iv-pics-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px}
