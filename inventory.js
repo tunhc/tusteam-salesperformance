@@ -383,9 +383,9 @@ function build(host){
         <th class="num" title="Số SKU có MOC 3M (SALABLE AMZ+Y4A ÷ AMS 3M) lớn hơn 6 tháng">Tồn cao (MOC 3M &gt; 6)</th><th class="num" title="Units forecast không đáp ứng được trong 16 tuần, của các SKU OOS trong 8 tuần">Units có thể mất</th>
       </tr></thead><tbody id="ivPicBody"></tbody></table></div></div>
     <div class="card iv-hero">
-      <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
+      <div class="iv-head"><div class="iv-title"><h3 style="margin:0">Incoming theo tuần</h3>
+        <div class="iv-seg" id="ivView" role="tablist" aria-label="Kiểu xem"><button class="iv-seg-btn" data-v="chart" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 14h12M4 12V7M8 12V3M12 12V9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Chart</button><button class="iv-seg-btn" data-v="table" type="button" role="tab"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M2 7h12M2 10h12M6 3v10" stroke="currentColor" stroke-width="1.4"/></svg>Bảng</button></div></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <div class="cv-toggle" id="ivView" role="group" aria-label="Kiểu xem"><button class="cv-btn" data-v="chart" type="button">Chart</button><button class="cv-btn" data-v="table" type="button">Bảng</button></div>
         <div class="cv-toggle" id="ivGridMode" role="group" aria-label="Nội dung bảng" style="display:none"><button class="cv-btn" data-g="inc" type="button">Hàng về</button><button class="cv-btn" data-g="proj" type="button">Tồn dự phóng (AMZ + Y4A)</button></div>
         <span id="ivChartCtl" style="display:contents"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
         <span class="iv-def" tabindex="0" role="button" aria-label="Xem định nghĩa cột ma">ⓘ Xem định nghĩa<span class="iv-def-pop" role="tooltip">
@@ -466,7 +466,7 @@ function build(host){
   $('#ivAi').onclick = () => askAi(false);
   host.querySelectorAll('#ivMode .cv-btn').forEach(b => b.onclick = () => { IV.mode = b.dataset.m; paintWeekly(); });
   $('#ivGhost').onchange = e => { IV.ghost = e.target.checked; paintWeekly(); };
-  host.querySelectorAll('#ivView .cv-btn').forEach(b => b.onclick = () => { IV.view = b.dataset.v; paintWeekly(); });
+  host.querySelectorAll('#ivView .iv-seg-btn').forEach(b => b.onclick = () => { IV.view = b.dataset.v; paintWeekly(); });
   host.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.onclick = () => { IV.grid = b.dataset.g; paintWeekly(); });
   host.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.onclick = () => { const k = th.dataset.k; if(IV.sort === k) IV.dir *= -1; else { IV.sort = k; IV.dir = ['pic','sku','pl','flagRank','oosSort'].includes(k) ? 1 : -1; } re(); });
   host.querySelectorAll('#ivTable thead th[data-rule]').forEach(th => th.title = INV.AMS_RULE);
@@ -558,7 +558,7 @@ function paintWeekly(rows, lines){
   rows = rows || filtered(); lines = lines || scopeLines(rows);
   document.querySelectorAll('#ivMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.m === IV.mode));
   const table = IV.view === 'table';
-  document.querySelectorAll('#ivView .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.v === IV.view));
+  document.querySelectorAll('#ivView .iv-seg-btn').forEach(b => { b.classList.toggle('active', b.dataset.v === IV.view); b.setAttribute('aria-selected', b.dataset.v === IV.view); });
   document.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.g === IV.grid));
   document.getElementById('ivGridMode').style.display = table ? '' : 'none'; document.getElementById('ivChartCtl').style.display = table ? 'none' : 'contents';
   document.getElementById('ivWeekly').style.display = table ? 'none' : ''; document.getElementById('ivGridWrap').hidden = !table;
@@ -1015,6 +1015,12 @@ if(typeof document !== 'undefined'){
 .iv-sec-d{font-size:11.5px;color:var(--muted);margin-top:2px}
 .iv-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .iv-head h3{font-size:16px}
+.iv-title{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.iv-seg{display:inline-flex;border:1px solid var(--navy);border-radius:8px;overflow:hidden;background:#fff}
+.iv-seg-btn{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--navy);font:700 11.5px/1 inherit;font-family:inherit;padding:6px 12px;cursor:pointer}
+.iv-seg-btn+.iv-seg-btn{border-left:1px solid var(--navy)}
+.iv-seg-btn:hover{background:#EEF1F5}
+.iv-seg-btn.active{background:var(--navy);color:#fff}
 .iv-special{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
 .iv-chip{display:inline-flex;align-items:baseline;gap:6px;border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 12px;font-size:12px;color:var(--ink);font-family:inherit;cursor:pointer}
 .iv-chip span{font-size:11px;color:var(--muted)}
