@@ -206,20 +206,20 @@ function compute(){
   const sell = new Map(D.sell.map(r => [r.sku, r]));
   const asinBy = new Map(); D.asin.forEach(r => { if(!r.sku) return; if(!asinBy.has(r.sku)) asinBy.set(r.sku, []); asinBy.get(r.sku).push(r); });
   const lines = D.inc.map(r => {
-    const qty = +r.qty || 0, cur = r.eta_salable_date || null;
+    const qty = +r.qty || 0, cur = r.eta_salable_date || r.eta_salable_original || r.log_date;   // no Current ETA in the tracker: Original ETA, else the file date
     // lot without an Original ETA in the tracker: treated as on time (Original ETA = Current ETA)
     const orig0 = r.eta_salable_original || cur || null;
     const slip = orig0 && cur ? daysBetween(orig0, cur) : null;   // Delay Days
-    const noEta = !cur, due = !noEta && cur < r.log_date;                                           // đã đến hạn, vẫn incoming
+    const due = cur < r.log_date;                                           // đã đến hạn, vẫn incoming
     const overdue = due ? daysBetween(cur, r.log_date) : 0;
-    const etaUse = noEta || due ? null : IV.etaMode === 'safe' ? addD(cur, buf.get(r.source + '|' + (r.physical_status || '')) || 0) : cur;
+    const etaUse = due ? null : IV.etaMode === 'safe' ? addD(cur, buf.get(r.source + '|' + (r.physical_status || '')) || 0) : cur;
     const wi = etaUse ? Math.floor(daysBetween(wk0, etaUse) / 7) : null;
-    const bucket = noEta ? 'noeta' : due ? 'due' : wi >= HZN ? 'after' : Math.max(0, wi);
+    const bucket = due ? 'due' : wi >= HZN ? 'after' : Math.max(0, wi);
     // "cột ma": the week the lot was planned in by its Original ETA (no buffer); past → 'due', none → null
     const org = orig0, owi = org && org >= r.log_date ? Math.floor(daysBetween(wk0, org) / 7) : null;
     const obucket = !org ? null : org < r.log_date ? 'due' : owi >= HZN ? 'after' : Math.max(0, owi);
     const k = info.get(r.sku) || {};
-    return {...r, qty, slip, overdue, noEta, due, etaUse, bucket, obucket, eta: etaOf(r, r.log_date, buf),
+    return {...r, qty, slip, overdue, due, etaUse, bucket, obucket, eta: etaOf(r, r.log_date, buf),
       pl: k.mainPL || r.product_line || '—', pic: k.pic || 'Unassigned',
       stage: STAGES.includes(r.physical_status) ? r.physical_status : OTHER};
   });
@@ -295,12 +295,11 @@ function compute(){
     if(!L.length && tot <= 0 && !(fc4 > 0) && !(a3 && a3.ams > 0) && !mtd) continue;   // nothing to track: no stock, no incoming, no sales
     // Flag: concrete reasons, most urgent first
     const flags = [];
-    const dueL = L.filter(l => l.due), noEtaL = L.filter(l => l.noEta), lateL = L.filter(l => !l.due && !l.noEta && (l.slip || 0) > 0);
+    const dueL = L.filter(l => l.due), lateL = L.filter(l => !l.due && (l.slip || 0) > 0);
     if(tot <= 0) flags.push({r: 1, t: 'Hết hàng cả 2 kho', c: 'red'});
     if(tot > 0 && (risk === 'OOS ≤2 tuần' || risk === 'OOS trong 8 tuần')) flags.push({r: risk === 'OOS ≤2 tuần' ? 1 : 2, t: `Nguy cơ OOS (AMZ + Y4A) tuần ${md(weeks[oT])}`, c: risk === 'OOS ≤2 tuần' ? 'red' : 'amber'});
     if(tot > 0 && amz <= 0) flags.push({r: 2, t: `AMZ hết hàng, Y4A còn ${Math.round(y4a).toLocaleString('en-US')}: cần book DS`, c: 'amber'});
     if(dueL.length) flags.push({r: 2, t: `ETA đã đến hạn, vẫn incoming: ${Math.round(sum(dueL)).toLocaleString('en-US')} u (quá tối đa ${Math.max(...dueL.map(l => l.overdue))} ngày)`, c: 'red'});
-    if(noEtaL.length) flags.push({r: 3, t: `Chưa có ETA: ${Math.round(sum(noEtaL)).toLocaleString('en-US')} u`, c: 'amber'});
     if(lateL.length) flags.push({r: 3, t: `ETA bị lùi tối đa ${Math.max(...lateL.map(l => l.slip))} ngày: ${Math.round(sum(lateL)).toLocaleString('en-US')} u`, c: 'amber'});
     if(tot > 0 && moc3 != null && moc3 < 1 && !flags.some(x => x.r <= 2)) flags.push({r: 2, t: `Tồn thấp: MOC 3M ${moc3.toFixed(1)} tháng`, c: 'amber'});
     if(moc3 != null && moc3 > 6) flags.push({r: 4, t: `Tồn cao: MOC 3M ${moc3.toFixed(1)} tháng`, c: 'gray'});
@@ -387,7 +386,7 @@ function build(host){
       <div class="iv-head"><h3 style="margin:0">Incoming theo tuần</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div class="cv-toggle" id="ivView" role="group" aria-label="Kiểu xem"><button class="cv-btn" data-v="chart" type="button">Chart</button><button class="cv-btn" data-v="table" type="button">Bảng</button></div>
-        <div class="cv-toggle" id="ivGridMode" role="group" aria-label="Nội dung bảng" hidden><button class="cv-btn" data-g="inc" type="button">Hàng về</button><button class="cv-btn" data-g="proj" type="button">Tồn dự phóng (AMZ + Y4A)</button></div>
+        <div class="cv-toggle" id="ivGridMode" role="group" aria-label="Nội dung bảng" style="display:none"><button class="cv-btn" data-g="inc" type="button">Hàng về</button><button class="cv-btn" data-g="proj" type="button">Tồn dự phóng (AMZ + Y4A)</button></div>
         <span id="ivChartCtl" style="display:contents"><label class="iv-ghost-tg"><input type="checkbox" id="ivGhost"> Cột ma: kế hoạch theo ETA ban đầu</label>
         <span class="iv-def" tabindex="0" role="button" aria-label="Xem định nghĩa cột ma">ⓘ Xem định nghĩa<span class="iv-def-pop" role="tooltip">
           <b>Cột ma (viền nét đứt) = kế hoạch theo ETA ban đầu</b>
@@ -427,7 +426,7 @@ function build(host){
     </div>
     <div class="iv-sec"><div class="iv-sec-t">Dự phóng tồn kho 1 SKU</div><div class="iv-sec-d">Dùng khi một SKU có cờ: xem tồn AMZ dự phóng theo tuần và hàng về để quyết định kéo hàng Y4A, đẩy tồn sang Amazon hay giảm ads / promo. Bấm một dòng ở bảng SKU hoặc danh sách lô để mở.</div></div>
     <div class="card" id="ivDetail"></div>
-    <div class="iv-sec"><div class="iv-sec-t">Follow-up PO</div><div class="iv-sec-d">Dùng hằng ngày: tìm đúng PO / lô cần đuổi với Amazon, forwarder hoặc kho (đã đến hạn mà chưa về, chưa có ETA, bị lùi ETA).</div></div>
+    <div class="iv-sec"><div class="iv-sec-t">Follow-up PO</div><div class="iv-sec-d">Dùng hằng ngày: tìm đúng PO / lô cần đuổi với Amazon, forwarder hoặc kho (đã đến hạn mà chưa về, bị lùi ETA).</div></div>
     <div class="card" id="ivPoCard">
       <h3 style="margin:0">Incoming PO theo trạng thái</h3>
       <div class="hint" style="margin-top:3px">Units đang về theo Delay Status trong tracker. Bấm một thanh, hoặc một cột / chip của chart Incoming theo tuần ở trên, để lọc danh sách lô bên dưới đúng các lô đó.</div>
@@ -521,9 +520,9 @@ function paint(){
 // ---------------------------------------------------------------- 1) Incoming theo tuần
 function weekCats(){
   const W = IV.weeks;
-  const cats = ['due', 'noeta', ...W.map((_, i) => i), 'after'];
-  const lbl = c => c === 'due' ? 'Đã đến hạn,<br>vẫn incoming' : c === 'noeta' ? 'Chưa có ETA' : c === 'after' ? 'Từ ' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này<br>' : '') + md(W[c]);
-  const plain = c => c === 'due' ? 'ETA đã đến hạn, vẫn incoming' : c === 'noeta' ? 'Chưa có ETA' : c === 'after' ? 'Từ ' + md(addD(W[0], HZN * 7)) + ' trở đi' : 'Tuần ' + md(W[c]) + ' → ' + md(addD(W[c], 6));
+  const cats = ['due', ...W.map((_, i) => i), 'after'];
+  const lbl = c => c === 'due' ? 'Đã đến hạn,<br>vẫn incoming' : c === 'after' ? 'Từ ' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này<br>' : '') + md(W[c]);
+  const plain = c => c === 'due' ? 'ETA đã đến hạn, vẫn incoming' : c === 'after' ? 'Từ ' + md(addD(W[0], HZN * 7)) + ' trở đi' : 'Tuần ' + md(W[c]) + ' → ' + md(addD(W[c], 6));
   return {cats, lbl, plain};
 }
 // one click handler per chart (Plotly.purge drops listeners, so re-bind after every draw)
@@ -549,11 +548,11 @@ function seriesOf(lines, mode){
   return {keys: ranked.length > top.length ? [...top, OTHER] : top, top: new Set(top), color: k => k === OTHER ? C.other : cmap.get(k)};
 }
 // short labels of a week bucket, for the "bị đẩy" tooltips
-const bucketShort = c => { const W = IV.weeks; if(c === 'due') return 'đã qua'; if(c === 'noeta') return 'chưa có ETA'; if(c === 'after') return 'sau ' + md(addD(W[0], HZN * 7 - 1)); return 'tuần ' + md(W[+c]); };
-// time order of week buckets: ETA đã qua < tuần 0..15 < sau 16 tuần < chưa có ETA — tells a delay (later) from a pull-in (earlier)
-const bOrd = c => c === 'due' ? -1 : c === 'after' ? HZN : c === 'noeta' ? HZN + 1 : +c;
+const bucketShort = c => { const W = IV.weeks; if(c === 'due') return 'đã qua'; if(c === 'after') return 'sau ' + md(addD(W[0], HZN * 7 - 1)); return 'tuần ' + md(W[+c]); };
+// time order of week buckets: ETA đã qua < tuần 0..15 < sau 16 tuần — tells a delay (later) from a pull-in (earlier)
+const bOrd = c => c === 'due' ? -1 : c === 'after' ? HZN : +c;
 const ghostFrom = (o, c) => (bOrd(o) < bOrd(c) ? 'lùi từ ' : 'kéo sớm từ ') + (o === 'due' ? 'ETA ban đầu đã qua' : bucketShort(o));
-const ghostTo = k => k === 'due' ? 'quá hạn, chưa về' : k === 'noeta' ? 'nay chưa có ETA' : bucketShort(k);
+const ghostTo = k => k === 'due' ? 'quá hạn, chưa về' : bucketShort(k);
 function paintWeekly(rows, lines){
   const h = H(); if(!IV.data) return;
   rows = rows || filtered(); lines = lines || scopeLines(rows);
@@ -561,7 +560,7 @@ function paintWeekly(rows, lines){
   const table = IV.view === 'table';
   document.querySelectorAll('#ivView .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.v === IV.view));
   document.querySelectorAll('#ivGridMode .cv-btn').forEach(b => b.classList.toggle('active', b.dataset.g === IV.grid));
-  document.getElementById('ivGridMode').hidden = !table; document.getElementById('ivChartCtl').style.display = table ? 'none' : 'contents';
+  document.getElementById('ivGridMode').style.display = table ? '' : 'none'; document.getElementById('ivChartCtl').style.display = table ? 'none' : 'contents';
   document.getElementById('ivWeekly').style.display = table ? 'none' : ''; document.getElementById('ivGridWrap').hidden = !table;
   const {cats, lbl, plain} = weekCats(), mode = IV.mode, S = seriesOf(lines, mode);
   const keyOf = l => mode !== 'stage' && S.top && !S.top.has(groupOf(l, mode)) ? OTHER : groupOf(l, mode);
@@ -577,13 +576,13 @@ function paintWeekly(rows, lines){
     if(mode !== 'stage') out.push('<b>Hàng đang ở đâu</b>', ...[...STAGES, OTHER].filter(st => d.st[st]).map(st => `${st}: ${pct(d.st[st], t)} · ${fi(d.st[st])} u`));
     out.push(`<b>Kho đến</b>: AMZ ${pct(d.src.AMZ, t)} · Y4A ${pct(d.src.Y4A, t)}`);
     if(mode !== 'sku' || k === OTHER){ const top = [...d.sku.entries()].sort((a, b) => b[1] - a[1]); out.push(`<b>${top.length} SKU</b>${top.length > 1 ? ', nhiều nhất' : ''}: ` + top.slice(0, 3).map(([s, q]) => `${s} ${fi(q)} u`).join(' · ') + (top.length > 3 ? ' · …' : '')); }
-    if(cats[i] !== 'noeta' && (d.from.size > 1 || !d.from.has('same'))){
+    if(d.from.size > 1 || !d.from.has('same')){
       const moved = [...d.from.entries()].filter(([o]) => o !== 'same' && o !== 'none').sort((a, b) => b[1] - a[1]);
       out.push('<b>Theo ETA ban đầu</b>: ' + [d.from.get('same') ? `đúng tuần này ${fi(d.from.get('same'))} u` : '', ...moved.slice(0, 3).map(([o, q]) => `${ghostFrom(o, cats[i])} ${fi(q)} u`), moved.length > 3 ? '…' : '', d.from.get('none') ? `không có ETA ban đầu ${fi(d.from.get('none'))} u` : ''].filter(Boolean).join(' · '));
     }
     out.push(`${d.lots} lô`);
     return out.join('<br>'); };
-  const special = cats.map(c => c === 'due' || c === 'noeta');
+  const special = cats.map(c => c === 'due');
   const nameOf = k => mode === 'sku' && k !== OTHER ? k + ' · ' + String(((IV.rows.find(r => r.sku === k) || {}).name) || '').slice(0, 22) : k;
   const traces = S.keys.map(k => ({type: 'bar', name: nameOf(k), x, y: cats.map((_, i) => cell.get(k + '|' + i) || 0), texttemplate: '',
     marker: {color: S.color(k), line: {color: '#fff', width: 1}, pattern: {shape: special.map(s => s ? '/' : ''), fillmode: 'overlay', fgcolor: 'rgba(255,255,255,.6)', size: 7, solidity: .3}},
@@ -594,10 +593,10 @@ function paintWeekly(rows, lines){
   const totals = cats.map((_, i) => S.keys.reduce((t, k) => t + (cell.get(k + '|' + i) || 0), 0));
   traces.push({type: 'scatter', mode: 'text', x, y: totals, text: totals.map(v => v ? fi(v) : ''), textposition: 'top center', textfont: {size: 10.5, color: '#1B2733'}, hoverinfo: 'skip', showlegend: false, cliponaxis: false});
   // cột ma: per column, units of the lots still incoming whose Original ETA fell in that week (dashed outline, no fill)
-  const plan = cats.map(c => c === 'noeta' ? 0 : sumQ(lines.filter(l => l.obucket === c)));
+  const plan = cats.map(c => sumQ(lines.filter(l => l.obucket === c)));
   // ghost tooltip as two sums that add up:
   //   Kế hoạch = giữ tuần này + bị đẩy đi        Thực tế = giữ tuần này + dồn tới (from other weeks / no Original ETA)
-  const wkS = k => { const W = IV.weeks; return k === 'due' ? 'quá hạn' : k === 'noeta' ? 'chưa có ETA' : k === 'none' ? 'không có ETA ban đầu' : k === 'after' ? 'sau ' + md(addD(W[0], HZN * 7 - 1)) : 'tuần ' + md(W[+k]); };
+  const wkS = k => { const W = IV.weeks; return k === 'due' ? 'quá hạn' : k === 'none' ? 'không có ETA ban đầu' : k === 'after' ? 'sau ' + md(addD(W[0], HZN * 7 - 1)) : 'tuần ' + md(W[+k]); };
   const split = (L, key) => { const m = new Map(); L.forEach(l => { const k = l[key] == null ? 'none' : String(l[key]); m.set(k, (m.get(k) || 0) + l.qty); });
     const a = [...m.entries()].sort((x, y) => y[1] - x[1]); return a.slice(0, 3).map(([k, q]) => `${key === 'obucket' && k === 'due' ? 'ETA ban đầu đã qua' : wkS(k)} ${fi(q)}`).join(' · ') + (a.length > 3 ? ' · …' : ''); };
   // which Main PL / SKU / stage (per the selected mode) moved, and to / from which weeks
@@ -642,19 +641,18 @@ function paintWeekly(rows, lines){
     xaxis: h.ax({type: 'category', categoryorder: 'array', categoryarray: x, range: [-0.5, x.length - (afterEmpty ? 1.5 : 0.5)], tickfont: {size: 10.5, color: '#66707C'},
       title: {text: IV.etaMode === 'safe' ? 'Tuần (bắt đầu Chủ nhật) theo ETA thận trọng = Current Sellable ETA + độ trễ TB' : 'Tuần (bắt đầu Chủ nhật) theo Current Sellable ETA', font: {size: 11, color: '#66707C'}}}),
     yaxis: h.ax({tickformat: ',.0f', title: {text: 'Incoming units', font: {size: 11, color: '#66707C'}}}),
-    shapes: [{type: 'rect', xref: 'x', yref: 'paper', x0: -0.5, x1: 1.5, y0: 0, y1: 1, fillcolor: '#FBF3DF', opacity: .55, line: {width: 0}, layer: 'below'},
-             {type: 'line', xref: 'x', yref: 'paper', x0: 1.5, x1: 1.5, y0: 0, y1: 1, line: {color: '#B8860B', width: 1, dash: 'dot'}}, ...ghostShapes]}));
+    shapes: [{type: 'rect', xref: 'x', yref: 'paper', x0: -0.5, x1: 0.5, y0: 0, y1: 1, fillcolor: '#FBF3DF', opacity: .55, line: {width: 0}, layer: 'below'},
+             {type: 'line', xref: 'x', yref: 'paper', x0: 0.5, x1: 0.5, y0: 0, y1: 1, line: {color: '#B8860B', width: 1, dash: 'dot'}}, ...ghostShapes]}));
   const g = document.getElementById('ivWeekly');
   if(!table) onClick(g, p => { if(p.customdata[0] === 'ghost') return openLots({kind: 'orig', cat: p.customdata[1]}); const [c, , k] = p.customdata; openLots({kind: 'week', cat: c, group: k, mode: IV.mode}); });
   // separately visible: lots past their ETA and lots without an ETA
-  const due = lines.filter(l => l.due), noEta = lines.filter(l => l.noEta), sk = a => new Set(a.map(l => l.sku)).size;
+  const due = lines.filter(l => l.due), sk = a => new Set(a.map(l => l.sku)).size;
   document.getElementById('ivSpecial').innerHTML =
     `<button type="button" class="iv-chip red" data-c="due"${due.length ? '' : ' disabled'}><b>${fi(sumQ(due))} u</b> ETA đã đến hạn, vẫn incoming <span>${due.length} lô · ${sk(due)} SKU${due.length ? ' · quá tối đa ' + Math.max(...due.map(l => l.overdue)) + ' ngày' : ''}</span></button>` +
-    `<button type="button" class="iv-chip amber" data-c="noeta"${noEta.length ? '' : ' disabled'}><b>${fi(sumQ(noEta))} u</b> Chưa có ETA <span>${noEta.length} lô · ${sk(noEta)} SKU</span></button>` +
     `<span class="iv-chip plain"><b>${fi(sumQ(lines.filter(l => typeof l.bucket === 'number' && l.bucket < 4)))} u</b> về trong 4 tuần tới <span>tuần ${md(W[0])} → ${md(addD(W[3], 6))}</span></span>`;
   document.querySelectorAll('#ivSpecial button[data-c]').forEach(b => b.onclick = () => openLots({kind: 'week', cat: b.dataset.c, group: null, mode: IV.mode}));
   document.getElementById('ivWeeklyHint').innerHTML = `Chia màu theo <b>${MODE_VI[mode]}</b>${mode !== 'stage' && S.top && S.keys.includes(OTHER) ? ` (top ${S.top.size}, còn lại gộp vào “Khác”)` : ''}. ` +
-    `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Hai cột đầu (nền vàng, sọc) là lô không xếp được vào tuần: ETA đã qua mà chưa về, và chưa có ETA. Bấm cột để xem lô.`;
+    `Lọc Main PL → tự chuyển sang SKU; lọc PIC → theo Main PL. Cột đầu (nền vàng, sọc) là các lô ETA đã qua mà chưa về. Bấm cột để xem lô.`;
   if(table){
     document.getElementById('ivWeeklyHint').innerHTML = IV.grid === 'inc'
       ? `Mỗi dòng một SKU, mỗi cột một tuần (bắt đầu Chủ nhật, theo ${IV.etaMode === 'safe' ? 'ETA thận trọng' : 'Current Sellable ETA'}). <b style="color:#2a78d6">Xanh dương</b> = về kho Amazon, <b style="color:#1baf7a">xanh lá</b> = về kho Y4A. Nền vàng = có lô ETA bị lùi so với ban đầu; cột “Đã đến hạn” nền đỏ = ETA đã qua mà chưa về. Rê chuột vào ô để xem lô, bấm ô để lọc danh sách lô, bấm SKU để xem dự phóng.`
@@ -671,14 +669,14 @@ function paintGrid(rows, lines){
   const list = proj ? rows.filter(r => r.fcW).sort((a, b) => (a.oosWk ?? 99) - (b.oosWk ?? 99) || a.sku.localeCompare(b.sku))
                     : [...rows].sort((a, b) => first(a) - first(b) || a.sku.localeCompare(b.sku));
   const colCats = proj ? W.map((_, i) => i) : cats;
-  const head = c => c === 'due' ? 'Đã đến hạn' : c === 'noeta' ? 'Chưa<br>có ETA' : c === 'after' ? 'Sau<br>' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này' : 'Tuần') + '<br>' + md(W[c]);
+  const head = c => c === 'due' ? 'Đã đến hạn' : c === 'after' ? 'Sau<br>' + md(addD(W[0], HZN * 7)) : (c === 0 ? 'Tuần này' : 'Tuần') + '<br>' + md(W[c]);
   document.getElementById('ivGridHead').innerHTML = `<tr><th class="g-sku">SKU</th><th class="g-pl">Main PL</th><th class="g-inv num">Tồn AMZ</th><th class="g-inv2 num">Tồn Y4A</th>` +
-    colCats.map(c => `<th class="num g-wk${c === 'due' ? ' g-hdue' : c === 'noeta' ? ' g-hno' : ''}" title="${h.esc(plain(c))}">${head(c)}</th>`).join('') + (proj ? '' : '<th class="num g-wk">Tổng<br>về</th>') + '</tr>';
+    colCats.map(c => `<th class="num g-wk${c === 'due' ? ' g-hdue' : ''}" title="${h.esc(plain(c))}">${head(c)}</th>`).join('') + (proj ? '' : '<th class="num g-wk">Tổng<br>về</th>') + '</tr>';
   const tip = ls => ls.map(l => `${l.source === 'AMZ' ? 'Amazon' : 'Y4A'} ${fi(l.qty)} u · ${l.po_name}${l.container_number ? ' · ' + l.container_number : ''} · ETA ${md(l.eta_salable_date)}${l.eta_salable_original && l.eta_salable_original !== l.eta_salable_date ? ' (ban đầu ' + md(l.eta_salable_original) + ')' : ''} · ${l.physical_status || ''}${l.due ? ' · QUÁ ETA ' + l.overdue + 'n' : (l.slip || 0) > 0 ? ' · lùi ' + l.slip + 'n' : ''}`).join('\n');
   document.getElementById('ivGridBody').innerHTML = list.slice(0, 600).map(r => {
     const L = bySku.get(r.sku) || [];
     let cells;
-    if(!proj) cells = cats.map(c => { const ls = L.filter(l => l.bucket === c); if(!ls.length) return `<td class="num g-c${c === 'due' ? ' g-cdue' : c === 'noeta' ? ' g-cno' : ''}"></td>`;
+    if(!proj) cells = cats.map(c => { const ls = L.filter(l => l.bucket === c); if(!ls.length) return `<td class="num g-c${c === 'due' ? ' g-cdue' : ''}"></td>`;
         const a = sumQ(ls.filter(l => l.source === 'AMZ')), y = sumQ(ls.filter(l => l.source === 'Y4A'));
         const cls = c === 'due' ? ' g-od' : ls.some(l => (l.slip || 0) > 0) ? ' g-dl' : '';
         return `<td class="num g-c${cls}" data-c="${c}" title="${h.esc(tip(ls))}">${a ? `<span class="g-a">${fi(a)}</span>` : ''}${y ? `<span class="g-y">${fi(y)}</span>` : ''}</td>`; }).join('') +
@@ -765,8 +763,8 @@ function paintTable(rows){
 }
 
 // ---------------------------------------------------------------- 3) Incoming PO
-const PO_ST = ['Đúng hạn', 'Trễ so với ETA ban đầu', 'Quá ETA, chưa về', 'Chưa có ETA', 'Khác'];
-const poStatus = l => l.noEta ? 'Chưa có ETA' : STATUS_VI[l.on_time_status] || 'Khác';
+const PO_ST = ['Đúng hạn', 'Trễ so với ETA ban đầu', 'Quá ETA, chưa về', 'Khác'];
+const poStatus = l => STATUS_VI[l.on_time_status] || 'Khác';
 function paintPo(lines){
   const h = H(), cats = PO_ST.filter(s => lines.some(l => poStatus(l) === s));
   const tr = ['AMZ', 'Y4A'].filter(s => !IV.src || s === IV.src).map(src => ({type: 'bar', orientation: 'h', name: src === 'AMZ' ? 'Về kho Amazon' : 'Về kho Y4A', y: cats, marker: {color: src === 'AMZ' ? C.amz : C.y4a, line: {color: '#fff', width: 1}},
@@ -929,7 +927,7 @@ function detail(){
     ${r.why.length ? '<br>Gợi ý: ' + r.why.map(w => h.esc(w)).join(' · ') : ''}
     ${r.asins.length ? '<br>Vendor Central: ' + r.asins.map(a => `${h.esc(a.asin)} — on hand ${fi(a.sellable_on_hand_units)}, in transit ${fi(a.sellable_in_transit_units)}, open PO ${fi(a.open_po_units)}, aged 90+ ${fi(a.aged_90_units)}, confirm ${a.vendor_confirmation_rate == null ? '—' : (a.vendor_confirmation_rate * 100).toFixed(0) + '%'}, fill ${a.receive_fill_rate == null ? '—' : (a.receive_fill_rate * 100).toFixed(0) + '%'}, OOS ${a.procurable_oos_rate == null ? '—' : (a.procurable_oos_rate * 100).toFixed(1) + '%'}`).join('<br>') : ''}</div>
     <div id="ivDPlot" class="plot" style="height:340px"></div>
-    <div class="iv-dlots">${r.lines.length ? `<b>${r.lines.length}</b> lô đang về · ${fi(sumQ(r.lines))} u${r.lines.some(l => l.due) ? ` · <b style="color:var(--red)">${r.lines.filter(l => l.due).length} lô đã đến hạn, vẫn incoming</b>` : ''}${r.lines.some(l => l.noEta) ? ` · <b style="color:var(--amber)">${r.lines.filter(l => l.noEta).length} lô chưa có ETA</b>` : ''}
+    <div class="iv-dlots">${r.lines.length ? `<b>${r.lines.length}</b> lô đang về · ${fi(sumQ(r.lines))} u${r.lines.some(l => l.due) ? ` · <b style="color:var(--red)">${r.lines.filter(l => l.due).length} lô đã đến hạn, vẫn incoming</b>` : ''}
       <button type="button" class="btn small" id="ivDLots">Xem các lô này trong Danh sách lô (kèm hành trình, lịch sử ETA) ↓</button>` : 'SKU này không có hàng đang về.'}</div>`;
   host.querySelector('#ivSkuPick').onchange = e => { IV.sel = e.target.value; document.querySelectorAll('#ivBody tr').forEach(t => t.classList.toggle('sel', t.dataset.sku === IV.sel)); detail(); };
   const dl = host.querySelector('#ivDLots'); if(dl) dl.onclick = () => { IV.lf = {...LF0(), sku: r.sku}; IV.lotWide = true; syncLotBar(); renderLots(); document.getElementById('ivLots').scrollIntoView({behavior: 'smooth', block: 'start'}); };
@@ -966,7 +964,7 @@ function exportXlsx(){
   const b = scopeLines(rows).map(l => ({'Source': l.source, 'Channel / WH': l.channel, 'PIC': l.pic, 'Main PL': l.pl, 'SKU': l.sku, 'ASIN': l.asin, 'PO': l.po_name, 'Container': l.container_number, 'Qty': l.qty,
     'Stage': l.physical_status, 'Delay Status': l.on_time_status, 'Ordered': l.ordered_date, 'Expected ship': l.expected_ship_date, 'Actual ship': l.actual_ship_date, 'ETA POD': l.eta_pod,
     'Original ETA': l.eta_salable_original, 'Current ETA': l.eta_salable_date, 'Delay Days': l.slip, 'ETA due, still incoming': l.due ? 'yes' : '', 'Days past ETA': l.overdue || '',
-    'Chart week': typeof l.bucket === 'number' ? IV.weeks[l.bucket] : l.bucket === 'due' ? 'ETA đã đến hạn' : l.bucket === 'noeta' ? 'Chưa có ETA' : 'Sau ' + HZN + ' tuần', 'ETA used (projection)': l.eta}));
+    'Chart week': typeof l.bucket === 'number' ? IV.weeks[l.bucket] : l.bucket === 'due' ? 'ETA đã đến hạn' : 'Sau ' + HZN + ' tuần', 'ETA used (projection)': l.eta}));
   if(a.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(a), 'SKU tracking');
   if(b.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(b), 'Incoming PO lines');
   if(wb.SheetNames.length) XLSX.writeFile(wb, `Yes4All_Inventory_Tracking_${IV.country}_${IV.logDate}.xlsx`);
@@ -985,7 +983,7 @@ async function askAi(force){
       units_slipped: r.delayQty, max_slip_days: r.maxSlip, units_past_eta: r.overdueQty, risk: r.risk, flags: r.flags.map(f => f.t)})),
   };
   const question = `Bạn là chuyên gia supply chain + Amazon Vendor (AVC) của Yes4All. Dựa trên dữ liệu tồn kho, incoming, AMS/MOC và forecast dưới đây (ETA của nhà máy/forwarder thường bị trễ), hãy:
-1) Liệt kê tối đa 8 hành động ưu tiên: SKU nào cần kéo hàng Y4A về sớm / đẩy tồn Y4A sang Amazon, PO/lô nào đã đến hạn mà chưa về hoặc chưa có ETA cần follow-up gấp, SKU nào nên giảm ads/promo để giữ tồn, SKU nào tồn cao cần đẩy bán hoặc dời hàng về.
+1) Liệt kê tối đa 8 hành động ưu tiên: SKU nào cần kéo hàng Y4A về sớm / đẩy tồn Y4A sang Amazon, PO/lô nào đã đến hạn mà chưa về cần follow-up gấp, SKU nào nên giảm ads/promo để giữ tồn, SKU nào tồn cao cần đẩy bán hoặc dời hàng về.
 2) Nêu rủi ro trễ hàng theo product line và ước tính units có thể mất.
 Trích số cụ thể (SKU, ngày, units). Trả lời tiếng Việt, gạch đầu dòng, ghi mức ưu tiên Cao/Trung bình/Thấp.`;
   out.hidden = false; out.textContent = 'Đang hỏi AI…';
@@ -1043,8 +1041,8 @@ if(typeof document !== 'undefined'){
 #ivGrid .g-y{display:block;color:#1baf7a;font-weight:800}
 #ivGrid td.g-dl{background:#FFF6DB}
 #ivGrid td.g-od{background:#FDE8E8}
-#ivGrid td.g-cdue,#ivGrid td.g-cno{background:#FBF8EE}
-#ivGrid thead .g-hdue,#ivGrid thead .g-hno{background:#5A4A12}
+#ivGrid td.g-cdue{background:#FBF8EE}
+#ivGrid thead .g-hdue{background:#5A4A12}
 #ivGrid .vs{font-size:10.5px;color:var(--muted);display:block}
 #ivGrid .g-sku,#ivGrid .g-pl,#ivGrid .g-inv,#ivGrid .g-inv2{position:sticky;z-index:1;background:var(--card,#fff)}
 #ivGrid thead th{z-index:2}
