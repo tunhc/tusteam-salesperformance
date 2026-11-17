@@ -31,7 +31,7 @@ array['btr','born to run','born-to-run','retention','retention fee','surcharge',
 'Amazon Vendor Central · Born to Run Program Policy + FAQ (đọc ngày 10/11/2026)',
 $kb$
 # Amazon Born to Run (BTR)
-Các mục của trang (page_url + anchor): #tong-quan, #tier, #offer, #sell-through, #disposition, #retention, #calculator, #returns, #ad-spend, #recommended, #dashboard, #faq, #thuat-ngu.
+Các mục của trang (page_url + anchor): #tong-quan, #tier, #offer, #sell-through, #disposition, #retention, #returns, #ad-spend, #recommended, #dashboard, #faq, #thuat-ngu.
 
 ## Tổng quan (#tong-quan)
 - Chương trình của Amazon Vendor Central, chỉ tham gia khi được mời. Vendor gửi Offer đề nghị Amazon đặt PO khi tồn kho Amazon không đủ cho nhu cầu 10 tuần (launch, chiến dịch marketing).

@@ -452,6 +452,7 @@ function build(host){
       <div class="fld"><label for="ivEta">ETA</label><select id="ivEta"><option value="file">ETA trong file</option><option value="safe">ETA thận trọng (+ độ trễ TB)</option></select></div>
       <div class="fld"><label for="ivQ">Tìm SKU / tên</label><input id="ivQ" type="search" placeholder="VD: DXD3, Kettlebell…"></div>
       <div class="fld"><label>&nbsp;</label><button class="btn small" id="ivReload" type="button" title="Tải lại toàn bộ từ database, kể cả số bán đang lưu tạm trên máy">↻ Tải lại</button></div>
+      <div class="fld"><label>&nbsp;</label><a class="btr-learn" href="eta-sellable.html" target="_blank" rel="noopener">&#128216; Hiểu thêm về ETA</a></div>
     </div>
     <div class="btr-src iv-asof" id="ivSrc"></div>
     <div class="card iv-hero">
