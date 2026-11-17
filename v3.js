@@ -105,6 +105,10 @@ css.textContent = `
 .btr-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
 .btr-src{font-size:11.5px;color:var(--muted);margin:-4px 0 12px;display:flex;gap:6px 16px;flex-wrap:wrap}
 .btr-src b{color:var(--ink)}
+#btrTable tr.exp td{color:var(--muted);background:#FAFBFC}
+#btrTable tr.exp td:first-child{border-left:3px solid #C9CED6}
+#btrTable tr.exp-toggle td{padding:6px 8px;background:#F4F6F8}
+#btrExpToggle{border:0;background:none;color:var(--navy);font-weight:700;font-size:12.5px;cursor:pointer;padding:2px 0}
 .btr-learn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;background:#FFF3EA;color:var(--orange-dark);font-weight:700;font-size:12.5px;text-decoration:none;border:1px solid #FFD2AE;white-space:nowrap}
 .btr-learn:hover{background:#FFE6D2}
 .btr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
@@ -888,7 +892,7 @@ function liveReplay(){
 // Evaluated per SKU (the BTR ASIN); the other ASINs of the SKU are listed for their stock.
 // Run-rate: Est. sold by ST End = Sold ÷ days passed × ST days (both counted inclusive of ST Start / ST End).
 // =====================================================================
-const BT = {data:null, state:'active', pic:'', alert:'', q:'', rows:[], sort:'estPct', dir:1};   // state: active | expired | '' (all)
+const BT = {data:null, state:'active', pic:'', pl:'', showExp:false, alert:'', q:'', rows:[], sort:'estPct', dir:1};   // state: active | expired | '' (all)
 const btrToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const BTR_C = {sold:'#E86A10', est:'#F6B88A', pace:'#002859', amzBtr:'#2a78d6', amzOther:'#9EC3EF', y4a:'#1baf7a', need:'#D64545'};
 const DAY = 86400000;
@@ -973,6 +977,7 @@ V3.renderBtr = async function(){
     host.innerHTML = `<div class="filterbar">
         <div class="fld"><label for="btrState">Campaign</label><select id="btrState"><option value="active">Active (đang chạy)</option><option value="expired">Expired (đã kết thúc)</option><option value="">All</option></select></div>
         <div class="fld"><label for="btrPic">PIC</label><select id="btrPic"><option value="">All</option></select></div>
+        <div class="fld"><label for="btrPl">Product line</label><select id="btrPl"><option value="">All</option></select></div>
         <div class="fld"><label for="btrAlert">Mức cảnh báo</label><select id="btrAlert"><option value="">All</option><option value="High">High (Est % &lt; 50%)</option><option value="Medium">Medium (50–80%)</option><option value="OK">OK (≥ 80%)</option></select></div>
         <div class="fld"><label for="btrQ">Tìm SKU / ASIN / tên</label><input id="btrQ" type="search" placeholder="VD: CKKG, B0HCZ…"></div>
         <div class="fld"><label>&nbsp;</label><button class="btn small" id="btrReload" type="button">↻ Tải lại số</button></div>
@@ -1001,6 +1006,7 @@ V3.renderBtr = async function(){
     const rer = () => btrRender();
     host.querySelector('#btrPic').onchange = e => { BT.pic = e.target.value; rer(); };
     host.querySelector('#btrState').onchange = e => { BT.state = e.target.value; rer(); };
+    host.querySelector('#btrPl').onchange = e => { BT.pl = e.target.value; rer(); };
     host.querySelector('#btrAlert').onchange = e => { BT.alert = e.target.value; rer(); };
     host.querySelector('#btrQ').oninput = e => { BT.q = e.target.value.trim().toLowerCase(); rer(); };
     host.querySelector('#btrReload').onclick = () => { BT.data = null; V3.renderBtr(); };
@@ -1018,7 +1024,7 @@ V3.renderBtr = async function(){
   btrRender();
 };
 function btrFiltered(){
-  return BT.rows.filter(r => (!BT.state || (BT.state === 'expired') === r.expired) && (!BT.pic || r.pic === BT.pic) && (!BT.alert || r.alert === BT.alert) &&
+  return BT.rows.filter(r => (!BT.state || (BT.state === 'expired') === r.expired) && (!BT.pic || r.pic === BT.pic) && (!BT.pl || r.pl === BT.pl) && (!BT.alert || r.alert === BT.alert) &&
     (!BT.q || [r.sku, r.asin, r.name, r.pl, ...r.allAsins].join(' ').toLowerCase().includes(BT.q)));
 }
 function btrRender(){
@@ -1030,6 +1036,10 @@ function btrRender(){
     document.getElementById('btrBody').innerHTML = '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Chưa có offer BTR nào. Chạy file <b>17_btr_offers.sql</b> (tạo từ file "Born-to-run Alert").</td></tr>';
     return;
   }
+  // product line options = lines of the campaigns in the current Campaign filter (keeps the choice if still there)
+  const pls = [...new Set(BT.rows.filter(r => !BT.state || (BT.state === 'expired') === r.expired).map(r => r.pl).filter(Boolean))].sort();
+  if(BT.pl && !pls.includes(BT.pl)) BT.pl = '';
+  document.getElementById('btrPl').innerHTML = '<option value="">All</option>' + pls.map(p => `<option ${p === BT.pl ? 'selected' : ''}>${h.esc(p)}</option>`).join('');
   const rows = btrFiltered();
   // sources
   const o0 = (rows.length ? rows.map(r => r.o) : D.offers).reduce((m, o) => String(o.file_updated_at || '') > String(m.file_updated_at || '') ? o : m), invAt = (D.inv || []).map(r => r.snapshot_at).filter(Boolean).sort().pop();
@@ -1071,9 +1081,9 @@ function btrRender(){
   const badge = a => `<span class="badge ${a === 'High' ? 'red' : a === 'Medium' ? 'amber' : 'green'}">${a}</span>`;
   const pctCls = (v, ref) => v >= ref ? 'green' : v >= ref * 0.6 ? 'amber' : 'red';
   if(!tr.length){ document.getElementById('btrBody').innerHTML = `<tr><td colspan="20" style="padding:18px;color:var(--muted)">Không có campaign ${BT.state === 'active' ? 'đang chạy' : BT.state === 'expired' ? 'đã kết thúc' : ''} khớp bộ lọc.</td></tr>`; return; }
-  document.getElementById('btrBody').innerHTML = tr.map(r => {
+  const rowHtml = (r, exp) => {
     const cheaper = r.mktPerUnit !== null && r.mktPerUnit < r.retPerUnit;
-    const main = `<tr class="main">
+    const main = `<tr class="main${exp ? ' exp' : ''}">
       <td>${h.esc(r.pic)}</td><td><b>${h.esc(r.sku)}</b></td>
       <td><a href="https://www.amazon.com/dp/${encodeURIComponent(r.asin)}" target="_blank" rel="noopener noreferrer" style="color:var(--navy);font-weight:700">${r.asin}</a><span class="asin-tag">BTR</span></td>
       <td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}</td>
@@ -1093,8 +1103,14 @@ function btrRender(){
       <td class="sub" colspan="6">ASIN khác của cùng SKU — theo dõi tồn kho và số bán</td>
       <td class="sub num" title="Bán trên ASIN này từ ${dmy(r.stStart)} (đã nằm trong Sold của SKU)">${a.after.units ? '(' + fi(a.after.units) + ')' : ''}</td>
       <td class="sub" colspan="7"></td><td class="sub num">${fi(+a.salable_amz || 0)}</td><td class="sub"></td><td class="sub"></td></tr>`).join('');
-    return main + subs;
-  }).join('') || '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc.</td></tr>';
+    return main + (exp ? '' : subs);
+  };
+  // "All": expired campaigns are folded under a toggle row so the SKU Breakdown shows the running ones first
+  const live = BT.state === '' ? tr.filter(r => !r.expired) : tr, old = BT.state === '' ? tr.filter(r => r.expired) : [];
+  document.getElementById('btrBody').innerHTML = live.map(r => rowHtml(r, false)).join('') +
+    (old.length ? `<tr class="exp-toggle"><td colspan="20"><button type="button" id="btrExpToggle">${BT.showExp ? '▾ Ẩn' : '▸ Hiện'} ${old.length} campaign đã kết thúc (Expired)</button></td></tr>` +
+      (BT.showExp ? old.map(r => rowHtml(r, true)).join('') : '') : '');
+  const tg = document.getElementById('btrExpToggle'); if(tg) tg.onclick = () => { BT.showExp = !BT.showExp; btrRender(); };
   document.querySelectorAll('#btrTable thead th[data-k]').forEach(th => th.setAttribute('aria-sort', th.dataset.k === BT.sort ? (BT.dir > 0 ? 'ascending' : 'descending') : 'none'));
 }
 function btrExport(){
