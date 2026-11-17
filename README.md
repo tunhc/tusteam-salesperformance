@@ -166,3 +166,19 @@ Always measured against the **target** (`targets_weekly`, the weekly split of th
 - Keepa export (its link is updated continuously): a Power Automate flow like the tracker one — *Get file content* of `US_Keepa_Raw_Auto.xlsx` → HTTP POST, header `x-file-name: US_Keepa_Raw_Auto.xlsx`. Detected from its first row; replaces `keepa_prices`.
 - Optimal Pricing (`Yes4All_Optimal_Pricing_SKU.xlsx`, sheet *Optimal pricing*): POST it whenever the fixed prices change; replaces `price_reference`.
 - Forecast baseline of a new month: POST the inventory file used for the target (old *report* format) with header `x-forecast-month: 2026-12`.
+
+## Tracker file layout (USA_SSO_For_Sale_Incoming_tracker, from 17/11/2026)
+
+`pull-inventory` reads both the new file and the earlier `For_Sales_Incoming_Tracker.xlsx` (the header row is found by its column names; USA only by default, `INVENTORY_COUNTRIES` to change):
+
+| Sheet | Used for |
+|---|---|
+| `AMZ_Incoming_details` | Amazon PO lines (incoming to Amazon) |
+| `Y4A_Incoming_details` | incoming to the Y4A warehouses, per SKU |
+| `Sellable INV` | **column E `inv_y4a` only** (Y4A stock); its `inv_amz` is not used |
+| `AMZ sellable inv details` | Amazon stock per ASIN: **column I `sellable_on_hand_inventory_units`** (summed per SKU); column M `sellable_in_transit_units` |
+| `AMZ_incoming_pivot`, `Y4A_Incoming_pivot` | ignored |
+
+- SKUs that are only in `AMZ sellable inv details` are added with Y4A stock 0.
+- **AMZ in-transit** is kept apart (`inventory_sellable.amz_in_transit`). The part the incoming tracker does not already list for the same ASIN as shipped (Pipeline / In land transit) is added as incoming line `AMZ in-transit (VC)`, due this week (`amz_in_transit_new`); the rest is already counted through its PO lines, so nothing is counted twice. Nov-2026 file: 60,764 units in transit, 2,686 not in the tracker.
+- Inventory Tracking shows the column **AMZ IN-TRANSIT** next to SALABLE AMZ.

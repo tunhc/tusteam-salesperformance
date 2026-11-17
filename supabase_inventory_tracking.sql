@@ -89,6 +89,10 @@ create table if not exists inventory_sellable (
   loaded_at     timestamptz not null default now(),
   primary key (country, sku)
 );
+-- Amazon sellable in-transit, broken out: all of it (col M of "AMZ sellable inv details"), and the part the incoming
+-- tracker does not already list as shipped (Pipeline / In land transit) = counted as arriving this week
+alter table inventory_sellable add column if not exists amz_in_transit numeric default 0;
+alter table inventory_sellable add column if not exists amz_in_transit_new numeric default 0;
 
 create table if not exists amz_inventory_asin (
   country                         text not null,
@@ -230,8 +234,35 @@ returns jsonb language plpgsql security definer set search_path = public, extens
 declare d_amz date; d_y4a date; d_inv date; c jsonb; n_asin int;
 begin
   perform inv_check_key(p_key);
-  select max(log_date) into d_amz from incoming_detail where source = 'AMZ';
+  select max(log_date) into d_amz from incoming_detail where source = 'AMZ' and po_name <> 'AMZ in-transit (VC)';
   select max(log_date) into d_y4a from incoming_detail where source = 'Y4A';
+
+  -- 0) Amazon stock = sellable ON HAND per ASIN (col I of "AMZ sellable inv details"), summed per SKU; Y4A stock stays
+  --    inv_y4a of Sellable INV. SKUs only in the ASIN sheet are added with Y4A = 0. Units Amazon shows as sellable in
+  --    transit are counted as arriving this week, minus what the incoming tracker already lists for the same ASIN as
+  --    shipped (Pipeline / In land transit), so nothing is counted twice.
+  if exists (select 1 from amz_inventory_asin where country = 'USA') then
+    insert into inventory_sellable (country, sku, inv_y4a, inv_amz, amz_as_of)
+    select 'USA', a.sku, 0, 0, max(a.log_date) from amz_inventory_asin a where a.country = 'USA' and a.sku is not null group by a.sku
+    on conflict (country, sku) do nothing;
+    update inventory_sellable i set inv_amz = coalesce(x.oh, 0), amz_in_transit = coalesce(x.it, 0), amz_in_transit_new = 0,
+           amz_as_of = coalesce(x.d, i.amz_as_of)
+    from (select s.sku, sum(coalesce(a.sellable_on_hand_units, 0)) oh, sum(coalesce(a.sellable_in_transit_units, 0)) it, max(a.log_date) d
+          from inventory_sellable s left join amz_inventory_asin a on a.country = 'USA' and a.sku = s.sku
+          where s.country = 'USA' group by s.sku) x
+    where i.country = 'USA' and i.sku = x.sku;
+    delete from incoming_detail where po_name = 'AMZ in-transit (VC)';
+    insert into incoming_detail (source, log_date, country, channel, po_name, sku, asin, qty, eta_salable_date, physical_status, on_time_status, department)
+    select 'AMZ', coalesce(d_amz, a.log_date, current_date), 'USA', 'Vendor Central in-transit', 'AMZ in-transit (VC)', a.sku, a.asin,
+           a.sellable_in_transit_units - coalesce(sh.q, 0), coalesce(d_amz, a.log_date, current_date), 'In transit (VC)', 'normal', a.department
+    from amz_inventory_asin a
+    left join (select asin, sum(qty) q from incoming_detail where source = 'AMZ' and country = 'USA'
+               and physical_status in ('In land transit', 'Pipeline') group by asin) sh on sh.asin = a.asin
+    where a.country = 'USA' and a.sku is not null and coalesce(a.sellable_in_transit_units, 0) - coalesce(sh.q, 0) > 0;
+    update inventory_sellable i set amz_in_transit_new = x.q
+    from (select sku, sum(qty) q from incoming_detail where po_name = 'AMZ in-transit (VC)' group by sku) x
+    where i.country = 'USA' and i.sku = x.sku;
+  end if;
   select greatest(max(y4a_as_of), max(amz_as_of)) into d_inv from inventory_sellable where country = 'USA';
 
   -- 1) ETA history: one row per PO line per file (USA only, to keep the table small)
@@ -239,7 +270,7 @@ begin
                                 eta_salable_original, physical_status, on_time_status)
   select source, log_date, country, po_name, sku, coalesce(asin, ''), coalesce(container_number, ''), sum(qty),
          min(eta_salable_date), min(eta_salable_original), max(physical_status), max(on_time_status)
-  from incoming_detail where country = 'USA'
+  from incoming_detail where country = 'USA' and po_name <> 'AMZ in-transit (VC)'
   group by 1, 2, 3, 4, 5, 6, 7
   on conflict (source, log_date, country, po_name, sku, asin, container_number) do update set qty = excluded.qty,
     eta_salable_date = excluded.eta_salable_date, eta_salable_original = excluded.eta_salable_original,
@@ -273,7 +304,7 @@ begin
   if to_regclass('public.asin_inventory') is not null and exists (select 1 from amz_inventory_asin where country = 'USA') then
     create temp table _ai on commit drop as
     select a.sku, a.asin, o.asin_status, coalesce(a.department, 'SSO') dep,
-           coalesce(s.inv_y4a, 0) salable_y4a, coalesce(a.total_sellable, 0) salable_amz,
+           coalesce(s.inv_y4a, 0) salable_y4a, coalesce(a.sellable_on_hand_units, 0) salable_amz,
            coalesce((select sum(qty) from incoming_detail i where i.country = 'USA' and i.source = 'Y4A' and i.sku = a.sku), 0) incoming_y4a,
            coalesce((select sum(qty) from incoming_detail i where i.country = 'USA' and i.source = 'AMZ' and i.asin = a.asin), 0) incoming_amz,
            a.log_date::timestamp snapshot_at
