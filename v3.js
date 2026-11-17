@@ -105,6 +105,10 @@ css.textContent = `
 .btr-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
 .btr-src{font-size:11.5px;color:var(--muted);margin:-4px 0 12px;display:flex;gap:6px 16px;flex-wrap:wrap}
 .btr-src b{color:var(--ink)}
+#btrTable tr.exp td{color:var(--muted);background:#FAFBFC}
+#btrTable tr.exp td:first-child{border-left:3px solid #C9CED6}
+#btrTable tr.exp-toggle td{padding:6px 8px;background:#F4F6F8}
+#btrExpToggle{border:0;background:none;color:var(--navy);font-weight:700;font-size:12.5px;cursor:pointer;padding:2px 0}
 .btr-learn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;background:#FFF3EA;color:var(--orange-dark);font-weight:700;font-size:12.5px;text-decoration:none;border:1px solid #FFD2AE;white-space:nowrap}
 .btr-learn:hover{background:#FFE6D2}
 .btr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
@@ -888,7 +892,8 @@ function liveReplay(){
 // Evaluated per SKU (the BTR ASIN); the other ASINs of the SKU are listed for their stock.
 // Run-rate: Est. sold by ST End = Sold ÷ days passed × ST days (both counted inclusive of ST Start / ST End).
 // =====================================================================
-const BT = {data:null, pic:'', alert:'', q:'', rows:[], sort:'estPct', dir:1};
+const BT = {data:null, state:'active', pic:'', pl:'', showExp:false, alert:'', q:'', rows:[], sort:'estPct', dir:1};   // state: active | expired | '' (all)
+const btrToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const BTR_C = {sold:'#E86A10', est:'#F6B88A', pace:'#002859', amzBtr:'#2a78d6', amzOther:'#9EC3EF', y4a:'#1baf7a', need:'#D64545'};
 const DAY = 86400000;
 const btrDate = iso => new Date(iso + 'T00:00:00');
@@ -959,7 +964,7 @@ function btrCompute(D){
       submitted:+o.submitted_qty || 0, base, sold, vr, btrUnits, asinFrom, soldPct:base ? sold / base : 0,
       est, estPct, rate7, est7, est7Pct:base ? est7 / base : 0, unsold, cost, rate, rateFromFile:+o.retention_rate > 0, estRet:unsold * cost * rate, retPerUnit:cost * rate,
       mkt, mktPerUnit:sold ? mkt / sold : null, needPerDay:daysLeft ? Math.max(0, base - sold) / daysLeft : null, ratePerDay:passed ? sold / passed : 0,
-      alert:estPct >= 0.8 ? 'OK' : estPct >= 0.5 ? 'Medium' : 'High',
+      alert:estPct >= 0.8 ? 'OK' : estPct >= 0.5 ? 'Medium' : 'High', expired:o.st_end < btrToday(),
       asins, allAsins, y4a, amzBtr, amzOther, stockTotal:Math.max(0, y4a) + Math.max(0, amzBtr) + amzOther, remaining:Math.max(0, base - sold),
     };
   });
@@ -970,7 +975,9 @@ V3.renderBtr = async function(){
   if(!host.dataset.built){
     host.dataset.built = '1';
     host.innerHTML = `<div class="filterbar">
+        <div class="fld"><label for="btrState">Campaign</label><select id="btrState"><option value="active">Active (đang chạy)</option><option value="expired">Expired (đã kết thúc)</option><option value="">All</option></select></div>
         <div class="fld"><label for="btrPic">PIC</label><select id="btrPic"><option value="">All</option></select></div>
+        <div class="fld"><label for="btrPl">Product line</label><select id="btrPl"><option value="">All</option></select></div>
         <div class="fld"><label for="btrAlert">Mức cảnh báo</label><select id="btrAlert"><option value="">All</option><option value="High">High (Est % &lt; 50%)</option><option value="Medium">Medium (50–80%)</option><option value="OK">OK (≥ 80%)</option></select></div>
         <div class="fld"><label for="btrQ">Tìm SKU / ASIN / tên</label><input id="btrQ" type="search" placeholder="VD: CKKG, B0HCZ…"></div>
         <div class="fld"><label>&nbsp;</label><button class="btn small" id="btrReload" type="button">↻ Tải lại số</button></div>
@@ -998,6 +1005,8 @@ V3.renderBtr = async function(){
       </div>`;
     const rer = () => btrRender();
     host.querySelector('#btrPic').onchange = e => { BT.pic = e.target.value; rer(); };
+    host.querySelector('#btrState').onchange = e => { BT.state = e.target.value; rer(); };
+    host.querySelector('#btrPl').onchange = e => { BT.pl = e.target.value; rer(); };
     host.querySelector('#btrAlert').onchange = e => { BT.alert = e.target.value; rer(); };
     host.querySelector('#btrQ').oninput = e => { BT.q = e.target.value.trim().toLowerCase(); rer(); };
     host.querySelector('#btrReload').onclick = () => { BT.data = null; V3.renderBtr(); };
@@ -1015,7 +1024,7 @@ V3.renderBtr = async function(){
   btrRender();
 };
 function btrFiltered(){
-  return BT.rows.filter(r => (!BT.pic || r.pic === BT.pic) && (!BT.alert || r.alert === BT.alert) &&
+  return BT.rows.filter(r => (!BT.state || (BT.state === 'expired') === r.expired) && (!BT.pic || r.pic === BT.pic) && (!BT.pl || r.pl === BT.pl) && (!BT.alert || r.alert === BT.alert) &&
     (!BT.q || [r.sku, r.asin, r.name, r.pl, ...r.allAsins].join(' ').toLowerCase().includes(BT.q)));
 }
 function btrRender(){
@@ -1027,9 +1036,13 @@ function btrRender(){
     document.getElementById('btrBody').innerHTML = '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Chưa có offer BTR nào. Chạy file <b>17_btr_offers.sql</b> (tạo từ file "Born-to-run Alert").</td></tr>';
     return;
   }
+  // product line options = lines of the campaigns in the current Campaign filter (keeps the choice if still there)
+  const pls = [...new Set(BT.rows.filter(r => !BT.state || (BT.state === 'expired') === r.expired).map(r => r.pl).filter(Boolean))].sort();
+  if(BT.pl && !pls.includes(BT.pl)) BT.pl = '';
+  document.getElementById('btrPl').innerHTML = '<option value="">All</option>' + pls.map(p => `<option ${p === BT.pl ? 'selected' : ''}>${h.esc(p)}</option>`).join('');
   const rows = btrFiltered();
   // sources
-  const o0 = D.offers[0], invAt = (D.inv || []).map(r => r.snapshot_at).filter(Boolean).sort().pop();
+  const o0 = (rows.length ? rows.map(r => r.o) : D.offers).reduce((m, o) => String(o.file_updated_at || '') > String(m.file_updated_at || '') ? o : m), invAt = (D.inv || []).map(r => r.snapshot_at).filter(Boolean).sort().pop();
   const partial = D.lastTs && D.lastTs.slice(0, 10) === D.lastDay;
   document.getElementById('btrSrc').innerHTML = `<span>Số bán thực tế của SKU (sales daily / hourly) từ ST Start: <b>${D.lastDay ? 'tới ' + (partial ? D.lastTs.slice(11, 13) + ':59 ' : '') + dmy(D.lastDay) : 'chưa có'}</b> · tự cập nhật mỗi giờ</span>` +
     `<span>File Amazon BTR: <b>${o0.file_updated_at ? dmy(String(o0.file_updated_at).slice(0, 10)) + ' ' + String(o0.file_updated_at).slice(11, 16) : '—'}</b> (chỉ lấy ST Start / ST End, số lượng submit, giá vốn, tỷ lệ retention)</span>` +
@@ -1039,7 +1052,7 @@ function btrRender(){
   const base = S('base'), sold = S('sold'), est = S('est'), mkt = S('mkt'), ret = S('estRet');
   const days = rows.length ? rows.reduce((t, r) => t + r.pctDays * r.base, 0) / (base || 1) : 0;
   document.getElementById('btrKpis').innerHTML = [
-    ['SKU đang chạy BTR', rows.length, `${rows.filter(r => r.alert === 'High').length} High · ${rows.filter(r => r.alert === 'Medium').length} Medium`],
+    [BT.state === 'active' ? 'SKU đang chạy BTR' : BT.state === 'expired' ? 'SKU BTR đã kết thúc' : 'SKU BTR', rows.length, `${rows.filter(r => r.alert === 'High').length} High · ${rows.filter(r => r.alert === 'Medium').length} Medium`],
     ['Submitted Qty', fi(base), `Vendor responsible ${fi(S('vr'))}`],
     ['Đã bán', fi(sold), `${fp(base ? sold / base : 0)} số submit · thời gian đã qua ${fp(days)}`],
     ['Est % tới ST End', fp(base ? est / base : 0), `≈ ${fi(est)} units theo run-rate cả kỳ · nhịp 7 ngày: ${fp(base ? S('est7') / base : 0)}`],
@@ -1067,9 +1080,10 @@ function btrRender(){
   const tr = [...rows].sort((a, b) => { const va = a[BT.sort], vb = b[BT.sort]; return typeof va === 'string' ? BT.dir * String(va).localeCompare(String(vb)) : BT.dir * ((va ?? -1e18) - (vb ?? -1e18)); });
   const badge = a => `<span class="badge ${a === 'High' ? 'red' : a === 'Medium' ? 'amber' : 'green'}">${a}</span>`;
   const pctCls = (v, ref) => v >= ref ? 'green' : v >= ref * 0.6 ? 'amber' : 'red';
-  document.getElementById('btrBody').innerHTML = tr.map(r => {
+  if(!tr.length){ document.getElementById('btrBody').innerHTML = `<tr><td colspan="20" style="padding:18px;color:var(--muted)">Không có campaign ${BT.state === 'active' ? 'đang chạy' : BT.state === 'expired' ? 'đã kết thúc' : ''} khớp bộ lọc.</td></tr>`; return; }
+  const rowHtml = (r, exp) => {
     const cheaper = r.mktPerUnit !== null && r.mktPerUnit < r.retPerUnit;
-    const main = `<tr class="main">
+    const main = `<tr class="main${exp ? ' exp' : ''}">
       <td>${h.esc(r.pic)}</td><td><b>${h.esc(r.sku)}</b></td>
       <td><a href="https://www.amazon.com/dp/${encodeURIComponent(r.asin)}" target="_blank" rel="noopener noreferrer" style="color:var(--navy);font-weight:700">${r.asin}</a><span class="asin-tag">BTR</span></td>
       <td class="name-cell" title="${h.esc(r.name)}">${h.esc(r.name)}</td><td>${h.esc(r.pl)}</td>
@@ -1089,15 +1103,21 @@ function btrRender(){
       <td class="sub" colspan="6">ASIN khác của cùng SKU — theo dõi tồn kho và số bán</td>
       <td class="sub num" title="Bán trên ASIN này từ ${dmy(r.stStart)} (đã nằm trong Sold của SKU)">${a.after.units ? '(' + fi(a.after.units) + ')' : ''}</td>
       <td class="sub" colspan="7"></td><td class="sub num">${fi(+a.salable_amz || 0)}</td><td class="sub"></td><td class="sub"></td></tr>`).join('');
-    return main + subs;
-  }).join('') || '<tr><td colspan="20" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc.</td></tr>';
+    return main + (exp ? '' : subs);
+  };
+  // "All": expired campaigns are folded under a toggle row so the SKU Breakdown shows the running ones first
+  const live = BT.state === '' ? tr.filter(r => !r.expired) : tr, old = BT.state === '' ? tr.filter(r => r.expired) : [];
+  document.getElementById('btrBody').innerHTML = live.map(r => rowHtml(r, false)).join('') +
+    (old.length ? `<tr class="exp-toggle"><td colspan="20"><button type="button" id="btrExpToggle">${BT.showExp ? '▾ Ẩn' : '▸ Hiện'} ${old.length} campaign đã kết thúc (Expired)</button></td></tr>` +
+      (BT.showExp ? old.map(r => rowHtml(r, true)).join('') : '') : '');
+  const tg = document.getElementById('btrExpToggle'); if(tg) tg.onclick = () => { BT.showExp = !BT.showExp; btrRender(); };
   document.querySelectorAll('#btrTable thead th[data-k]').forEach(th => th.setAttribute('aria-sort', th.dataset.k === BT.sort ? (BT.dir > 0 ? 'ascending' : 'descending') : 'none'));
 }
 function btrExport(){
   const rows = btrFiltered(); if(!rows.length || typeof XLSX === 'undefined') return;
   const data = [];
   rows.forEach(r => {
-    data.push({'PIC':r.pic, 'SKU':r.sku, 'ASIN':r.asin, 'ASIN role':'BTR', 'Product Name':r.name, 'Product Line':r.pl, 'ST Start':r.stStart, 'ST End':r.stEnd,
+    data.push({'Campaign':r.expired ? 'Expired' : 'Active', 'PIC':r.pic, 'SKU':r.sku, 'ASIN':r.asin, 'ASIN role':'BTR', 'Product Name':r.name, 'Product Line':r.pl, 'ST Start':r.stStart, 'ST End':r.stEnd,
       'Days Left':Math.round(r.daysLeft), 'Submitted Qty':r.submitted, 'Vendor responsible qty':r.vr, 'Sold':Math.round(r.sold), 'Sold on BTR ASIN':r.btrUnits === null ? '' : Math.round(r.btrUnits),
       '% Days':+(r.pctDays * 100).toFixed(1), 'Est End Qty':Math.round(r.est), 'Est %':+(r.estPct * 100).toFixed(1), 'Rate / day (ST)':+r.ratePerDay.toFixed(2), 'Rate / day (7 days)':+r.rate7.toFixed(2), 'Est End Qty (7-day pace)':Math.round(r.est7), 'Est % (7-day pace)':+(r.est7Pct * 100).toFixed(1), 'Est. Retention':+r.estRet.toFixed(2),
       'Current MKT fee':+r.mkt.toFixed(2), 'MKT / unit sold':r.mktPerUnit === null ? '' : +r.mktPerUnit.toFixed(2), 'Retention / unit':+r.retPerUnit.toFixed(2),
