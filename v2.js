@@ -1327,15 +1327,22 @@ function wrLock(){
   const steps = [['Tuần bán hàng', dm(weekFrom(ws)) + ' → ' + dm(we), 'Data còn cập nhật, số còn thay đổi'], ['Khóa số liệu (snapshot)', WR.data && WR.data.frozen ? fdt(new Date(WR.data.frozen.frozen_at)) : 'khi có data ' + dm(addDaysIso(we, 2)), 'Tự khóa khi đã có data ngày thứ 2 sau khi tuần kết thúc (thường là thứ Hai), để số các ngày cuối tuần kịp cập nhật đủ (kiểm tra mỗi giờ)'], ['Hạn nhập diễn giải', fdt(due), 'PIC nhập trước hạn = On time'], ['Sau hạn', 'Vẫn mở', 'Nhập được, gắn nhãn Late, lưu mọi version']];
   $('#wrLock').innerHTML = steps.map((s, i) => `<div class="step ${i < phase ? 'done' : ''} ${i === phase ? 'now' : ''}"><span class="lbl" style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase">${s[0]}</span><span class="when">${s[1]}</span><span class="v2-note">${s[2]}${i === phase ? ' · <b>đang ở bước này</b>' : ''}</span></div>`).join('');
 }
+// stock now (skus, refreshed by the tracker load) + incoming in the current week and the 3 next (incoming_weekly, new ETA)
+function invNow(k){
+  const asOf = V2.state.maxDate || todayISO(), from = sundayOf(asOf), to = addDaysIso(from, 27);
+  const inc4 = (V2.state.incoming.get(k.sku) || []).filter(w => w.week >= from && w.week <= to).reduce((t, w) => t + w.qty, 0);
+  return {amz: Math.max(0, k.salableAMZ || 0), y4a: Math.max(0, k.salableY4A || 0), inc4};
+}
 function wrPlStats(picArg){
   const pic = picArg === undefined ? $('#wrPic').value : picArg;
   const g = new Map();
   WR.data.bySku.forEach((x, sku) => {
     const k = skuInfo(sku); if(!k || !matchGS(k) || (pic && k.pic !== pic)) return;
     const pl = k.mainPL || 'Unclassified';
-    if(!g.has(pl)) g.set(pl, {pl, pics:{}, c:emptyAgg(), p:emptyAgg(), t:{units:0, gmv:0, ads:0, promo:0}, stock:0, skus:[]});
+    if(!g.has(pl)) g.set(pl, {pl, pics:{}, c:emptyAgg(), p:emptyAgg(), t:{units:0, gmv:0, ads:0, promo:0}, stock:0, amz:0, y4a:0, inc4:0, skus:[]});
     const e = g.get(pl); addInto(e.c, x.c); addInto(e.p, x.p); ['units','gmv','ads','promo'].forEach(q => e.t[q] += x.t[q] || 0); e.stock += x.stock; e.pics[k.pic] = (e.pics[k.pic] || 0) + 1;
-    e.skus.push({sku, k, ...x, recs: recsFor(k, x.c, x.p, x.t)});
+    const inv = invNow(k); e.amz += inv.amz; e.y4a += inv.y4a; e.inc4 += inv.inc4;
+    e.skus.push({sku, k, ...x, ...inv, recs: recsFor(k, x.c, x.p, x.t)});
   });
   g.forEach(e => { derive(e.c); derive(e.p); e.pic = Object.entries(e.pics).sort((a, b) => b[1] - a[1])[0]?.[0] || ''; e.ach = e.t.gmv ? e.c.gmv / e.t.gmv : NaN; e.recs = e.skus.flatMap(s => s.recs.filter(r => r.p <= 2).map(r => ({...r, sku:s.sku}))); });
   return [...g.values()].filter(e => e.c.gmv > 0 || e.p.gmv > 0 || e.t.gmv > 0).sort((a, b) => b.c.gmv - a.c.gmv);
@@ -1348,24 +1355,30 @@ function wrTable(){
   // columns grouped by what they are measured against: GMV vs target, Ads vs ads budget, Promo vs promo budget
   const pctT = (a, t) => { const v = div(a, t); return isNum(v) ? `<span style="color:${v >= .95 ? 'var(--green)' : v >= .8 ? 'var(--amber)' : 'var(--red)'};font-weight:700">${fP(v, 0)}</span>` : '—'; };
   const pctB = (a, t) => { const v = div(a, t); return isNum(v) ? `<span style="color:${v <= 1 ? 'var(--green)' : v <= 1.15 ? 'var(--amber)' : 'var(--red)'};font-weight:700">${fP(v, 0)}</span>` : '—'; };
-  const row = (e) => { const c = e.c, p = e.p, t = e.t || {}; const cover = (c.units || 0) ? e.stock / c.units : (e.stock > 0 ? Infinity : NaN);
-    return `<td class="num g1">${t.gmv ? f$(t.gmv) : '—'}</td><td class="num">${f$(c.gmv)}</td><td class="num">${pctT(c.gmv, t.gmv)}</td><td class="num">${deltaHtml(c.gmv, p.gmv)}</td><td class="num">${fN(c.units)}${t.units ? `<span class="v2-note"> / ${fN(t.units)}</span>` : ''}</td><td class="num">${f$2(div(c.gmv, c.units))}</td>
+  const row = (e) => { const c = e.c, p = e.p, t = e.t || {}; const now = (e.amz || 0) + (e.y4a || 0);
+    const cover = (c.units || 0) ? now / c.units : (now > 0 ? Infinity : NaN);
+    const snapTip = `Tồn lúc ${WR.data && WR.data.frozen ? 'chốt tuần' : 'tải tuần'}: ${fN(e.stock)} (AMZ + Y4A)`;
+    return `<td class="num g1${(e.amz || 0) <= 0 ? ' wr-zero' : ''}" title="${snapTip}">${fN(e.amz || 0)}</td><td class="num" title="${snapTip}">${fN(e.y4a || 0)}</td>
+      <td class="num" title="Hàng về (AMZ + Y4A) tuần này + 3 tuần tới, theo ETA của incoming tracker">${e.inc4 ? fN(e.inc4) : '—'}</td>
+      <td class="num" title="Số tuần tồn hiện tại (AMZ + Y4A) đủ bán theo số units của tuần đang xem"${isNum(cover) && cover < 2 ? ' style="color:var(--red);font-weight:700"' : ''}>${isNum(cover) ? (cover > 99 ? '>99' : cover.toFixed(1)) + 'w' : cover === Infinity ? '∞' : '—'}</td>
+      <td class="num g1">${t.gmv ? f$(t.gmv) : '—'}</td><td class="num">${f$(c.gmv)}</td><td class="num">${pctT(c.gmv, t.gmv)}</td><td class="num">${deltaHtml(c.gmv, p.gmv)}</td><td class="num">${fN(c.units)}${t.units ? `<span class="v2-note"> / ${fN(t.units)}</span>` : ''}</td><td class="num">${f$2(div(c.gmv, c.units))}</td>
       <td class="num g1">${t.ads ? f$(t.ads) : '—'}</td><td class="num">${f$(c.ads)}</td><td class="num">${pctB(c.ads, t.ads)}</td><td class="num">${fP(div(c.ads, c.ads_gmv), 0)}</td><td class="num">${fP(div(c.ads, c.gmv))}</td>
       <td class="num g1">${t.promo ? f$(t.promo) : '—'}</td><td class="num">${f$(c.promo)}</td><td class="num">${pctB(c.promo, t.promo)}</td>
       <td class="num g1">${fP(div(c.ads + c.promo, c.gmv))}${t.gmv ? `<span class="v2-note"> / ${fP(div((t.ads || 0) + (t.promo || 0), t.gmv))}</span>` : ''}</td>
-      <td class="num g1">${fN(c.glance_views)} ${deltaHtml(c.glance_views, p.glance_views)}</td><td class="num">${fP(div(c.units, c.glance_views), 1)}</td><td class="num">${fN(e.stock)}</td><td class="num">${isNum(cover) ? cover.toFixed(1) + 'w' : cover === Infinity ? '∞' : '—'}</td>`; };
+      <td class="num g1">${fN(c.glance_views)} ${deltaHtml(c.glance_views, p.glance_views)}</td><td class="num">${fP(div(c.units, c.glance_views), 1)}</td>`; };
   const G = (label, n, tip) => `<th colspan="${n}" class="grp" title="${tip}">${label}</th>`;
-  $('#wrTable').innerHTML = `<thead><tr class="grp-row"><th colspan="3"></th>${G('GMV · so với target tuần', 6, 'Target tuần = phân bổ theo tuần trong file target (hoặc target tháng chia theo ngày nếu tháng đó chưa có)')}${G('Ads · so với budget tuần', 5, '')}${G('Promo · so với budget tuần', 3, '')}${G('MKT', 1, '')}${G('Traffic & tồn kho', 4, '')}<th colspan="2"></th></tr>
+  $('#wrTable').innerHTML = `<thead><tr class="grp-row"><th colspan="3"></th>${G('Tồn kho (hiện tại)', 4, 'Tồn sellable hiện tại theo file tracker; hàng về 4 tuần theo ETA mới')}${G('GMV · so với target tuần', 6, 'Target tuần = phân bổ theo tuần trong file target (hoặc target tháng chia theo ngày nếu tháng đó chưa có)')}${G('Ads · so với budget tuần', 5, '')}${G('Promo · so với budget tuần', 3, '')}${G('MKT', 1, '')}${G('Traffic', 2, '')}<th colspan="2"></th></tr>
     <tr><th>Group / SKU</th><th>Diễn giải</th><th>Tự động</th>
+      <th class="num g1">Tồn AMZ</th><th class="num">Tồn Y4A</th><th class="num">Về 4W</th><th class="num">Cover</th>
       <th class="num g1">Target</th><th class="num">GMV</th><th class="num">% target</th><th class="num">WoW</th><th class="num" title="Units thực tế / target units tuần">Units / target</th><th class="num">ASP</th>
       <th class="num g1">Budget</th><th class="num">Ads</th><th class="num">% budget</th><th class="num">ACOS</th><th class="num">TACOS</th>
       <th class="num g1">Budget</th><th class="num">Promo</th><th class="num">% budget</th>
       <th class="num g1" title="(Ads + Promo) / GMV thực tế · sau dấu / là mức của target">%MKT/GMV</th>
-      <th class="num g1">Glance views</th><th class="num">CR</th><th class="num">Tồn</th><th class="num">Cover</th><th>Khuyến nghị</th><th>PIC</th></tr></thead><tbody>` +
+      <th class="num g1">Glance views</th><th class="num">CR</th><th>Khuyến nghị</th><th>PIC</th></tr></thead><tbody>` +
     stats.map(e => { const rv = reviewOf(WR.ws, e.pl); const st = autoSt(e.ach); const open = WR.open.has(e.pl);
       const note = rv ? `<span class="badge ${rv.is_late ? 'amber' : 'green'}">${rv.is_late ? 'Late' : 'Đã nhập'}</span>` : (st[0] === 'green' ? '<span class="badge gray">Không bắt buộc</span>' : '<span class="badge red">Thiếu</span>');
       const head = `<tr class="clickable${e.pl === WR.pl ? ' sel' : ''}" data-pl="${esc(e.pl)}"><td style="white-space:normal;min-width:170px"><span class="wr-tog" data-pl="${esc(e.pl)}" style="cursor:pointer;display:inline-block;width:14px">${open ? '▾' : '▸'}</span><b>${esc(e.pl)}</b> <span class="v2-note">${e.skus.length} SKU</span></td><td>${note}</td><td><span class="badge ${st[0]}">${st[1]}</span></td>${row(e)}<td>${e.recs.slice(0, 3).map(r => recChip(r)).join('')}${e.recs.length > 3 ? `<span class="v2-note">+${e.recs.length - 3}</span>` : ''}</td><td>${esc(e.pic)}</td></tr>`;
-      const subs = open ? e.skus.sort((a, b) => b.c.gmv - a.c.gmv).map(s => `<tr class="sub"><td style="white-space:normal">${s.k.asin ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(s.k.asin)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.sku)}</b></a>` : `<b>${esc(s.sku)}</b>`} <span class="v2-note">${esc((s.k.productName || '').slice(0, 42))}</span></td><td></td><td></td>${row({c:s.c, p:s.p, t:s.t, stock:s.stock})}<td>${s.recs.map(r => recChip(r)).join('') || '<span class="v2-note">—</span>'}</td><td></td></tr>`).join('') : '';
+      const subs = open ? e.skus.sort((a, b) => b.c.gmv - a.c.gmv).map(s => `<tr class="sub"><td style="white-space:normal">${s.k.asin ? `<a href="https://www.amazon.com/dp/${encodeURIComponent(s.k.asin)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.sku)}</b></a>` : `<b>${esc(s.sku)}</b>`} <span class="v2-note">${esc((s.k.productName || '').slice(0, 42))}</span></td><td></td><td></td>${row({c:s.c, p:s.p, t:s.t, stock:s.stock, amz:s.amz, y4a:s.y4a, inc4:s.inc4})}<td>${s.recs.map(r => recChip(r)).join('') || '<span class="v2-note">—</span>'}</td><td></td></tr>`).join('') : '';
       return head + subs; }).join('') + '</tbody>';
   $$('#wrTable .wr-tog').forEach(t => t.onclick = ev => { ev.stopPropagation(); const pl = t.dataset.pl; WR.open.has(pl) ? WR.open.delete(pl) : WR.open.add(pl); wrTable(); });
   $$('#wrTable tr.clickable').forEach(tr => tr.onclick = () => { WR.pl = tr.dataset.pl; wrTable(); wrEditor(); });
