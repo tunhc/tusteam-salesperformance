@@ -37,6 +37,22 @@ create table if not exists btr_offers (
 );
 create index if not exists idx_btr_offers_asin on btr_offers(asin);
 
+-- One Offer can hold several ASINs (B2R WH offers): key the table by Offer + ASIN.
+-- Extra columns from the Alert file; ingest_v2.py --btr keeps Sales Manager "Nguyen Tu" rows with a Sell-through start date.
+alter table btr_offers add column if not exists sales_manager text;
+alter table btr_offers add column if not exists sales_channel text;            -- AVC WH / AVC DI
+alter table btr_offers add column if not exists submission_date date;
+alter table btr_offers add column if not exists po_count numeric;
+alter table btr_offers add column if not exists retention_fees numeric;          -- actual fee Amazon charged (after ST End)
+alter table btr_offers add column if not exists retention_agreement_id text;     -- COOP agreement of that fee
+do $$ begin
+  if exists (select 1 from pg_constraint where conrelid = 'btr_offers'::regclass and contype = 'p'
+             and array_length(conkey, 1) = 1) then
+    alter table btr_offers drop constraint btr_offers_pkey;
+    alter table btr_offers add constraint btr_offers_pkey primary key (offer_id, asin);
+  end if;
+end $$;
+
 create table if not exists asin_inventory (
   sku           text not null,
   asin          text not null,

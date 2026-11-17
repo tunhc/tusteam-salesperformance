@@ -376,8 +376,17 @@ def asin_inventory_rows(path):
     return rows
 
 
-def btr_rows(path, asin_to_sku):
-    """Born-to-run Alert export (header on row 2) → btr_offers rows."""
+def short_pic(name):
+    """Full Vietnamese name in the Alert file → the dashboard's 2-word PIC [Tên + Họ]: "Lâm Anh Thư" → "Thư Lâm"."""
+    w = (txt(name) or "").split()
+    return f"{w[-1]} {w[0]}" if len(w) > 1 else (w[0] if w else None)
+
+
+def btr_rows(path, asin_to_sku, manager="Nguyen Tu"):
+    """Born-to-run Alert export (header on row 2) → btr_offers rows.
+    Keeps the rows of one Sales Manager (column "Sales Manager", blank = all) that already have a Sell-through
+    start date: rows not accepted, still waiting for the FC receipt ("TBD") or DI rows not submitted have none.
+    One Offer can hold several ASINs, so a row is keyed by Offer + ASIN."""
     raw = pd.read_excel(path, header=None)
     m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", str(raw.iloc[0, 0]))
     updated = m.group(1) if m else None
@@ -393,11 +402,20 @@ def btr_rows(path, asin_to_sku):
         asin = txt(g(r, "ASIN"))
         if not re.fullmatch(r"B0[0-9A-Z]{8}", asin or ""):
             continue
+        if manager and "Sales Manager" in col and (txt(g(r, "Sales Manager")) or "").lower() != manager.lower():
+            continue
+        if pd.isna(g(r, "Sell-through start date")) or pd.isna(g(r, "Sell-through end date")):
+            continue
         st, en = pd.Timestamp(g(r, "Sell-through start date")).date(), pd.Timestamp(g(r, "Sell-through end date")).date()
         vr, est, cost, ret = num(g(r, "Vendor responsible quantity")), num(g(r, "Est. Qty Sold by ST End")), num(g(r, "Product cost")), num(g(r, "Est. Retention End"))
         unsold = vr - est
-        out.append({"offer_id": txt(g(r, "Offer")), "asin": asin, "sku": asin_to_sku.get(asin), "pic": txt(g(r, "Sales PIC")) or None,
-                    "product_title": txt(g(r, "Product Title")) or None, "offer_name": txt(g(r, "Offer name")) or None,
+        out.append({"offer_id": txt(g(r, "Offer")), "asin": asin, "sku": asin_to_sku.get(asin), "pic": short_pic(g(r, "Sales PIC")),
+                    "sales_manager": txt(g(r, "Sales Manager")), "sales_channel": txt(g(r, "Sales Channel")),
+                    "submission_date": pd.Timestamp(g(r, "Submission date")).date() if not pd.isna(g(r, "Submission date")) else None,
+                    "po_count": num(g(r, "PO Count")) if "PO Count" in col else None,
+                    "retention_fees": num(g(r, "Retention fees"), None) if "Retention fees" in col else None,
+                    "retention_agreement_id": txt(g(r, "Retention fees agreement ID")),
+                    "product_title": re.sub(r"[\u200b-\u200d\ufeff]", "", txt(g(r, "Product Title")) or "").strip() or None, "offer_name": txt(g(r, "Offer name")) or None,
                     "offer_state": txt(g(r, "Offer state")) or None, "status": txt(g(r, "Status")) or None,
                     "st_start": st, "st_end": en, "as_of": en - timedelta(days=int(num(g(r, "Days Remaining")))),
                     "submitted_qty": num(g(r, "Submitted quantity")), "accepted_qty": num(g(r, "Accepted quantity")), "vendor_resp_qty": vr,
@@ -573,24 +591,27 @@ def write_month_targets(out_dir, target_path, month, followup_path, sheet):
     return monthly, weekly, skipped, no_pic
 
 
-BTR_COLS = ["offer_id", "asin", "sku", "pic", "product_title", "offer_name", "offer_state", "status", "st_start", "st_end", "as_of",
+BTR_COLS = ["offer_id", "asin", "sku", "pic", "sales_manager", "sales_channel", "submission_date", "po_count", "retention_fees",
+            "retention_agreement_id", "product_title", "offer_name", "offer_state", "status", "st_start", "st_end", "as_of",
             "submitted_qty", "accepted_qty", "vendor_resp_qty", "product_cost", "sold_qty", "est_sold_end", "est_retention",
             "retention_rate", "ad_spend", "promo_spend", "alert_level", "action_code", "link", "file_updated_at"]
 INV_COLS = ["sku", "asin", "asin_status", "dep", "salable_y4a", "salable_amz", "incoming_y4a", "incoming_amz", "snapshot_at"]
 
 
-def write_btr(out_dir, btr_path, inv_path):
+def write_btr(out_dir, btr_path, inv_path, manager="Nguyen Tu"):
     inv = asin_inventory_rows(inv_path) if inv_path else []
     if inv:
         body = "delete from asin_inventory;\n\n" + upsert_sql("asin_inventory", INV_COLS, inv, ["sku", "asin"])
         write_split(out_dir, "18_asin_inventory", body, header=f"-- {len(inv)} SKU × ASIN rows (SSO) · snapshot {inv[0]['snapshot_at']} · needs supabase_btr.sql")
     if btr_path:
         a2s = {r["asin"]: r["sku"] for r in inv}
-        rows = btr_rows(btr_path, a2s)
-        body = upsert_sql("btr_offers", BTR_COLS, rows, ["offer_id"]) + "\n\nupdate btr_offers set loaded_at = now();"
-        if not inv:  # map ASIN → SKU from what is already loaded
-            body += "\n\nupdate btr_offers b set sku = i.sku from asin_inventory i where b.sku is null and i.asin = b.asin;"
-        write(out_dir, "17_btr_offers.sql", body, header=f"-- {len(rows)} BTR offers · file {rows[0]['file_updated_at'] if rows else '?'} · needs supabase_btr.sql")
+        rows = btr_rows(btr_path, a2s, manager)
+        body = upsert_sql("btr_offers", BTR_COLS, rows, ["offer_id", "asin"]) + "\n\nupdate btr_offers set loaded_at = now();"
+        # ASIN → SKU: the follow-up's ASIN (skus) first, then the per-ASIN inventory
+        body += "\n\nupdate btr_offers b set sku = s.sku from skus s where s.asin = b.asin and b.sku is distinct from s.sku;"
+        body += "\n\nupdate btr_offers b set sku = i.sku from asin_inventory i where b.sku is null and i.asin = b.asin;"
+        write(out_dir, "17_btr_offers.sql", body, header=f"-- {len(rows)} BTR ASINs (Sales Manager {manager or 'all'}, with a Sell-through start date) · "
+              f"file {rows[0]['file_updated_at'] if rows else '?'} · needs supabase_btr.sql")
 
 
 def load_target(path, team):
@@ -1075,6 +1096,7 @@ def main():
     ap.add_argument("--pic-followup", help="with --month-target: follow-up workbook whose tracking sheet gives the PIC per SKU")
     ap.add_argument("--pic-sheet", default="Tracking_0925", help="with --month-target: sheet of --pic-followup")
     ap.add_argument("--btr", help="Born-to-run Alert export (.xlsx) → 17_btr_offers.sql")
+    ap.add_argument("--btr-manager", default="Nguyen Tu", help="with --btr: keep the rows of this Sales Manager (empty string = all)")
     ap.add_argument("--asin-inventory", help="Yes4All_US_Inventory_<date>.xlsx (sheet report) → 18_asin_inventory.sql (per SKU × ASIN)")
     ap.add_argument("--asin-backfill", nargs="+", help="exports with an ASIN column, oldest first → 20_sales_asin_backfill.sql (sales_asin_daily)")
     ap.add_argument("--asin-skus", help="with --asin-backfill: comma-separated SKUs (default: the SKUs in --btr)")
@@ -1115,10 +1137,10 @@ def main():
         return
     if (a.btr or a.asin_inventory or a.asin_backfill) and not a.followup:
         if a.btr or a.asin_inventory:
-            write_btr(a.out, a.btr, a.asin_inventory)  # BTR tab files only
+            write_btr(a.out, a.btr, a.asin_inventory, a.btr_manager)  # BTR tab files only
         if a.asin_backfill:
             skus = [x.strip() for x in (a.asin_skus or "").split(",") if x.strip()] or \
-                [r["sku"] for r in btr_rows(a.btr, {r["asin"]: r["sku"] for r in asin_inventory_rows(a.asin_inventory)}) if r["sku"]]
+                [r["sku"] for r in btr_rows(a.btr, {r["asin"]: r["sku"] for r in asin_inventory_rows(a.asin_inventory)}, a.btr_manager) if r["sku"]]
             rows = asin_daily_rows(a.asin_backfill, skus, date.fromisoformat(a.asin_from), date.fromisoformat(a.asin_to) if a.asin_to else None)
             body = f"select replace_sales_asin_days({lit(json.dumps(rows))}::jsonb, 'backfill');"
             write(a.out, "20_sales_asin_backfill.sql", body, header=f"-- {len(rows)} ASIN-day rows · {len(set(r['sku'] for r in rows))} SKUs · {rows[0]['date'] if rows else ''} → {rows[-1]['date'] if rows else ''} · needs supabase_btr.sql")
