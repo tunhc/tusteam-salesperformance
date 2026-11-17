@@ -290,10 +290,14 @@ function compute(){
   const rows = [];
   for(const sku of skus){
     const k = info.get(sku) || {}, s = sell.get(sku) || {}, L = bySku.get(sku) || [], As = asinBy.get(sku) || [];
-    // SALABLE AMZ = Amazon sellable on-hand (04_AMZ_sellable details, sum over the SKU's ASINs); SKU without ASIN rows → inv_amz of the file
+    // SALABLE AMZ = Amazon sellable on-hand (AMZ sellable inv details col I, sum over the SKU's ASINs); SKU without ASIN rows → inv_amz of the file
     const amzSrc = As.some(a => a.sellable_on_hand_units != null) ? 'asin' : 'file';
     const amz = Math.max(0, amzSrc === 'asin' ? As.reduce((t, a) => t + (+a.sellable_on_hand_units || 0), 0) : +s.inv_amz || 0);
     const y4a = Math.max(0, +s.inv_y4a || 0), tot = amz + y4a;
+    // Amazon sellable IN-TRANSIT (col M of "AMZ sellable inv details"), shown apart from on-hand; the part the incoming
+    // tracker does not list as shipped is already an incoming line "AMZ in-transit (VC)" (arrives this week)
+    const amzIt = Math.max(0, As.some(a => a.sellable_in_transit_units != null) ? As.reduce((t, a) => t + (+a.sellable_in_transit_units || 0), 0) : +s.amz_in_transit || 0);
+    const amzItNew = Math.max(0, +s.amz_in_transit_new || 0);
     const incA = Array(HZN).fill(0), incY = Array(HZN).fill(0);
     L.forEach(l => { const i = Math.floor(daysBetween(wk0, l.eta) / 7); if(i >= HZN) return; (l.source === 'AMZ' ? incA : incY)[Math.max(0, i)] += l.qty; });
     // demand (forecast)
@@ -357,7 +361,7 @@ function compute(){
     if(moc3 != null && moc3 > 6) flags.push({r: 4, t: `Tồn cao: MOC 3M ${moc3.toFixed(1)} tháng`, c: 'gray'});
     flags.sort((a, b) => a.r - b.r);
     rows.push({sku, name: k.productName || s.product_name || (L[0] || {}).product_name || '', pl: k.mainPL || (L[0] || {}).product_line || '', subPl: k.subPL || '', lifecycle: k.lifecycle || '', pic: k.pic || 'Unassigned',
-      dept: s.department || (L[0] || {}).department || '', amz, amzSrc, y4a, tot, incA, incY,
+      dept: s.department || (L[0] || {}).department || '', amz, amzSrc, amzIt, amzItNew, y4a, tot, incA, incY,
       incAmzTot: sum(L.filter(l => l.source === 'AMZ')), incY4aTot: sum(L.filter(l => l.source === 'Y4A')),
       delayQty: sum(dl), overdueQty: sum(od), maxSlip: dl.length ? Math.max(...dl.map(l => l.slip || 0)) : 0, maxOverdue: od.length ? Math.max(...od.map(l => l.overdue)) : 0,
       nA, nY, f, hist, fcW, fc4, act4, woc, wocT, pA, pT, risk, why, riskRank: rank, lines: L, asins: As,
@@ -426,9 +430,9 @@ INV.render = async function(){
   const h = H();
   if(!host.dataset.built){ build(host); host.dataset.built = '1'; }
   if(!IV.data || IV.loadedFor !== IV.country){
-    host.querySelector('#ivBody').innerHTML = '<tr><td colspan="14" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming và số bán…</td></tr>';
+    host.querySelector('#ivBody').innerHTML = '<tr><td colspan="15" style="padding:18px;color:var(--muted)">Đang tải tồn kho, incoming và số bán…</td></tr>';
     try { await load(); }
-    catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="14" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
+    catch(e){ IV.data = null; host.querySelector('#ivBody').innerHTML = `<tr><td colspan="15" style="padding:18px;color:var(--muted)">${h.missingSchema(e) ? 'Chưa có bảng: chạy <b>supabase_inventory_tracking.sql</b> trong SQL Editor.' : 'Không tải được: ' + h.esc(e.message || e)}</td></tr>`; return; }
     compute();
     if(IV.pic && !IV.rows.some(r => r.pic === IV.pic)) IV.pic = '';
     trimFilters();
@@ -485,7 +489,8 @@ function build(host){
         <th data-k="pic">PIC</th><th data-k="pl">Main PL</th><th data-k="sku">SKU</th>
         <th data-k="tot" class="num" title="Tồn sellable on-hand kho Amazon + kho Y4A">SALABLE AMZ+Y4A</th>
         <th data-k="y4a" class="num" title="Tồn sellable kho Y4A (06_ USA_Sellable INV)">SALABLE Y4A</th>
-        <th data-k="amz" class="num" title="Amazon sellable on-hand (04_AMZ_sellable details, cộng các ASIN của SKU). SKU không có dòng ASIN: dùng tồn AMZ của 06_ USA_Sellable INV.">SALABLE AMZ</th>
+        <th data-k="amz" class="num" title="Amazon sellable on-hand (AMZ sellable inv details, cột I, cộng các ASIN của SKU)">SALABLE AMZ</th>
+        <th data-k="amzIt" class="num" title="Amazon sellable in-transit (AMZ sellable inv details, cột M): hàng đã xuất tới kho Amazon, chưa nhận. Số nhỏ = phần chưa có trong incoming tracker, được tính như hàng về tuần này; phần còn lại đã nằm trong incoming (Pipeline / In land transit) theo ETA của lô">AMZ IN-TRANSIT</th>
         <th data-k="inc4" class="num" title="Các lô chưa đến hạn có ETA trong tuần hiện tại + 3 tuần kế tiếp (tuần bắt đầu Chủ nhật), theo ETA đang chọn và kho đến đang lọc">Incoming 4W</th>
         <th data-k="moc26" class="num" data-rule="1">MOC <span class="iv-yr">${yr}</span></th><th data-k="moc3" class="num" data-rule="1">MOC 3M</th>
         <th data-k="ams26" class="num" data-rule="1">AMS <span class="iv-yr">${yr}</span></th><th data-k="ams3" class="num" data-rule="1">AMS 3M</th>
@@ -586,7 +591,7 @@ function paint(){
     ['Incoming', fi(tot) + ' u', `${new Set(lines.map(l => l.sku)).size} SKU · AMZ ${fi(sumQ(lines.filter(l => l.source === 'AMZ')))} / Y4A ${fi(sumQ(lines.filter(l => l.source === 'Y4A')))}`],
     ['ETA lùi so với ban đầu', fi(sumQ(dl)) + ' u', `${tot ? (sumQ(dl) / tot * 100).toFixed(0) : 0}% units · ${new Set(dl.map(l => l.sku)).size} SKU · lùi TB ${slipAvg.toFixed(0)} ngày`],
     ['Quá ETA, chưa về', fi(sumQ(od)) + ' u', `${new Set(od.map(l => l.sku)).size} SKU · quá TB ${odAvg.toFixed(0)} ngày`],
-    ['Tồn sellable', fi(sum(rows, r => r.tot)) + ' u', `AMZ ${fi(sum(rows, r => r.amz))} · Y4A ${fi(sum(rows, r => r.y4a))}`],
+    ['Tồn sellable', fi(sum(rows, r => r.tot)) + ' u', `AMZ ${fi(sum(rows, r => r.amz))} · Y4A ${fi(sum(rows, r => r.y4a))} · AMZ in-transit ${fi(sum(rows, r => r.amzIt))} (${fi(sum(rows, r => r.amzItNew))} chưa có trong incoming)`],
     ['Nguy cơ OOS (AMZ + Y4A)', `${oos2 + oos8} SKU`, `${oos2} SKU ≤ 2 tuần · ${oos8} SKU trong 8 tuần · mất ~${fi(sum(rows.filter(r => r.oosWk !== null && r.oosWk < 8), r => r.lost))} u / ${HZN} tuần`],
     ['Forecast', accRows.length ? (acc * 100).toFixed(0) + '%' : '—', accRows.length ? 'độ chính xác backtest · ' + Object.entries(mix).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m} ${n}`).join(', ') : 'chưa có số bán'],
   ].map(([k, v, s]) => `<div class="kpi"><div class="lbl">${k}</div><div class="val">${v}</div><div class="sub">${s}</div></div>`).join('');
@@ -877,13 +882,14 @@ function paintTable(rows){
       <td>${h.esc(r.pic)}</td><td>${h.esc(r.pl)}${r.subPl && r.subPl !== 'Unclassified' ? `<span class="vs">${h.esc(r.subPl)}</span>` : ''}</td>
       <td>${link(r.sku)}<span class="vs" title="${h.esc(r.name)}">${h.esc(r.name.slice(0, 34))}</span></td>
       <td class="num"${stockHeat(r)} title="${r.ams3 > 0 ? 'Đủ bán ' + (r.tot / r.ams3).toFixed(1) + ' tháng theo AMS 3M · đỏ ≈ 0 · xanh ≥ 2 tháng' : 'Chưa có AMS 3M: không tô màu'}"><b>${fi(r.tot)}</b></td><td class="num">${fi(r.y4a)}</td>
-      <td class="num${r.amz <= 0 ? ' iv-zero' : ''}"${r.amzSrc === 'file' ? ' title="SKU không có dòng ASIN trong 04_AMZ_sellable details: dùng tồn AMZ của 06_ USA_Sellable INV"' : ''}>${fi(r.amz)}</td>
+      <td class="num${r.amz <= 0 ? ' iv-zero' : ''}"${r.amzSrc === 'file' ? ' title="SKU không có dòng ASIN trong AMZ sellable inv details: dùng tồn AMZ của Sellable INV"' : ''}>${fi(r.amz)}</td>
+      <td class="num" title="${r.amzIt ? h.esc(`In-transit ${fi(r.amzIt)} u · ${r.amzItNew ? fi(r.amzItNew) + ' u chưa có trong incoming → tính về tuần này · ' : ''}${fi(r.amzIt - r.amzItNew)} u đã có trong incoming (theo ETA lô)`) : ''}">${r.amzIt ? fi(r.amzIt) + (r.amzItNew ? `<span class="vs">+${fi(r.amzItNew)} về tuần này</span>` : '') : '—'}</td>
       <td class="num"${incHeat(r)} title="${h.esc(incTitle(r))}">${r.inc4 ? fi(r.inc4) : '—'}</td>
       ${mocCell(r.moc26, r.a26, true)}${mocCell(r.moc3, r.a3)}${amsCell(r.a26, 'AMS ' + yr, amsHeat(r.ams26))}${amsCell(r.a3, 'AMS 3M')}
       <td class="num">${r.mtd == null ? '—' : fi(r.mtd)}</td>
       ${oosCell(r)}
       <td class="iv-flag" title="${h.esc(r.why.join(' · '))}">${r.flags.length ? r.flags.map(f => `<span class="badge ${f.c}">${h.esc(f.t)}</span>`).join('') : '<span class="badge green">OK</span>'}</td></tr>`).join('')
-    || '<tr><td colspan="14" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: chờ flow tự động mỗi giờ)') + '.</td></tr>';
+    || '<tr><td colspan="15" style="padding:18px;color:var(--muted)">Không có SKU nào khớp bộ lọc' + (IV.data.inc.length ? '' : ' (chưa có dữ liệu: chờ flow tự động mỗi giờ)') + '.</td></tr>';
   document.querySelectorAll('#ivBody tr[data-sku]').forEach(t => t.onclick = () => { IV.sel = t.dataset.sku; document.querySelectorAll('#ivBody tr.sel').forEach(x => x.classList.remove('sel')); t.classList.add('sel'); detail(); document.getElementById('ivDetail').scrollIntoView({behavior: 'smooth', block: 'start'}); });
   document.querySelectorAll('#ivTable thead th[data-k]').forEach(th => th.setAttribute('aria-sort', th.dataset.k === IV.sort ? (IV.dir > 0 ? 'ascending' : 'descending') : 'none'));
 }
@@ -1049,7 +1055,7 @@ function detail(){
   const W = IV.weeks, wl = W.map(md);
   host.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Chart theo SKU · ${link(r.sku)} · ${h.esc(r.name)}</h3>
       <div class="fld"><label for="ivSkuPick" style="font-size:10.5px;font-weight:800;color:var(--muted);display:block">Chọn SKU</label><select id="ivSkuPick">${filtered().slice().sort((a, b) => a.sku.localeCompare(b.sku)).map(x => `<option value="${h.esc(x.sku)}"${x.sku === r.sku ? ' selected' : ''}>${h.esc(x.sku)} · ${h.esc(x.name.slice(0, 40))}</option>`).join('')}</select></div></div>
-    <div class="hint">Tồn AMZ <b>${fi(r.amz)}</b> · tồn Y4A <b>${fi(r.y4a)}</b> · AMS 3M <b>${r.ams3 == null ? '—' : r.ams3.toFixed(1)}</b> · MOC 3M <b>${f1(r.moc3)}</b> · ${h.esc(r.pl)}${r.pic ? ' · PIC ' + h.esc(r.pic) : ''} · ${r.f ? `Forecast: ${h.esc(r.model)}${r.acc != null ? ', chính xác backtest ' + (r.acc * 100).toFixed(0) + '%' : ''} (so sánh: ${Object.entries(r.f.scores).sort((a, b) => a[1] - b[1]).map(([m, s]) => m + ' ' + Math.max(0, (1 - s) * 100).toFixed(0) + '%').join(', ')})` : 'Chưa có số bán để forecast'}
+    <div class="hint">Tồn AMZ <b>${fi(r.amz)}</b> · AMZ in-transit <b>${fi(r.amzIt)}</b>${r.amzItNew ? ` (${fi(r.amzItNew)} chưa có trong incoming, tính về tuần này)` : ''} · tồn Y4A <b>${fi(r.y4a)}</b> · AMS 3M <b>${r.ams3 == null ? '—' : r.ams3.toFixed(1)}</b> · MOC 3M <b>${f1(r.moc3)}</b> · ${h.esc(r.pl)}${r.pic ? ' · PIC ' + h.esc(r.pic) : ''} · ${r.f ? `Forecast: ${h.esc(r.model)}${r.acc != null ? ', chính xác backtest ' + (r.acc * 100).toFixed(0) + '%' : ''} (so sánh: ${Object.entries(r.f.scores).sort((a, b) => a[1] - b[1]).map(([m, s]) => m + ' ' + Math.max(0, (1 - s) * 100).toFixed(0) + '%').join(', ')})` : 'Chưa có số bán để forecast'}
     ${r.why.length ? '<br>Gợi ý: ' + r.why.map(w => h.esc(w)).join(' · ') : ''}
     ${r.asins.length ? '<br>Vendor Central: ' + r.asins.map(a => `${h.esc(a.asin)} — on hand ${fi(a.sellable_on_hand_units)}, in transit ${fi(a.sellable_in_transit_units)}, open PO ${fi(a.open_po_units)}, aged 90+ ${fi(a.aged_90_units)}, confirm ${a.vendor_confirmation_rate == null ? '—' : (a.vendor_confirmation_rate * 100).toFixed(0) + '%'}, fill ${a.receive_fill_rate == null ? '—' : (a.receive_fill_rate * 100).toFixed(0) + '%'}, OOS ${a.procurable_oos_rate == null ? '—' : (a.procurable_oos_rate * 100).toFixed(1) + '%'}`).join('<br>') : ''}</div>
     <div id="ivDPlot" class="plot" style="height:340px"></div>
@@ -1079,7 +1085,7 @@ function exportXlsx(){
   rows.forEach(r => { if(r.inc4 == null) r.inc4 = sumQ(r.lines.filter(l => srcOk(l) && typeof l.bucket === 'number' && l.bucket < 4)); });
   const n1 = v => v == null || !isFinite(v) ? '' : +v.toFixed(1);
   const a = rows.map(r => ({'PIC': r.pic, 'Main PL': r.pl, 'Old Product Line': r.subPl, 'SKU': r.sku, 'Product': r.name, 'Lifecycle': r.lifecycle,
-    'SALABLE AMZ+Y4A': r.tot, 'SALABLE Y4A': r.y4a, 'SALABLE AMZ (on-hand)': r.amz, 'SALABLE AMZ source': r.amzSrc === 'asin' ? '04_AMZ_sellable details' : '06_USA_Sellable INV',
+    'SALABLE AMZ+Y4A': r.tot, 'SALABLE Y4A': r.y4a, 'SALABLE AMZ (on-hand)': r.amz, 'AMZ in-transit': r.amzIt, 'AMZ in-transit not in incoming': r.amzItNew, 'SALABLE AMZ source': r.amzSrc === 'asin' ? 'AMZ sellable inv details' : 'Sellable INV',
     'Incoming 4W': r.inc4, ['MOC ' + yr]: n1(r.moc26), ['AMS ' + yr]: n1(r.ams26), 'MOC 3M': n1(r.moc3), 'AMS 3M': n1(r.ams3), 'MTD Sale': r.mtd == null ? '' : r.mtd,
     ['AMS ' + yr + ' note']: r.a26 ? r.a26.note || `loại ${r.a26.nOos} ngày nghi OOS / ${r.a26.nData} ngày có dữ liệu` : '', 'AMS 3M note': r.a3 ? r.a3.note || `loại ${r.a3.nOos} ngày nghi OOS / ${r.a3.nData} ngày có dữ liệu` : '',
     'Flag': r.flags.map(f => f.t).join(' · '),

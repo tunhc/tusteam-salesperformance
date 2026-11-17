@@ -2,9 +2,9 @@
 //
 // Loads an Excel file and writes it to the database. Four kinds of file, told apart by their sheets:
 //
-//  • NEW (one source of truth since Nov-2026): "For_Sales_Incoming_Tracker.xlsx"
-//    (sheets 01_AMZ_incoming_details, 02_Y4A_incoming_details, 04_AMZ_sellable details,
-//    06_ USA_Sellable INV, 07_INT Sellable INV). Parsed by tracker.ts and written through the SQL functions
+//  • TRACKER (one source of truth since Nov-2026): "USA_SSO_For_Sale_Incoming_tracker.xlsx" (sheets AMZ_Incoming_details,
+//    Y4A_Incoming_details, Sellable INV, AMZ sellable inv details) or the earlier "For_Sales_Incoming_Tracker.xlsx"
+//    (01_AMZ_incoming_details, 02_Y4A_incoming_details, 04_AMZ_sellable details, 06_/07_ Sellable INV). USA only by default. Parsed by tracker.ts and written through the SQL functions
 //    (supabase_inventory_tracking.sql): inv_upload() per sheet, then inv_upload_finish(), which
 //    also refreshes skus.salable_*, inventory_snapshot, incoming_weekly and asin_inventory.
 //  • KEEPA export (US_Keepa_Raw_Auto.xlsx): column E = ASIN, column Z = "Buy Box: Current" → keepa_prices
@@ -31,7 +31,7 @@
 //                        or MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET with Files.Read.All),
 //                        or a Google Sheets link shared "Anyone with the link" (exported as .xlsx)
 // Optional: INVENTORY_SHEET (old format, default "report");
-//           INVENTORY_COUNTRIES (new format, e.g. "USA,CAN"; default all countries in the file).
+//           INVENTORY_COUNTRIES (tracker, e.g. "USA,CAN"; default USA).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { makeInventoryParser } from "./inventory.ts";
 import { isTracker, parseTracker } from "./tracker.ts";
@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
 
     // ---------------- NEW format: For_Sales_Incoming_Tracker ----------------
     if (tracker) {
-      const list = (Deno.env.get("INVENTORY_COUNTRIES") || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+      const list = (Deno.env.get("INVENTORY_COUNTRIES") || "USA").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
       const { rows, warn } = await parseTracker(bytes, list.length ? new Set(list) : null);
       const counts = Object.fromEntries(Object.entries(rows).map(([k, v]) => [k, v.length]));
       if (!rows.amz_incoming?.length && !rows.y4a_incoming?.length && !rows.inventory_sellable?.length) {

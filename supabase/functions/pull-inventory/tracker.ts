@@ -1,4 +1,13 @@
-// Parsing of the new "For_Sales_Incoming_Tracker" workbook. No Deno APIs (tested with Node).
+// Parsing of the "For_Sales_Incoming_Tracker" workbook. No Deno APIs (tested with Node).
+// Two layouts are read:
+//   • USA_SSO_For_Sale_Incoming_tracker (from 17/11/2026): sheets AMZ_Incoming_details, Y4A_Incoming_details,
+//     Sellable INV, "AMZ sellable inv details" (+ two pivot sheets, ignored); row 1 "Page refreshed at …", header on row 2;
+//     Sellable INV has the dates per row (y4a_log_date / amz_log_date). USA only.
+//   • the earlier one: 01_AMZ_incoming_details, 02_Y4A_incoming_details, 04_AMZ_sellable details,
+//     06_ USA_Sellable INV / 07_INT Sellable INV; header on row 1 (Sellable: dates on row 1, header on row 2).
+// The header row is found by its column names, so both work.
+// Stock: AMZ = sellable_on_hand_inventory_units per ASIN (col I of "AMZ sellable inv details"), summed per SKU in SQL;
+// Y4A = inv_y4a of Sellable INV (col E). inv_amz of Sellable INV is kept as read but replaced in inv_upload_finish().
 // Writes through inv_upload() / inv_upload_finish() (supabase_inventory_tracking.sql); the mapping
 // below is the single definition of how each sheet becomes table rows.
 //
@@ -52,20 +61,25 @@ const amzAsin = (rows: Obj[]) => rows.map((r) => ({
 
 function sellable(arrays: Cell[][]) {
   const out: Record<string, unknown>[] = [];
-  const hi = arrays.findIndex((r) => r && r.includes("sku") && r.includes("inv_amz"));
+  const hi = arrays.findIndex((r) => r && r.includes("sku") && r.includes("inv_y4a"));
   if (hi < 0) return out;
   const h = arrays[hi], c = (k: string) => h.indexOf(k), top = arrays[hi - 1] || [];
-  const y4aAt = xlDate(top[c("inv_y4a")]), amzAt = xlDate(top[c("inv_amz")]);
+  // as-of dates: per row (new layout) or on the row above the header (earlier layout)
+  const y4aTop = xlDate(top[c("inv_y4a")]), amzTop = c("inv_amz") >= 0 ? xlDate(top[c("inv_amz")]) : null;
   for (const r of arrays.slice(hi + 1)) {
     const sku = xlTxt(r[c("sku")]), country = xlTxt(r[c("country")]);
     if (!sku || !country) continue;
     out.push({ country, sku, product_name: xlTxt(r[c("product_name")]), department: xlTxt(r[c("department")]),
-      inv_y4a: xlNum(r[c("inv_y4a")]) || 0, inv_amz: xlNum(r[c("inv_amz")]) || 0, y4a_as_of: y4aAt, amz_as_of: amzAt });
+      inv_y4a: xlNum(r[c("inv_y4a")]) || 0, inv_amz: c("inv_amz") >= 0 ? xlNum(r[c("inv_amz")]) || 0 : 0,
+      y4a_as_of: (c("y4a_log_date") >= 0 ? xlDate(r[c("y4a_log_date")]) : null) || y4aTop,
+      amz_as_of: (c("amz_log_date") >= 0 ? xlDate(r[c("amz_log_date")]) : null) || amzTop });
   }
   return out;
 }
 
-export const isTracker = (sheetNames: string[]) => sheetNames.some((n) => /^01_?AMZ_incoming/i.test(n.trim()));
+const RX = { amz: /^(01_?)?AMZ_incoming_details$/i, y4a: /^(02_?)?Y4A_incoming_details$/i, asin: /^(04_?)?AMZ[ _]sellable( inv)?[ _]details$/i,
+  sellUsa: /^((06_?\s*USA_?)?Sellable INV)$/i, sellInt: /^07_?\s*INT_?Sellable INV$/i };
+export const isTracker = (sheetNames: string[]) => sheetNames.some((n) => RX.amz.test(n.trim()));
 
 const COLS = Array.from({ length: 60 }, (_, i) => i);
 
@@ -81,19 +95,21 @@ export async function parseTracker(bytes: Uint8Array, countries: Set<string> | n
     await readSheetRows(bytes, (h) => { rows.push(h.map((x) => (x === "" ? null : x))); return COLS; }, (c) => rows.push(c), name, wb);
     return rows;
   };
+  // rows as objects keyed by the header row: the first of the top rows that has "country" and "sku" or "asin"
   const objects = async (name: string | undefined): Promise<Obj[]> => {
     const a = await arrays(name);
-    if (!a.length) return [];
-    const head = a[0].map((x) => (x === null || x === undefined ? "" : String(x)));
-    return a.slice(1).map((r) => { const o: Obj = {}; head.forEach((k, i) => { if (k) o[k] = r[i] ?? null; }); return o; });
+    const hi = a.slice(0, 6).findIndex((r) => r && r.includes("country") && (r.includes("sku") || r.includes("asin")));
+    if (hi < 0) return [];
+    const head = a[hi].map((x) => (x === null || x === undefined ? "" : String(x)));
+    return a.slice(hi + 1).map((r) => { const o: Obj = {}; head.forEach((k, i) => { if (k) o[k] = r[i] ?? null; }); return o; });
   };
   const warn: string[] = [];
   const rows: TrackerRows = {};
   const keep = <T extends Record<string, unknown>>(l: T[]) => (countries ? l.filter((r) => countries.has(String(r.country))) : l);
-  const sA = find(/^01_?AMZ_incoming/i), sY = find(/^02_?Y4A_incoming/i), sZ = find(/^04_?AMZ_sellable/i);
+  const sA = find(RX.amz), sY = find(RX.y4a), sZ = find(RX.asin);
   if (sA) rows.amz_incoming = keep(incoming(await objects(sA), "AMZ")); else warn.push("Không thấy sheet 01_AMZ_incoming_details");
   if (sY) rows.y4a_incoming = keep(incoming(await objects(sY), "Y4A")); else warn.push("Không thấy sheet 02_Y4A_incoming_details");
-  const sell = [...sellable(await arrays(find(/^06_?\s*USA_?Sellable/i))), ...sellable(await arrays(find(/^07_?\s*INT_?Sellable/i)))];
+  const sell = [...sellable(await arrays(find(RX.sellUsa))), ...sellable(await arrays(find(RX.sellInt)))];
   if (sell.length) rows.inventory_sellable = keep(sell); else warn.push("Không thấy sheet 06/07 Sellable INV");
   if (sZ) rows.amz_asin = keep(amzAsin(await objects(sZ)));
   return { rows, warn, sheets: names };
