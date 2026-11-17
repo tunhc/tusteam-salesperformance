@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ETA Sellable · Yes4All</title>
+<meta name="description" content="Incoming Tracker và ETA Sellable: cách tính tồn kho khả dụng, ETA sellable theo 4 chặng, pending PO, physical status và cách tab Inventory Tracking dùng các con số.">
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<meta name="theme-color" content="#002859">
+<style>
+:root{
+  --navy:#002859; --navy-2:#0B3E7A; --orange:#FF7000; --orange-dark:#E06400; --orange-bg:#FFF3EA;
+  --ink:#1B2733; --muted:#66707C; --line:#E4E5E6; --bg:#F6F7F8; --card:#FFFFFF;
+  --green:#1E8E5A; --green-bg:#E7F5EE; --red:#D64545; --red-bg:#FBEAEA; --amber:#8A6508; --amber-bg:#FBF3DF;
+  --shadow:0 2px 10px rgba(0,40,89,.07);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Calibri, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.6}
+header.top{background:linear-gradient(120deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;padding:22px 16px}
+header.top .in{max-width:1040px;margin:0 auto}
+header.top a.back{color:#FFD2AE;text-decoration:none;font-size:13px;font-weight:700}
+header.top h1{margin:6px 0 4px;font-size:28px;line-height:1.2}
+header.top p{margin:0;color:#D6E0EE;max-width:760px}
+.src{margin-top:12px;font-size:13px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 12px;display:inline-block;max-width:100%;overflow-wrap:anywhere}
+.src a{color:#fff;font-weight:700}
+.wrap{max-width:1040px;margin:0 auto;padding:20px 16px 40px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
+nav.toc{position:sticky;top:16px;align-self:start;font-size:13.5px}
+nav.toc b{display:block;color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+nav.toc a{display:block;color:var(--navy);text-decoration:none;padding:4px 0 4px 10px;border-left:2px solid var(--line)}
+nav.toc a:hover{border-left-color:var(--orange);color:var(--orange-dark)}
+main section{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;margin-bottom:16px;scroll-margin-top:12px}
+h2{margin:0 0 10px;color:var(--navy);font-size:20px}
+h3{margin:16px 0 6px;color:var(--navy);font-size:16px}
+p{margin:6px 0}
+ul,ol{margin:6px 0;padding-left:22px}
+li{margin:3px 0}
+code,.f{font-family:Consolas, "SFMono-Regular", Menlo, monospace;font-size:13px;background:#EEF1F5;border-radius:6px;padding:1px 6px}
+pre.f{display:block;padding:12px 14px;white-space:pre-wrap;line-height:1.55;overflow-x:auto;border-left:3px solid var(--orange)}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}
+th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+th{background:#F2F4F7;color:var(--navy);font-weight:700}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tw{overflow-x:auto}
+.note{border-radius:10px;padding:10px 14px;margin:10px 0;font-size:14px}
+.note.warn{background:var(--amber-bg);border-left:4px solid #B8860B}
+.note.info{background:#EAF2FB;border-left:4px solid var(--navy-2)}
+.note.ok{background:var(--green-bg);border-left:4px solid var(--green)}
+.note.bad{background:var(--red-bg);border-left:4px solid var(--red)}
+.pill{display:inline-block;font-size:12px;font-weight:800;padding:1px 8px;border-radius:10px;background:var(--orange-bg);color:var(--orange-dark)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.box{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.box h3{margin-top:0}
+.timeline{display:flex;gap:0;margin:10px 0;font-size:13px;flex-wrap:wrap}
+.timeline div{flex:1 1 120px;padding:8px 10px;border-top:4px solid var(--navy-2);background:#F7F9FC}
+.timeline div:nth-child(2){border-top-color:var(--orange)}
+.timeline div:nth-child(3){border-top-color:#B8860B}
+.timeline div:nth-child(4){border-top-color:#1E8E5A}
+.timeline div:nth-child(5){border-top-color:var(--green);background:var(--green-bg)}
+.st{display:inline-block;font-size:12px;font-weight:800;padding:1px 8px;border-radius:10px}
+.st.g{background:var(--green-bg);color:var(--green)}.st.a{background:var(--amber-bg);color:var(--amber)}.st.r{background:var(--red-bg);color:var(--red)}
+.timeline b{display:block;color:var(--navy)}
+footer{max-width:1040px;margin:0 auto;padding:0 16px 30px;color:var(--muted);font-size:13px}
+footer a{color:var(--navy);font-weight:700;overflow-wrap:anywhere}
+@media (max-width:820px){
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:static;background:var(--card);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow)}
+  .grid2{grid-template-columns:1fr}
+      main section{padding:16px}
+}
+</style>
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="back" href="./#inv">← Về Inventory Tracking</a>
+  <h1>Incoming Tracker &amp; ETA Sellable</h1>
+  <p>Tồn kho khả dụng được tính thế nào, ETA sellable được dựng từ đâu, trạng thái và mức trễ của một lô hàng nghĩa là gì, và cách tab Inventory Tracking dùng các con số này.</p>
+  <div class="src">Nguồn: tài liệu “ETA Sellable Logic” (Incoming Tracker &amp; ETA Sellable Logic, 17 slide) · file <b>USA_SSO_For Sale_Incoming tracker.xlsx</b> · Leadtime_SLA_E2E.xlsx · Amazon CDS report</div>
+</div></header>
+
+<div class="wrap">
+<nav class="toc" aria-label="Mục lục">
+  <b>Mục lục</b>
+  <a href="#muc-tieu">1. Mục tiêu</a>
+  <a href="#sellable">2. Tồn kho khả dụng</a>
+  <a href="#eta">3. ETA sellable 4 chặng</a>
+  <a href="#nguon">4. Ưu tiên nguồn dữ liệu</a>
+  <a href="#update">5. Hai điểm cập nhật</a>
+  <a href="#pending">6. Pending PO &amp; FIFO</a>
+  <a href="#status">7. Trạng thái &amp; mức trễ</a>
+  <a href="#dispute">8. Quy tắc 6 tháng</a>
+  <a href="#wayfair">9. Wayfair</a>
+  <a href="#dashboard">10. Cách dashboard tính</a>
+  <a href="#avc">11. Tự kiểm tra trên AVC</a>
+  <a href="#thuat-ngu">12. Thuật ngữ</a>
+</nav>
+
+<main>
+<section id="muc-tieu">
+  <h2>1. Mục tiêu của Incoming Tracker</h2>
+  <ul>
+    <li>Sales biết <b>SKU / ASIN dự kiến tăng tồn vào tuần nào</b>, với ETA sellable đáng tin hơn ETA cam kết ban đầu của xưởng.</li>
+    <li>Khi hàng trễ, Sales thấy <b>lô hàng đang kẹt ở chặng nào</b> để phối hợp Ops escalate với sàn.</li>
+    <li>Tracker gồm 3 kênh (AMZ, Y4A, Wayfair) và 2 ngành hàng SSO / SFO; file dashboard đang đọc là bản <b>USA · SSO</b>.</li>
+  </ul>
+  <div class="grid2">
+    <div class="box"><h3>Hàng về kho Amazon (AMZ)</h3><p>Các PO Amazon (AVC DI, AVC WH). Không kéo về sớm được; chỉ follow-up với Amazon / forwarder.</p></div>
+    <div class="box"><h3>Hàng về kho Y4A</h3><p>Container về kho Yes4All (BRE, NJ1). Mình chủ động được: có thể request kéo hàng về sớm.</p></div>
+  </div>
+</section>
+
+<section id="sellable">
+  <h2>2. Tồn kho khả dụng (Sellable) trên Amazon</h2>
+  <pre class="f">Total Sellable = Sellable On Hand Units + Sellable In Transit Units</pre>
+  <p>Nguồn: Report Inventory trên Amazon Vendor Central. Không tính hàng <b>Unsellable</b> (hỏng, móp bao bì, đang tạm giữ kiểm tra).</p>
+  <div class="grid2">
+    <div class="box"><h3>Sellable On Hand</h3><p>Hàng đã nằm trên kệ trong kho Fulfillment Center (FC) của Amazon, đã quét mã xong. Khả dụng 100%: Amazon lấy hàng và giao cho khách ngay.</p></div>
+    <div class="box"><h3>Sellable In Transit</h3><p>Hàng <b>đã vào mạng lưới kho Amazon</b> nhưng đang được xe Amazon điều chuyển giữa các FC (inter-FC transfer). Amazon <b>vẫn mở nút Add to Cart</b>, có thể ghi “In stock soon” hoặc lùi ngày giao 2–3 ngày.</p></div>
+  </div>
+  <div class="note warn"><b>Lưu ý:</b> phải cộng Sellable In Transit vào tồn khả dụng; bỏ sót cột này thì tồn bị đếm thiếu.</div>
+</section>
+
+<section id="eta">
+  <h2>3. ETA sellable tính theo 4 chặng</h2>
+  <div class="timeline">
+    <div><b>1 · Ship</b>Mới xuất xưởng</div>
+    <div><b>2 · Departure</b>Đã rời cảng xuất (POL)</div>
+    <div><b>3 · Arrival Port</b>Đã cập cảng đích (POD)</div>
+    <div><b>4 · Arrival WH</b>Đã tới cửa kho</div>
+    <div><b>5 · Sellable</b>Sẵn sàng bán</div>
+  </div>
+  <p><b>Quy tắc cốt lõi:</b> lấy mốc thời gian của <b>chặng xa nhất đã có dữ liệu</b>, rồi cộng lead time cấu hình (Leadtime_SLA_E2E) của các chặng còn lại.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Lô đã tới</th><th>ETA sellable = mốc của chặng đó +</th></tr></thead>
+    <tbody>
+      <tr><td>4 · Arrival WH</td><td><code>config_inbound</code></td></tr>
+      <tr><td>3 · Arrival Port</td><td><code>config_import</code></td></tr>
+      <tr><td>2 · Departure</td><td><code>config_pipeline</code> + <code>config_import</code></td></tr>
+      <tr><td>1 · Ship</td><td><code>config_prepipeline</code> + <code>config_pipeline</code> + <code>config_import</code></td></tr>
+    </tbody></table></div>
+  <p><code>config_import</code> = <code>config_inland_truck</code> + <code>config_inbound</code>. Kênh DI của Amazon dùng thẳng <code>config_import</code>; các kênh khác cộng từng phần <code>config_inland_truck</code> + <code>config_inbound</code>.</p>
+</section>
+
+<section id="nguon">
+  <h2>4. Ưu tiên nguồn dữ liệu ở mỗi chặng (Amazon)</h2>
+  <p>Mỗi chặng lấy <b>mốc thực tế (Actual)</b> trước; chưa có mới dùng <b>mốc dự kiến (Estimated)</b>.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Chặng</th><th>Ưu tiên 1 · Actual</th><th>Ưu tiên 2 · Estimated</th></tr></thead>
+    <tbody>
+      <tr><td>Ship (xưởng xuất)</td><td>Actual Cargo Delivery Date (CDS) → Actual Ship Date (POMS/PO)</td><td>Estimated Cargo Delivery Date (CDS) → Expected Ship Date (POMS)</td></tr>
+      <tr><td>Departure (cảng xuất)</td><td>ATD (POMS / Bill of Lading)</td><td>Carrier Estimated Departure (CDS) → Origin ETD (POMS / Booking)</td></tr>
+      <tr><td>Arrival Port (cảng đích)</td><td>Cargo Available / Confirmed Arrival (CDS)</td><td>Carrier Estimated Arrival (CDS) → ATA (POMS / BL)</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="update">
+  <h2>5. Hai điểm cập nhật quan trọng</h2>
+  <div class="grid2">
+    <div class="box"><h3>Dùng Amazon CDS report</h3><p>Trước đây ETA chủ yếu ước tính từ POMS, dữ liệu thiếu và chưa chuẩn. Nay lấy trực tiếp booking thực tế từ Amazon CDS (Carrier Delivery Service): ngày bàn giao hàng, ngày cập cảng, lịch tàu dự kiến của hãng; CDS thiếu mới dùng POMS, đối soát hằng ngày.</p>
+      <p class="pill">ETA bám lịch tàu thực tế, không phụ thuộc ngày cam kết ban đầu của xưởng</p></div>
+    <div class="box"><h3>Lead time theo Country × POL</h3><p>Lead time từng chặng là <b>median</b> theo từng cụm quốc gia × cảng xuất và từng kênh (Leadtime_SLA_E2E.xlsx), tách bờ Đông / bờ Tây USA, tính trên dữ liệu 365 ngày, cập nhật theo quý.</p></div>
+  </div>
+</section>
+
+<section id="pending">
+  <h2>6. Pending PO &amp; phân bổ FIFO</h2>
+  <ul>
+    <li><b>Pending PO</b> = PO còn <code>qty_remain &gt; 0</code> theo PO Item report trên AVC (sàn chưa nhận đủ 100%), cho DI Trung Quốc, DI Việt Nam và AVC WH.</li>
+    <li>Một PO-ASIN có thể tách thành nhiều lô (theo CDS). Số Amazon <b>đã nhận</b> được trừ vào <b>lô có ETA sớm nhất trước</b> (FIFO waterfall); phần còn lại mới là incoming. Mỗi ETA sellable là một dòng trong file.</li>
+    <li>Sales đọc cột <code>incoming_week</code> để biết tuần hàng thành sellable.</li>
+  </ul>
+  <h3>Ví dụ: PO 172 pcs, Amazon đã nhận 100 pcs</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Lô</th><th>ETA</th><th class="n">Qty gốc</th><th class="n">Trừ đã nhận</th><th class="n">Còn incoming</th></tr></thead>
+    <tbody>
+      <tr><td>Cont 1–4</td><td>06/09 – 14/09</td><td class="n">93</td><td class="n">93</td><td class="n">0</td></tr>
+      <tr><td>Cont 5</td><td>14/09</td><td class="n">29</td><td class="n">7</td><td class="n"><b>22</b></td></tr>
+      <tr><td>Cont 6–7</td><td>03/10</td><td class="n">20</td><td class="n">–</td><td class="n"><b>20</b></td></tr>
+      <tr><td>Cont 8</td><td>07/10</td><td class="n">30</td><td class="n">–</td><td class="n"><b>30</b></td></tr>
+    </tbody></table></div>
+  <p>Kết quả: 72 pcs còn về theo 3 mốc: 14/09 (22), 03/10 (20), 07/10 (30).</p>
+</section>
+
+<section id="status">
+  <h2>7. Trạng thái vật lý &amp; mức trễ</h2>
+  <h3>Physical status (lô đang ở đâu)</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Trạng thái</th><th>Nghĩa</th></tr></thead>
+    <tbody>
+      <tr><td><b>In production</b></td><td>Đang sản xuất tại xưởng, chưa bàn giao ra cảng.</td></tr>
+      <tr><td><b>Pre-pipeline</b></td><td>Đã đóng container, đang chờ ra cảng / chờ lên tàu.</td></tr>
+      <tr><td><b>Pipeline</b></td><td>Container đã rời cảng xuất (ATD), đang trên biển.</td></tr>
+      <tr><td><b>In land transit</b></td><td>Đã cập cảng đích (ATA), đang làm thủ tục và vận chuyển nội địa.</td></tr>
+      <tr><td><b>Receiving at warehouse</b></td><td>Đã tới cửa kho sàn / kho nội địa, chờ quét mã tăng tồn.</td></tr>
+    </tbody></table></div>
+  <h3>On-time status (mức trễ)</h3>
+  <ul>
+    <li><span class="st g">Normal</span> ETA hiện tại đúng hoặc sớm hơn ETA gốc lúc đặt PO.</li>
+    <li><span class="st a">Delay vs Expected</span> ETA hiện tại trễ hơn ETA gốc, nhưng chưa tới hạn.</li>
+    <li><span class="st r">Delay vs Current</span> ETA đã tới hạn / quá hạn mà kho chưa nhận: cảnh báo đỏ.</li>
+  </ul>
+</section>
+
+<section id="dispute">
+  <h2>8. Quy tắc 6 tháng: bỏ incoming ảo</h2>
+  <p>PO pending trên AVC có thể treo <b>hơn 2 năm</b> (lỗi sàn, hoặc giao thiếu mà Amazon không tự đóng PO).</p>
+  <div class="note bad"><b>Chỉ lấy PO pending có ETA sellable trong 6 tháng gần nhất.</b> 6 tháng là hạn tối đa để dispute (khiếu nại nhận thiếu) với Amazon; quá hạn thì phần thiếu coi như mất, không còn hàng về thật.</div>
+</section>
+
+<section id="wayfair">
+  <h2>9. Wayfair (SFO)</h2>
+  <ul>
+    <li><b>Ưu tiên 1 · Wayfair Shipment Report</b>: các SPO đã book shipment (Container: từ vendor / BWH về trung tâm phân phối Wayfair). Lấy dòng có <code>Shipped − Received &gt; 0</code>, chưa Completed / Canceled, Equipment Type = Container.</li>
+    <li><b>Ưu tiên 2 · Wayfair Inbound Order Report</b>: mọi SPO đã tạo; lấy <code>Planned − Received at Warehouse &gt; 0</code>, chưa Completed / Canceled.</li>
+    <li>ETA sellable dựng theo cùng 4 chặng; mốc lấy từ Shipment (Gated-In, ATD / ETD cảng xuất, ETA / ATA cảng đích), cộng <code>config_inland_truck</code> + <code>config_inbound</code>.</li>
+  </ul>
+  <p style="color:var(--muted)">Dashboard hiện chưa đọc phần Wayfair; file USA · SSO không có sheet này.</p>
+</section>
+
+<section id="dashboard">
+  <h2>10. Cách tab Inventory Tracking dùng các con số</h2>
+  <ul>
+    <li><b>Nguồn:</b> file <code>USA_SSO_For Sale_Incoming tracker.xlsx</code>, nạp tự động qua Power Automate → Edge Function <code>pull-inventory</code>. Chỉ lấy country USA.</li>
+    <li><b>Tồn AMZ (SALABLE AMZ)</b> = <code>sellable_on_hand_inventory_units</code> (cột I, sheet <i>AMZ sellable inv details</i>), cộng các ASIN của SKU.</li>
+    <li><b>AMZ in-transit</b> = <code>sellable_in_transit_units</code> (cột M), hiện ở cột riêng; phần chưa có trong incoming được tính như hàng về trong tuần.</li>
+    <li><b>Tồn Y4A</b> = <code>inv_y4a</code> (cột E, sheet <i>Sellable INV</i>).</li>
+    <li><b>Hàng về</b> theo <code>eta_salable_date</code> của từng dòng; lô đã quá ETA (Delay vs Current) dồn vào tuần hiện tại.</li>
+    <li><b>ETA thận trọng</b> (tùy chọn): cộng thêm số ngày trễ trung bình của các lô cùng kênh × physical status, vì ETA hay bị lùi.</li>
+  </ul>
+  <div class="note info">Tracking Target dùng cùng dữ liệu này để tính <b>Lost sales so với target tuần</b>, và so với file tồn kho lúc làm target để tách phần lost do hàng trễ.</div>
+</section>
+
+<section id="avc">
+  <h2>11. Tự kiểm tra trên Amazon Vendor Central</h2>
+  <h3>Tồn sellable của một ASIN</h3>
+  <ol>
+    <li>Reports › Retail Analytics.</li>
+    <li>Tab <b>Inventory</b>, nhập ASIN, bấm <b>Refine Results</b>, mở <b>Customize Columns</b>.</li>
+    <li>Tick <b>Sellable In Transit Units</b>, bấm Save.</li>
+    <li>Cộng <b>Sellable On Hand Units</b> + <b>Sellable In Transit Units</b> = Total Sellable (ví dụ 216 + 102 = 318).</li>
+  </ol>
+  <h3>Số còn lại của một PO</h3>
+  <ol>
+    <li>Orders › Purchase Orders.</li>
+    <li>Tab <b>Manage POs</b>, xem theo PO items, nhập ASIN, Search, tab <b>Confirmed</b>, Export PO items to Excel.</li>
+    <li>Trong file export đọc PO, ASIN, <b>Accepted quantity</b> và <b>Remaining quantity</b>.</li>
+  </ol>
+</section>
+
+<section id="thuat-ngu">
+  <h2>12. Thuật ngữ</h2>
+  <div class="tw"><table>
+    <tbody>
+      <tr><td><b>ETA sellable</b></td><td>Ngày dự kiến hàng lên kệ và bán được (không phải ngày cập cảng).</td></tr>
+      <tr><td><b>ETA gốc</b> (<code>eta_salable_original</code>)</td><td>ETA sellable tính lúc đặt PO; dùng để đo mức trễ.</td></tr>
+      <tr><td><b>POL / POD</b></td><td>Port of Loading (cảng xuất) / Port of Discharge (cảng đích).</td></tr>
+      <tr><td><b>ETD / ATD · ETA / ATA</b></td><td>Thời gian rời / tới dự kiến (Estimated) và thực tế (Actual).</td></tr>
+      <tr><td><b>CDS</b></td><td>Amazon Carrier Delivery Service: dữ liệu booking và lịch tàu thực tế.</td></tr>
+      <tr><td><b>POMS</b></td><td>Hệ thống quản lý PO / shipment nội bộ.</td></tr>
+      <tr><td><b>DI / AVC WH</b></td><td>Direct Import (Amazon nhận hàng thẳng từ cảng xuất) / Amazon lấy hàng từ kho Y4A.</td></tr>
+      <tr><td><b>qty_remain</b></td><td>Số lượng PO Amazon chưa nhận.</td></tr>
+    </tbody></table></div>
+</section>
+</main>
+</div>
+<footer>Trang tham khảo nội bộ, tóm tắt từ tài liệu ETA Sellable Logic. Khi logic thay đổi, cập nhật file <code>eta-sellable.html</code> trong repo.</footer>
+</body>
+</html>
