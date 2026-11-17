@@ -714,9 +714,12 @@ tr.sub td:first-child{padding-left:28px}
 </main>
 
 <!-- v2 modules: must load before the main script so boot() can call V2 hooks -->
-<script src="v2.js"></script>
-<script src="v3.js"></script>
-<script src="inventory.js"></script>
+<!-- Load the modules with a version taken from this page's Last-Modified date (it changes on every
+     GitHub Pages deploy), so browsers fetch the new v2/v3/inventory.js after a merge instead of a cached copy. -->
+<script>
+(function(){ var v = encodeURIComponent(Date.parse(document.lastModified) || Date.now());
+  ['v2.js', 'v3.js', 'inventory.js'].forEach(function(f){ document.write('<script src="' + f + '?v=' + v + '"><\/script>'); }); })();
+</script>
 <script>
 // =====================================================================
 // SUPABASE CONFIG — fill these in from your project (Settings -> API),
