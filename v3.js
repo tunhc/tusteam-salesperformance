@@ -912,6 +912,26 @@ async function btrLoad(){
   const lastDay = daily.reduce((m, d) => d.date > m ? d.date : m, '');
   return {offers, inv, daily, asin, lastTs, lastDay};
 }
+// BTR chart label: product type + variation from the product name ("Soft Kettlebell - 10lbs", "Balance Pad PVIA - Blue L")
+function btrShort(name, pl){
+  const n = String(name || '').replace(/[​-‍﻿]/g, '').replace(/\s+/g, ' ').trim(), l = n.toLowerCase();
+  const cap = s => s.replace(/\b\w/g, c => c.toUpperCase());
+  const lbs = (m => m ? m[1].replace(/\s+/g, '') + 'lbs' : '')(n.match(/(\d+(?:\s*\+\s*\d+)*)\s*lbs?\b/i));
+  const set = /\bset\b/i.test(n) ? 'Set ' : '';
+  const color = (m => m ? cap(m[1]) : '')(l.match(/\b(black|blue|pink|purple|green|red|orange|yellow|grey|gray|white|peach|teal|navy|dark green|light green|dark orange|vivid dark blue|medium dark blue)\b/));
+  if(/balance pad/.test(l)){
+    const size = /x-?large/.test(l) ? 'XL' : /large/.test(l) ? 'L' : /medium/.test(l) ? 'M' : /small/.test(l) ? 'S' : '';
+    return `Balance Pad${/pvia/.test(l) ? ' PVIA' : ''} - ${[color, size].filter(Boolean).join(' ')}`;
+  }
+  if(/soft kettlebell/.test(l)) return `Soft Kettlebell - ${lbs}`;
+  if(/three-handle|3-handle/.test(l)) return `3-Handles PVIA - ${set}${lbs}`;
+  if(/adjustable kettlebell/.test(l)) return `Adj. Kettlebell - ${[color, lbs].filter(Boolean).join(' ')}`;
+  if(/adjustable dumbbell/.test(l)) return `${/5 in 1/.test(l) ? '5-in-1 ' : ''}Adj. Dumbbell - ${set}${lbs}`;
+  if(/neoprene/.test(l) && /dumbbell/.test(l)) return `Dumbbell Neoprene - ${lbs}`;
+  // fallback: text before the first " - " plus the weight
+  const head = n.split(/\s+[-–]\s+/)[0] || pl || '';
+  return (head.length > 26 ? head.slice(0, 25) + '…' : head) + (lbs ? ' - ' + lbs : '');
+}
 // one row per BTR offer, with the other ASINs of the SKU attached
 function btrCompute(D){
   const h = H();
@@ -1061,17 +1081,20 @@ function btrRender(){
   ].map(([k, v, s]) => `<div class="kpi"><div class="lbl">${k}</div><div class="val">${v}</div><div class="sub">${s}</div></div>`).join('');
   // charts (one bar per SKU, worst first)
   const cr = [...rows].sort((a, b) => b.estPct - a.estPct);
-  const lab = cr.map(r => r.sku + ' · ' + (r.name.match(/\d+\s*lbs?/i) || [r.pl])[0]);
-  const lay = (extra) => h.lay(Object.assign({margin:{l:110, r:24, t:6, b:40}, barmode:'overlay', bargap:.35, showlegend:true, legend:{orientation:'h', y:-0.16, x:0, font:{size:11}}, hovermode:'y unified'}, extra));
+  // y labels: product type + variation; a label used twice gets its SKU so the bars stay apart. Hover: SKU + full name
+  const short = cr.map(r => btrShort(r.name, r.pl)), dup = short.filter((v, i) => short.indexOf(v) !== i);
+  const lab = cr.map((r, i) => dup.includes(short[i]) ? short[i] + ' · ' + r.sku : short[i]);
+  const hd = cr.map(r => `${h.esc(r.sku)} · ${h.esc(r.name)}`);
+  const lay = (extra) => h.lay(Object.assign({margin:{l:190, r:24, t:6, b:40}, barmode:'overlay', bargap:.35, showlegend:true, legend:{orientation:'h', y:-0.16, x:0, font:{size:11}}, hovermode:'y unified'}, extra));
   h.draw('btrProg', [
-    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.min(r.estPct, 1.5) * 100), name:'Est % tới ST End', marker:{color:BTR_C.est}, customdata:cr.map(r => [r.est, r.base]), hovertemplate:'Est: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.min(r.estPct, 1.5) * 100), name:'Est % tới ST End', marker:{color:BTR_C.est}, customdata:cr.map(r => [r.est, r.base]), hovertext:hd, hovertemplate:'<b>%{hovertext}</b><br>Est: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
     {type:'bar', orientation:'h', y:lab, x:cr.map(r => r.soldPct * 100), name:'Đã bán', marker:{color:BTR_C.sold}, width:0.45, customdata:cr.map(r => [r.sold, r.base]), hovertemplate:'Đã bán: %{x:.1f}% (%{customdata[0]:,.0f}/%{customdata[1]:,.0f})<extra></extra>'},
     {type:'scatter', mode:'markers', y:lab, x:cr.map(r => Math.min(r.est7Pct, 1.5) * 100), name:'Est theo nhịp 7 ngày gần nhất', marker:{symbol:'line-ns', size:16, color:BTR_C.sold, line:{color:BTR_C.sold, width:3}}, customdata:cr.map(r => [r.est7, r.rate7]), hovertemplate:'Nhịp 7 ngày: %{x:.1f}% (≈ %{customdata[0]:,.0f} units, %{customdata[1]:.1f}/ngày)<extra></extra>'},
     {type:'scatter', mode:'markers', y:lab, x:cr.map(r => r.pctDays * 100), name:'% thời gian đã qua', marker:{symbol:'diamond', size:11, color:BTR_C.pace, line:{color:'#fff', width:1.5}}, hovertemplate:'Thời gian: %{x:.1f}%<extra></extra>'},
   ], lay({xaxis:h.ax({ticksuffix:'%', range:[0, Math.max(105, ...cr.map(r => Math.min(Math.max(r.estPct, r.est7Pct), 1.5) * 100 + 5))]}), yaxis:h.ax({automargin:false}),
     shapes:[{type:'line', x0:100, x1:100, yref:'paper', y0:0, y1:1, line:{color:'#A3ACB8', width:1, dash:'dot'}}]}));
   h.draw('btrInv', [
-    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.max(0, r.amzBtr)), name:'AMZ · ASIN BTR', marker:{color:BTR_C.amzBtr}, hovertemplate:'AMZ ASIN BTR: %{x:,.0f}<extra></extra>'},
+    {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.max(0, r.amzBtr)), name:'AMZ · ASIN BTR', marker:{color:BTR_C.amzBtr}, hovertext:hd, hovertemplate:'<b>%{hovertext}</b><br>AMZ ASIN BTR: %{x:,.0f}<extra></extra>'},
     {type:'bar', orientation:'h', y:lab, x:cr.map(r => r.amzOther), name:'AMZ · ASIN khác', marker:{color:BTR_C.amzOther}, hovertemplate:'AMZ ASIN khác: %{x:,.0f}<extra></extra>'},
     {type:'bar', orientation:'h', y:lab, x:cr.map(r => Math.max(0, r.y4a)), name:'Y4A', marker:{color:BTR_C.y4a}, hovertemplate:'Y4A: %{x:,.0f}<extra></extra>'},
     {type:'scatter', mode:'markers', y:lab, x:cr.map(r => r.remaining), name:'Còn phải bán', marker:{symbol:'diamond', size:11, color:BTR_C.need, line:{color:'#fff', width:1.5}}, hovertemplate:'Còn phải bán: %{x:,.0f}<extra></extra>'},
